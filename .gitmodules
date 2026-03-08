@@ -21,3 +21,6 @@
 	path = external/tree-sitter-sql
 	url = https://github.com/DerekStride/tree-sitter-sql.git
 	branch = gh-pages
+[submodule "external/freetds"]
+	path = external/freetds
+	url = https://github.com/FreeTDS/freetds.git

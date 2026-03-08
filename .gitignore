@@ -40,3 +40,5 @@ imgui.ini
 .flatpak-builder
 *.log
 external/Sparkle/
+
+.test-certs/

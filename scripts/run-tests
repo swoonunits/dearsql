@@ -6,14 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-"$ROOT_DIR/build"}"
 
-# ── Config ──────────────────────────────────────────────────────────
-
 # Container names
 POSTGRES_CONTAINER="dearsql-postgres-test"
 MYSQL_CONTAINER="dearsql-mysql-test"
 REDIS_CONTAINER="dearsql-redis-test"
 MONGODB_CONTAINER="dearsql-mongodb-test"
 MSSQL_CONTAINER="dearsql-mssql-test"
+SSH_CONTAINER="dearsql-ssh-test"
 
 # Docker images
 POSTGRES_IMAGE="postgres:15-alpine"
@@ -21,13 +20,23 @@ MYSQL_IMAGE="mysql:8.0"
 REDIS_IMAGE="redis:7-alpine"
 MONGODB_IMAGE="mongo:7.0"
 MSSQL_IMAGE="mcr.microsoft.com/mssql/server:2022-latest"
+SSH_IMAGE="dearsql-ssh-test-img"
+
+# for SSH tunnel tests
+DOCKER_NETWORK="dearsql-test-net"
 
 # Ports (host ports mapped to container ports)
 POSTGRES_PORT="${POSTGRES_PORT:-55432}"
 MYSQL_PORT="${MYSQL_PORT:-53306}"
 REDIS_PORT="${REDIS_PORT:-56379}"
+REDIS_TLS_PORT="${REDIS_TLS_PORT:-56380}"
 MONGODB_PORT="${MONGODB_PORT:-57017}"
 MSSQL_PORT="${MSSQL_PORT:-51433}"
+SSH_PORT="${SSH_PORT:-52222}"
+
+# TLS cert directory
+CERT_DIR="$ROOT_DIR/.test-certs"
+TLS_SETUP_VERSION="5"
 
 # Test env vars
 export DEARSQL_TEST_PG_HOST="127.0.0.1"
@@ -46,6 +55,7 @@ export DEARSQL_TEST_MYSQL_NAME="MySQLDocker"
 
 export DEARSQL_TEST_REDIS_HOST="127.0.0.1"
 export DEARSQL_TEST_REDIS_PORT="$REDIS_PORT"
+export DEARSQL_TEST_REDIS_TLS_PORT="$REDIS_TLS_PORT"
 export DEARSQL_TEST_REDIS_NAME="RedisDocker"
 
 export DEARSQL_TEST_MONGODB_HOST="127.0.0.1"
@@ -60,6 +70,17 @@ export DEARSQL_TEST_MSSQL_USER="sa"
 export DEARSQL_TEST_MSSQL_PASSWORD="DearSQL_Test1!"
 export DEARSQL_TEST_MSSQL_NAME="MSSQLDocker"
 
+# SSH tunnel test env vars
+export DEARSQL_TEST_SSH_HOST="127.0.0.1"
+export DEARSQL_TEST_SSH_PORT="$SSH_PORT"
+export DEARSQL_TEST_SSH_USER="testuser"
+export DEARSQL_TEST_SSH_PASSWORD="testpass"
+# set after cert generation
+export DEARSQL_TEST_SSH_KEY=""
+export DEARSQL_TEST_CA_CERT=""
+export DEARSQL_TEST_SSH_PG_REMOTE_HOST="$POSTGRES_CONTAINER"
+export DEARSQL_SSH_KNOWN_HOSTS_FILE="/dev/null"
+
 # ── Docker helpers ──────────────────────────────────────────────────
 
 DOCKER=(docker)
@@ -71,6 +92,39 @@ fi
 
 docker_cmd() {
     "${DOCKER[@]}" "$@"
+}
+
+container_exists() {
+    docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "$1"
+}
+
+container_image() {
+    docker_cmd inspect -f '{{.Config.Image}}' "$1" 2>/dev/null || true
+}
+
+container_on_network() {
+    docker_cmd inspect -f '{{json .NetworkSettings.Networks}}' "$1" 2>/dev/null | \
+        grep -Fq "\"$2\""
+}
+
+remove_if_image_mismatch() {
+    local name="$1" expected_image="$2"
+    if container_exists "$name"; then
+        local actual_image
+        actual_image="$(container_image "$name")"
+        if [[ "$actual_image" != "$expected_image" ]]; then
+            echo "Recreating $name (expected image $expected_image, found ${actual_image:-<unknown>})"
+            docker_cmd rm -f "$name" >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+ensure_container_on_network() {
+    local name="$1" network="$2"
+    if container_exists "$name" && ! container_on_network "$name" "$network"; then
+        echo "Connecting $name to Docker network $network"
+        docker_cmd network connect "$network" "$name" >/dev/null 2>&1 || true
+    fi
 }
 
 # ── Port / readiness checks ────────────────────────────────────────
@@ -123,6 +177,91 @@ start_or_create() {
     docker_cmd run -d --name "$name" "$@" >/dev/null
 }
 
+ssh_test_environment_ready() {
+    [[ ! -d "$CERT_DIR" ]] && return 0
+    container_exists "$SSH_CONTAINER" &&
+    [[ "$(container_image "$SSH_CONTAINER")" == "$SSH_IMAGE" ]] &&
+    container_on_network "$SSH_CONTAINER" "$DOCKER_NETWORK" &&
+    container_on_network "$POSTGRES_CONTAINER" "$DOCKER_NETWORK"
+}
+
+# ── TLS certificate generation ────────────────────────────────────
+
+generate_certs() {
+    echo "=== Generating TLS certificates ==="
+    mkdir -p "$CERT_DIR"
+
+    # CA key and cert
+    openssl req -new -x509 -days 365 -nodes \
+        -out "$CERT_DIR/ca.crt" \
+        -keyout "$CERT_DIR/ca.key" \
+        -subj "/CN=DearSQL Test CA" 2>/dev/null
+
+    # server key
+    openssl genrsa -out "$CERT_DIR/server.key" 2048 2>/dev/null
+
+    # server CSR
+    openssl req -new -key "$CERT_DIR/server.key" \
+        -out "$CERT_DIR/server.csr" \
+        -subj "/CN=localhost" 2>/dev/null
+
+    # SAN extension file
+    cat > "$CERT_DIR/server.ext" <<EXTEOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+EXTEOF
+
+    # sign server cert
+    openssl x509 -req -in "$CERT_DIR/server.csr" \
+        -CA "$CERT_DIR/ca.crt" -CAkey "$CERT_DIR/ca.key" -CAcreateserial \
+        -out "$CERT_DIR/server.crt" -days 365 \
+        -extfile "$CERT_DIR/server.ext" 2>/dev/null
+
+    chmod 600 "$CERT_DIR/server.key"
+
+    # MongoDB needs combined PEM (cert + key)
+    cat "$CERT_DIR/server.crt" "$CERT_DIR/server.key" > "$CERT_DIR/server.pem"
+    chmod 600 "$CERT_DIR/server.pem"
+
+    # SSH test keys
+    ssh-keygen -t ed25519 -f "$CERT_DIR/ssh_test_key" -N "" -q -y 2>/dev/null || \
+        ssh-keygen -t ed25519 -f "$CERT_DIR/ssh_test_key" -N "" -q
+
+    echo "$TLS_SETUP_VERSION" > "$CERT_DIR/.version"
+    echo "TLS certificates generated in $CERT_DIR"
+}
+
+setup_tls_certs() {
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "Warning: openssl not found, skipping TLS/SSH test setup"
+        return
+    fi
+
+    local current_version=""
+    if [[ -f "$CERT_DIR/.version" ]]; then
+        current_version="$(cat "$CERT_DIR/.version")"
+    fi
+
+    if [[ "$current_version" == "$TLS_SETUP_VERSION" ]]; then
+        return
+    fi
+
+    generate_certs
+
+    # remove old containers so they get recreated with TLS mounts
+    echo "Recreating containers with TLS support..."
+    for name in "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" "$MONGODB_CONTAINER"; do
+        docker_cmd rm -f "$name" 2>/dev/null || true
+    done
+    docker_cmd rm -f "$SSH_CONTAINER" 2>/dev/null || true
+}
+
 # ── Ensure all servers are reachable ────────────────────────────────
 
 all_ports_open() {
@@ -130,7 +269,10 @@ all_ports_open() {
     port_open 127.0.0.1 "$MYSQL_PORT" &&
     port_open 127.0.0.1 "$REDIS_PORT" &&
     port_open 127.0.0.1 "$MONGODB_PORT" &&
-    port_open 127.0.0.1 "$MSSQL_PORT"
+    port_open 127.0.0.1 "$MSSQL_PORT" &&
+    { [[ ! -d "$CERT_DIR" ]] || port_open 127.0.0.1 "$REDIS_TLS_PORT"; } &&
+    { [[ ! -d "$CERT_DIR" ]] || port_open 127.0.0.1 "$SSH_PORT"; } &&
+    ssh_test_environment_ready
 }
 
 setup_containers() {
@@ -141,14 +283,47 @@ setup_containers() {
 
     echo "=== Setting up test databases ==="
 
-    start_or_create "$POSTGRES_CONTAINER" \
-        -e POSTGRES_PASSWORD="$DEARSQL_TEST_PG_PASSWORD" \
-        -p "127.0.0.1:${POSTGRES_PORT}:5432" \
-        "$POSTGRES_IMAGE"
+    # create Docker network for SSH tunnel tests
+    docker_cmd network create "$DOCKER_NETWORK" 2>/dev/null || true
+
+    local has_certs=false
+    [[ -d "$CERT_DIR" && -f "$CERT_DIR/server.crt" ]] && has_certs=true
+
+    if $has_certs; then
+        remove_if_image_mismatch "$SSH_CONTAINER" "$SSH_IMAGE"
+        ensure_container_on_network "$POSTGRES_CONTAINER" "$DOCKER_NETWORK"
+    fi
+
+    # ── PostgreSQL ──
+    # must be on DOCKER_NETWORK so SSH container can resolve its hostname
+    if $has_certs; then
+        start_or_create "$POSTGRES_CONTAINER" \
+            --network "$DOCKER_NETWORK" \
+            -e POSTGRES_PASSWORD="$DEARSQL_TEST_PG_PASSWORD" \
+            -p "127.0.0.1:${POSTGRES_PORT}:5432" \
+            -v "$CERT_DIR:/certs:ro" \
+            --entrypoint sh \
+            "$POSTGRES_IMAGE" \
+            -c 'cp /certs/server.crt /certs/server.key /var/lib/postgresql/ && \
+                chown 70:70 /var/lib/postgresql/server.crt /var/lib/postgresql/server.key && \
+                chmod 600 /var/lib/postgresql/server.key && \
+                exec docker-entrypoint.sh postgres \
+                    -c ssl=on \
+                    -c ssl_cert_file=/var/lib/postgresql/server.crt \
+                    -c ssl_key_file=/var/lib/postgresql/server.key \
+                    -c ssl_ca_file=/var/lib/postgresql/server.crt'
+    else
+        start_or_create "$POSTGRES_CONTAINER" \
+            --network "$DOCKER_NETWORK" \
+            -e POSTGRES_PASSWORD="$DEARSQL_TEST_PG_PASSWORD" \
+            -p "127.0.0.1:${POSTGRES_PORT}:5432" \
+            "$POSTGRES_IMAGE"
+    fi
     wait_for_port 127.0.0.1 "$POSTGRES_PORT" "PostgreSQL"
     wait_for_command "PostgreSQL" 60 docker_cmd exec "$POSTGRES_CONTAINER" \
         pg_isready -h localhost -U postgres
 
+    # ── MySQL (auto-generates TLS certs, no changes needed) ──
     start_or_create "$MYSQL_CONTAINER" \
         -e MYSQL_ROOT_PASSWORD=mysql \
         -p "127.0.0.1:${MYSQL_PORT}:3306" \
@@ -157,19 +332,49 @@ setup_containers() {
     wait_for_command "MySQL" 60 docker_cmd exec "$MYSQL_CONTAINER" \
         mysqladmin ping -uroot -pmysql --silent
 
-    start_or_create "$REDIS_CONTAINER" \
-        -p "127.0.0.1:${REDIS_PORT}:6379" \
-        "$REDIS_IMAGE"
+    # ── Redis (with TLS port if certs available) ──
+    if $has_certs; then
+        start_or_create "$REDIS_CONTAINER" \
+            -v "$CERT_DIR:/certs:ro" \
+            -p "127.0.0.1:${REDIS_PORT}:6379" \
+            -p "127.0.0.1:${REDIS_TLS_PORT}:6380" \
+            "$REDIS_IMAGE" \
+            redis-server \
+                --port 6379 \
+                --tls-port 6380 \
+                --tls-cert-file /certs/server.crt \
+                --tls-key-file /certs/server.key \
+                --tls-ca-cert-file /certs/ca.crt \
+                --tls-auth-clients no
+    else
+        start_or_create "$REDIS_CONTAINER" \
+            -p "127.0.0.1:${REDIS_PORT}:6379" \
+            "$REDIS_IMAGE"
+    fi
     wait_for_port 127.0.0.1 "$REDIS_PORT" "Redis"
     wait_for_command "Redis" 60 docker_cmd exec "$REDIS_CONTAINER" redis-cli ping
 
-    start_or_create "$MONGODB_CONTAINER" \
-        -p "127.0.0.1:${MONGODB_PORT}:27017" \
-        "$MONGODB_IMAGE"
+    # ── MongoDB (with TLS if certs available) ──
+    if $has_certs; then
+        start_or_create "$MONGODB_CONTAINER" \
+            -v "$CERT_DIR:/certs:ro" \
+            -p "127.0.0.1:${MONGODB_PORT}:27017" \
+            "$MONGODB_IMAGE" \
+            mongod --bind_ip_all \
+                --tlsMode allowTLS \
+                --tlsCertificateKeyFile /certs/server.pem \
+                --tlsCAFile /certs/ca.crt \
+                --tlsAllowConnectionsWithoutCertificates
+    else
+        start_or_create "$MONGODB_CONTAINER" \
+            -p "127.0.0.1:${MONGODB_PORT}:27017" \
+            "$MONGODB_IMAGE"
+    fi
     wait_for_port 127.0.0.1 "$MONGODB_PORT" "MongoDB"
     wait_for_command "MongoDB" 60 docker_cmd exec "$MONGODB_CONTAINER" \
         mongosh --quiet --eval 'db.runCommand({ ping: 1 })'
 
+    # ── MSSQL (auto-generates TLS certs, no changes needed) ──
     start_or_create "$MSSQL_CONTAINER" \
         -e "ACCEPT_EULA=Y" \
         -e "MSSQL_SA_PASSWORD=$DEARSQL_TEST_MSSQL_PASSWORD" \
@@ -180,15 +385,62 @@ setup_containers() {
         /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
         -P "$DEARSQL_TEST_MSSQL_PASSWORD" -C -Q "SELECT 1"
 
-    # create test database if it doesn't exist
+    # create MSSQL test database if it doesn't exist
     docker_cmd exec "$MSSQL_CONTAINER" \
         /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
         -P "$DEARSQL_TEST_MSSQL_PASSWORD" -C \
         -Q "IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '$DEARSQL_TEST_MSSQL_DB') CREATE DATABASE [$DEARSQL_TEST_MSSQL_DB]" \
         >/dev/null 2>&1 || true
 
+    # ── SSH server (for tunnel tests, same network as PostgreSQL) ──
+    if $has_certs; then
+        # build minimal SSH image with the test public key baked in
+        echo "Building SSH test image..."
+        docker_cmd build -t "$SSH_IMAGE" -f - "$CERT_DIR" <<'DOCKERFILE'
+FROM alpine:3.19
+RUN apk add --no-cache openssh-server && \
+    ssh-keygen -A && \
+    adduser -D -s /bin/sh testuser && \
+    echo "testuser:testpass" | chpasswd && \
+    mkdir -p /home/testuser/.ssh && \
+    chmod 700 /home/testuser/.ssh && \
+    sed -i 's/^#PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^AllowTcpForwarding .*/AllowTcpForwarding yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^GatewayPorts .*/GatewayPorts yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#PermitTunnel .*/PermitTunnel yes/' /etc/ssh/sshd_config
+COPY ssh_test_key.pub /home/testuser/.ssh/authorized_keys
+RUN chown -R testuser:testuser /home/testuser/.ssh && \
+    chmod 600 /home/testuser/.ssh/authorized_keys
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]
+DOCKERFILE
+
+        start_or_create "$SSH_CONTAINER" \
+            --network "$DOCKER_NETWORK" \
+            -p "127.0.0.1:${SSH_PORT}:22" \
+            "$SSH_IMAGE"
+        ensure_container_on_network "$SSH_CONTAINER" "$DOCKER_NETWORK"
+        wait_for_port 127.0.0.1 "$SSH_PORT" "SSH"
+        wait_for_command "SSH forwarding" 30 docker_cmd exec "$SSH_CONTAINER" sh -lc \
+            "sshd -T | grep -q '^allowtcpforwarding yes$' && \
+             sshd -T | grep -q '^gatewayports yes$'"
+    fi
+
     echo ""
 }
+
+# ── Main ───────────────────────────────────────────────────────────
+
+setup_tls_certs
+
+# export cert paths after generation
+if [[ -f "$CERT_DIR/ssh_test_key" ]]; then
+    export DEARSQL_TEST_SSH_KEY="$CERT_DIR/ssh_test_key"
+fi
+if [[ -f "$CERT_DIR/ca.crt" ]]; then
+    export DEARSQL_TEST_CA_CERT="$CERT_DIR/ca.crt"
+fi
 
 if all_ports_open; then
     echo "All test servers already reachable, skipping setup."
@@ -204,11 +456,13 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" > /dev/null
 cmake --build "$BUILD_DIR" --target database_tests sql_format_tests
 
 echo ""
-echo "PostgreSQL: $DEARSQL_TEST_PG_HOST:$DEARSQL_TEST_PG_PORT"
-echo "MySQL:      $DEARSQL_TEST_MYSQL_HOST:$DEARSQL_TEST_MYSQL_PORT"
-echo "Redis:      $DEARSQL_TEST_REDIS_HOST:$DEARSQL_TEST_REDIS_PORT"
-echo "MongoDB:    $DEARSQL_TEST_MONGODB_HOST:$DEARSQL_TEST_MONGODB_PORT"
-echo "MSSQL:      $DEARSQL_TEST_MSSQL_HOST:$DEARSQL_TEST_MSSQL_PORT"
+echo "PostgreSQL:  $DEARSQL_TEST_PG_HOST:$DEARSQL_TEST_PG_PORT"
+echo "MySQL:       $DEARSQL_TEST_MYSQL_HOST:$DEARSQL_TEST_MYSQL_PORT"
+echo "Redis:       $DEARSQL_TEST_REDIS_HOST:$DEARSQL_TEST_REDIS_PORT (TLS: $REDIS_TLS_PORT)"
+echo "MongoDB:     $DEARSQL_TEST_MONGODB_HOST:$DEARSQL_TEST_MONGODB_PORT"
+echo "MSSQL:       $DEARSQL_TEST_MSSQL_HOST:$DEARSQL_TEST_MSSQL_PORT"
+echo "SSH:         $DEARSQL_TEST_SSH_HOST:$DEARSQL_TEST_SSH_PORT"
+echo "CA cert:     ${DEARSQL_TEST_CA_CERT:-<not available>}"
 echo ""
 
 cd "$BUILD_DIR"
