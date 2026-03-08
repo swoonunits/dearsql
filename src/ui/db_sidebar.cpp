@@ -6,6 +6,7 @@
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
 #include "database/postgresql.hpp"
+#include "database/redis.hpp"
 #include "database/sqlite.hpp"
 #include "imgui.h"
 #include "platform/alert.hpp"
@@ -503,6 +504,10 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
     } else if (type == DatabaseType::MSSQL) {
         if (auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get())) {
             mssqlDb->checkRefreshWorkflowAsync();
+        }
+    } else if (type == DatabaseType::REDIS) {
+        if (auto* redisDb = dynamic_cast<RedisDatabase*>(db.get())) {
+            redisDb->checkRefreshWorkflowAsync();
         }
     }
 

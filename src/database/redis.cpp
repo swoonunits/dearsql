@@ -184,20 +184,28 @@ void RedisDatabase::disconnect() {
 }
 
 void RedisDatabase::refreshConnection() {
-    // Disconnect and reset state
-    disconnect();
-    setAttemptedConnection(false);
-    setLastConnectionError("");
+    refreshWorkflow_.start([this]() -> bool {
+        disconnect();
+        setAttemptedConnection(false);
+        setLastConnectionError("");
 
-    // Reconnect with force refresh
-    auto [success, error] = connect();
-    if (!success) {
-        setLastConnectionError(error);
-        return;
-    }
+        auto [success, error] = connect();
+        if (!success) {
+            setLastConnectionError(error);
+            return false;
+        }
 
-    // Refresh keys after reconnection
-    startKeysLoadAsync(true);
+        return true;
+    });
+}
+
+void RedisDatabase::checkRefreshWorkflowAsync() {
+    refreshWorkflow_.check([this](const bool success) {
+        if (success) {
+            keysLoaded = false;
+            startKeysLoadAsync(true);
+        }
+    });
 }
 
 void RedisDatabase::checkTablesStatusAsync() {

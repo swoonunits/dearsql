@@ -25,6 +25,11 @@ public:
     std::pair<bool, std::string> connect() override;
     void disconnect() override;
     void refreshConnection() override;
+    void checkRefreshWorkflowAsync();
+
+    bool isConnecting() const override {
+        return connectionOp.isRunning() || refreshWorkflow_.isRunning();
+    }
 
     // Redis-specific key management (adapted to table interface)
     void checkTablesStatusAsync();
@@ -56,7 +61,7 @@ public:
 
     // Async operation status
     [[nodiscard]] bool hasPendingAsyncWork() const override {
-        return isConnecting() || loadingKeys.load();
+        return isConnecting() || loadingKeys.load() || refreshWorkflow_.isRunning();
     }
 
     // Loading state (public like SQLite)
@@ -72,6 +77,8 @@ private:
     mutable std::mutex contextMutex_;
     redisContext* context = nullptr;
     redisSSLContext* sslCtx_ = nullptr;
+
+    AsyncOperation<bool> refreshWorkflow_;
 
     // Async key loading
     AsyncOperation<std::vector<Table>> keysLoadOp_;
