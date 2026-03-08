@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/tab/tab.hpp"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,17 +17,20 @@ public:
     // Tab management
     void addTab(const std::shared_ptr<Tab>& tab);
     void removeTab(const std::shared_ptr<Tab>& tab);
-    void closeTab(const std::string& name);
+    void closeTab(std::uint64_t id);
     void closeAllTabs();
 
     // Tab queries
-    bool hasTab(const std::string& name) const;
+    [[nodiscard]] bool hasTabId(std::uint64_t id) const;
+    [[nodiscard]] bool hasTabTitle(const std::string& title) const;
     bool isEmpty() const {
         return tabs.empty();
     }
     size_t getTabCount() const {
         return tabs.size();
     }
+    [[nodiscard]] std::string getPreferredTabWindowNameForDocking() const;
+    void preserveFocusedTabForLayoutRebuild();
 
     const std::vector<std::shared_ptr<Tab>>& getTabs() const {
         return tabs;
@@ -51,9 +55,17 @@ public:
 private:
     enum class CloseAction { None, CloseAll, CloseOthers, CloseLeft, CloseRight };
 
+    [[nodiscard]] std::shared_ptr<Tab> findTabById(std::uint64_t id) const;
+    void requestTabFocus(std::uint64_t id);
+    void registerOpenedTab(const std::shared_ptr<Tab>& tab);
+    void clearTabState(std::uint64_t id);
+    void pruneTabState();
+
     std::vector<std::shared_ptr<Tab>> tabs;
     CloseAction pendingCloseAction = CloseAction::None;
-    std::string pendingCloseTarget;
+    std::uint64_t pendingCloseTargetId_ = 0;
+    std::uint64_t activeTabId_ = 0;
+    std::uint64_t pendingFocusTabId_ = 0;
 
     std::string generateSQLEditorName() const;
 };

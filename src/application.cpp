@@ -740,6 +740,24 @@ void Application::setupDockingLayout(const ImGuiID dockSpaceId) {
     ImGui::DockBuilderAddNode(dockSpaceId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockSpaceId, ImGui::GetMainViewport()->Size);
 
+    const std::string preferredTabWindowName =
+        tabManager ? tabManager->getPreferredTabWindowNameForDocking() : std::string{};
+    auto dockTabs = [&](const ImGuiID targetDockId) {
+        if (!tabManager) {
+            return;
+        }
+
+        for (const auto& tab : tabManager->getTabs()) {
+            if (tab && tab->getWindowName() != preferredTabWindowName) {
+                ImGui::DockBuilderDockWindow(tab->getWindowName().c_str(), targetDockId);
+            }
+        }
+
+        if (!preferredTabWindowName.empty()) {
+            ImGui::DockBuilderDockWindow(preferredTabWindowName.c_str(), targetDockId);
+        }
+    };
+
     // Check if we should use docking for sidebar
     const bool shouldUseSidebar = targetSidebarWidth > 0.01f;
 
@@ -754,20 +772,14 @@ void Application::setupDockingLayout(const ImGuiID dockSpaceId) {
         ImGui::DockBuilderDockWindow("Databases", leftDockId);
         const std::string wsTitle = getCurrentWorkspaceName() + "###workspace_main";
         ImGui::DockBuilderDockWindow(wsTitle.c_str(), centerDockId);
-
-        for (const auto& tab : tabManager->getTabs()) {
-            ImGui::DockBuilderDockWindow(tab->getName().c_str(), centerDockId);
-        }
+        dockTabs(centerDockId);
 
         rightDockId = 0;
     } else {
         // Single panel layout: just center
         const std::string wsTitle = getCurrentWorkspaceName() + "###workspace_main";
         ImGui::DockBuilderDockWindow(wsTitle.c_str(), dockSpaceId);
-
-        for (const auto& tab : tabManager->getTabs()) {
-            ImGui::DockBuilderDockWindow(tab->getName().c_str(), dockSpaceId);
-        }
+        dockTabs(dockSpaceId);
 
         leftDockId = 0;
         centerDockId = 0;
@@ -791,6 +803,9 @@ void Application::renderMainUI() {
     // Rebuild layout when sidebar visibility changes
     const bool currentSidebarVisible = targetSidebarWidth > 0.01f;
     if (lastSidebarVisible_ != currentSidebarVisible) {
+        if (tabManager) {
+            tabManager->preserveFocusedTabForLayoutRebuild();
+        }
         dockingLayoutInitialized = false;
         lastSidebarVisible_ = currentSidebarVisible;
     }

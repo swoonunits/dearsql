@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 enum class TabType {
@@ -17,11 +18,18 @@ public:
     virtual ~Tab() = default;
 
     // Common properties
+    [[nodiscard]] std::uint64_t getId() const {
+        return id_;
+    }
     [[nodiscard]] const std::string& getName() const {
         return name;
     }
     void setName(const std::string& newName) {
         name = newName;
+        refreshWindowName();
+    }
+    [[nodiscard]] const std::string& getWindowName() const {
+        return windowName_;
     }
     [[nodiscard]] TabType getType() const {
         return type;
@@ -32,19 +40,17 @@ public:
     void setOpen(const bool isOpen) {
         open = isOpen;
     }
-    [[nodiscard]] bool shouldFocus() const {
-        return needsFocus;
-    }
-    void setShouldFocus(const bool focus) {
-        needsFocus = focus;
-    }
 
     // Virtual method for rendering tab content
     virtual void render() = 0;
 
 protected:
+    void refreshWindowName();
+
+private:
+    std::uint64_t id_ = 0;
     std::string name;
+    std::string windowName_;
     TabType type;
     bool open = true;
-    bool needsFocus = false;
 };

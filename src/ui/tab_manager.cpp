@@ -21,29 +21,101 @@ void TabManager::addTab(const std::shared_ptr<Tab>& tab) {
 void TabManager::removeTab(const std::shared_ptr<Tab>& tab) {
     const auto it = std::ranges::find(tabs, tab);
     if (it != tabs.end()) {
+        clearTabState((*it)->getId());
         tabs.erase(it);
     }
 }
 
-void TabManager::closeTab(const std::string& name) {
+void TabManager::closeTab(const std::uint64_t id) {
     const auto it = std::ranges::find_if(
-        tabs, [&name](const std::shared_ptr<Tab>& tab) { return tab->getName() == name; });
+        tabs, [id](const std::shared_ptr<Tab>& tab) { return tab && tab->getId() == id; });
 
     if (it != tabs.end()) {
+        clearTabState(id);
         tabs.erase(it);
     }
 }
 
 void TabManager::closeAllTabs() {
     tabs.clear();
+    activeTabId_ = 0;
+    pendingFocusTabId_ = 0;
 }
 
-bool TabManager::hasTab(const std::string& name) const {
+bool TabManager::hasTabId(const std::uint64_t id) const {
     const auto it = std::ranges::find_if(
-        tabs, [&name](const std::shared_ptr<Tab>& tab) { return tab->getName() == name; });
+        tabs, [id](const std::shared_ptr<Tab>& tab) { return tab && tab->getId() == id; });
 
-    auto const tab = (it != tabs.end()) ? *it : nullptr;
-    return tab != nullptr;
+    return it != tabs.end();
+}
+
+bool TabManager::hasTabTitle(const std::string& title) const {
+    const auto it = std::ranges::find_if(
+        tabs, [&title](const std::shared_ptr<Tab>& tab) { return tab && tab->getName() == title; });
+
+    return it != tabs.end();
+}
+
+std::string TabManager::getPreferredTabWindowNameForDocking() const {
+    if (const auto tab = findTabById(pendingFocusTabId_)) {
+        return tab->getWindowName();
+    }
+
+    if (const auto tab = findTabById(activeTabId_)) {
+        return tab->getWindowName();
+    }
+
+    return {};
+}
+
+void TabManager::preserveFocusedTabForLayoutRebuild() {
+    pendingFocusTabId_ = findTabById(pendingFocusTabId_) ? pendingFocusTabId_ : activeTabId_;
+}
+
+std::shared_ptr<Tab> TabManager::findTabById(const std::uint64_t id) const {
+    if (id == 0) {
+        return nullptr;
+    }
+
+    const auto it = std::ranges::find_if(
+        tabs, [id](const std::shared_ptr<Tab>& tab) { return tab && tab->getId() == id; });
+    return (it != tabs.end()) ? *it : nullptr;
+}
+
+void TabManager::requestTabFocus(const std::uint64_t id) {
+    pendingFocusTabId_ = id;
+}
+
+void TabManager::registerOpenedTab(const std::shared_ptr<Tab>& tab) {
+    if (!tab) {
+        return;
+    }
+
+    requestTabFocus(tab->getId());
+    addTab(tab);
+
+    auto& app = Application::getInstance();
+    app.dockTabToCenter(tab->getWindowName());
+}
+
+void TabManager::clearTabState(const std::uint64_t id) {
+    if (activeTabId_ == id) {
+        activeTabId_ = 0;
+    }
+
+    if (pendingFocusTabId_ == id) {
+        pendingFocusTabId_ = 0;
+    }
+}
+
+void TabManager::pruneTabState() {
+    if (activeTabId_ != 0 && !hasTabId(activeTabId_)) {
+        activeTabId_ = 0;
+    }
+
+    if (pendingFocusTabId_ != 0 && !hasTabId(pendingFocusTabId_)) {
+        pendingFocusTabId_ = 0;
+    }
 }
 
 std::shared_ptr<Tab> TabManager::createSQLEditorTab(const std::string& name, IDatabaseNode* node,
@@ -58,20 +130,14 @@ std::shared_ptr<Tab> TabManager::createSQLEditorTab(const std::string& name, IDa
         std::string baseName = "SQL - " + node->getName();
         int count = 1;
         tabName = baseName;
-        while (hasTab(tabName)) {
+        while (hasTabTitle(tabName)) {
             count++;
             tabName = baseName + " (" + std::to_string(count) + ")";
         }
     }
 
     auto tab = std::make_shared<SQLEditorTab>(tabName, node, schemaName);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    // Dock the new tab into the existing center panel without rebuilding the whole layout
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     return tab;
 }
 
@@ -92,7 +158,7 @@ std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
             const auto tableTab = std::dynamic_pointer_cast<TableViewerTab>(tab);
             if (tableTab && tableTab->getDatabaseNode() == node &&
                 tableTab->getDatabasePath() == tableFullName) {
-                tableTab->setShouldFocus(true);
+                requestTabFocus(tab->getId());
                 std::cout << "Table " << tableName << " is already open, focusing existing tab"
                           << std::endl;
                 return tab;
@@ -102,13 +168,7 @@ std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
 
     // Create new tab
     auto tab = std::make_shared<TableViewerTab>(tabName, tableFullName, tableName, node);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    // Dock the new tab into the existing center panel without rebuilding the whole layout
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     std::cout << "Created new tab for table: " << tableName << " with fullName: " << tableFullName
               << std::endl;
     return tab;
@@ -134,11 +194,13 @@ void TabManager::renderTabs() {
     // Render each tab as a separate dockable window
     for (auto it = tabs.begin(); it != tabs.end();) {
         const auto& tab = *it;
+        const std::uint64_t tabId = tab->getId();
+        const std::string& windowName = tab->getWindowName();
 
         // Handle tab focusing by setting next window focus
-        if (tab->shouldFocus()) {
+        const bool shouldFocusTab = (pendingFocusTabId_ == tabId);
+        if (shouldFocusTab) {
             ImGui::SetNextWindowFocus();
-            tab->setShouldFocus(false); // Reset flag after use
         }
 
         bool isOpen = tab->isOpen();
@@ -150,15 +212,21 @@ void TabManager::renderTabs() {
 
         // Docked tabs copy tab item data into LastItemData on Begin(), so right-click on
         // the tab label can open a popup reliably from here.
-        const bool beginOpen = ImGui::Begin(tab->getName().c_str(), &isOpen, windowFlags);
-        ImGui::PushID(tab->getName().c_str());
+        const bool beginOpen = ImGui::Begin(windowName.c_str(), &isOpen, windowFlags);
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            activeTabId_ = tabId;
+        }
+        if (shouldFocusTab) {
+            pendingFocusTabId_ = 0;
+        }
+        ImGui::PushID(windowName.c_str());
         ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
         ImGui::OpenPopupOnItemClick("TabContextMenu", ImGuiPopupFlags_MouseButtonRight);
         if (ImGui::BeginPopup("TabContextMenu")) {
             const bool hasOthers = tabs.size() > 1;
             const auto targetIt = std::ranges::find_if(
-                tabs, [&](const auto& t) { return t->getName() == tab->getName(); });
+                tabs, [tabId](const auto& t) { return t && t->getId() == tabId; });
             const bool hasLeft = targetIt != tabs.end() && targetIt != tabs.begin();
             const bool hasRight = targetIt != tabs.end() && std::next(targetIt) != tabs.end();
 
@@ -168,7 +236,7 @@ void TabManager::renderTabs() {
             }
             if (ImGui::MenuItem("Close Others", nullptr, false, hasOthers)) {
                 pendingCloseAction = CloseAction::CloseOthers;
-                pendingCloseTarget = tab->getName();
+                pendingCloseTargetId_ = tabId;
             }
             if (ImGui::MenuItem("Close All", nullptr, false, !tabs.empty())) {
                 pendingCloseAction = CloseAction::CloseAll;
@@ -176,11 +244,11 @@ void TabManager::renderTabs() {
             ImGui::Separator();
             if (ImGui::MenuItem("Close to the Left", nullptr, false, hasLeft)) {
                 pendingCloseAction = CloseAction::CloseLeft;
-                pendingCloseTarget = tab->getName();
+                pendingCloseTargetId_ = tabId;
             }
             if (ImGui::MenuItem("Close to the Right", nullptr, false, hasRight)) {
                 pendingCloseAction = CloseAction::CloseRight;
-                pendingCloseTarget = tab->getName();
+                pendingCloseTargetId_ = tabId;
             }
             ImGui::PopStyleVar();
             ImGui::EndPopup();
@@ -199,6 +267,7 @@ void TabManager::renderTabs() {
         tab->setOpen(isOpen);
 
         if (!isOpen) {
+            clearTabState(tabId);
             it = tabs.erase(it);
         } else {
             ++it;
@@ -209,32 +278,37 @@ void TabManager::renderTabs() {
     if (pendingCloseAction != CloseAction::None) {
         switch (pendingCloseAction) {
         case CloseAction::CloseAll:
-            tabs.clear();
+            closeAllTabs();
             break;
         case CloseAction::CloseOthers:
-            std::erase_if(tabs, [&](const auto& t) { return t->getName() != pendingCloseTarget; });
+            std::erase_if(tabs,
+                          [&](const auto& t) { return t && t->getId() != pendingCloseTargetId_; });
+            requestTabFocus(pendingCloseTargetId_);
             break;
         case CloseAction::CloseLeft: {
             auto targetIt = std::ranges::find_if(
-                tabs, [&](const auto& t) { return t->getName() == pendingCloseTarget; });
+                tabs, [&](const auto& t) { return t && t->getId() == pendingCloseTargetId_; });
             if (targetIt != tabs.end()) {
                 tabs.erase(tabs.begin(), targetIt);
             }
+            requestTabFocus(pendingCloseTargetId_);
             break;
         }
         case CloseAction::CloseRight: {
             auto targetIt = std::ranges::find_if(
-                tabs, [&](const auto& t) { return t->getName() == pendingCloseTarget; });
+                tabs, [&](const auto& t) { return t && t->getId() == pendingCloseTargetId_; });
             if (targetIt != tabs.end()) {
                 tabs.erase(targetIt + 1, tabs.end());
             }
+            requestTabFocus(pendingCloseTargetId_);
             break;
         }
         default:
             break;
         }
+        pruneTabState();
         pendingCloseAction = CloseAction::None;
-        pendingCloseTarget.clear();
+        pendingCloseTargetId_ = 0;
     }
 
     ImGui::PopStyleColor(8);
@@ -261,20 +335,14 @@ std::shared_ptr<Tab> TabManager::createDiagramTab(IDatabaseNode* node) {
     const std::string baseName = "Diagram - " + node->getFullPath();
     std::string tabName = baseName;
     int count = 1;
-    while (hasTab(tabName)) {
+    while (hasTabTitle(tabName)) {
         count++;
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
     // Create the diagram tab
     std::shared_ptr<Tab> tab = std::make_shared<DiagramTab>(tabName, node);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    // Dock the new tab into the existing center panel without rebuilding the whole layout
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     std::cout << "Created new diagram tab for: " << node->getFullPath() << std::endl;
     return tab;
 }
@@ -286,18 +354,13 @@ std::shared_ptr<Tab> TabManager::createRedisCommandEditorTab(RedisDatabase* db) 
     const std::string baseName = "Redis CLI";
     std::string tabName = baseName;
     int count = 1;
-    while (hasTab(tabName)) {
+    while (hasTabTitle(tabName)) {
         ++count;
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
     auto tab = std::make_shared<RedisEditorTab>(tabName, db);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     return tab;
 }
 
@@ -311,7 +374,7 @@ std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
         if (tab->getType() == TabType::REDIS_KEY_VIEWER) {
             const auto keyTab = std::dynamic_pointer_cast<RedisKeyViewerTab>(tab);
             if (keyTab && keyTab->getDatabase() == db && keyTab->getPattern() == pattern) {
-                keyTab->setShouldFocus(true);
+                requestTabFocus(tab->getId());
                 return tab;
             }
         }
@@ -321,18 +384,13 @@ std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
     const std::string baseName = std::format("Redis: {}", displayName);
     std::string tabName = baseName;
     int count = 1;
-    while (hasTab(tabName)) {
+    while (hasTabTitle(tabName)) {
         ++count;
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
     auto tab = std::make_shared<RedisKeyViewerTab>(tabName, db, pattern);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     return tab;
 }
 
@@ -345,7 +403,7 @@ std::shared_ptr<Tab> TabManager::createRedisPubSubTab(RedisDatabase* db) {
         if (tab->getType() == TabType::REDIS_PUBSUB) {
             const auto pubsubTab = std::dynamic_pointer_cast<RedisPubSubTab>(tab);
             if (pubsubTab && pubsubTab->getDatabase() == db) {
-                pubsubTab->setShouldFocus(true);
+                requestTabFocus(tab->getId());
                 return tab;
             }
         }
@@ -354,18 +412,13 @@ std::shared_ptr<Tab> TabManager::createRedisPubSubTab(RedisDatabase* db) {
     const std::string baseName = "Pub/Sub";
     std::string tabName = baseName;
     int count = 1;
-    while (hasTab(tabName)) {
+    while (hasTabTitle(tabName)) {
         ++count;
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
     auto tab = std::make_shared<RedisPubSubTab>(tabName, db);
-    tab->setShouldFocus(true);
-    addTab(tab);
-
-    auto& app = Application::getInstance();
-    app.dockTabToCenter(tabName);
-
+    registerOpenedTab(tab);
     return tab;
 }
 
@@ -373,7 +426,7 @@ std::string TabManager::generateSQLEditorName() const {
     int count = 1;
     const std::string baseName = "SQL Editor ";
 
-    while (hasTab(baseName + std::to_string(count))) {
+    while (hasTabTitle(baseName + std::to_string(count))) {
         count++;
     }
 
