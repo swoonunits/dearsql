@@ -80,9 +80,9 @@ std::pair<bool, std::string> RedisDatabase::connect() {
             connectionInfo.sslmode == SslMode::VerifyCA ||
             connectionInfo.sslmode == SslMode::VerifyFull) {
             redisSSLContextError sslErr = REDIS_SSL_CTX_NONE;
-            const char* caPath = (!connectionInfo.sslCACertPath.empty() &&
-                                  (connectionInfo.sslmode == SslMode::VerifyCA ||
-                                   connectionInfo.sslmode == SslMode::VerifyFull))
+            // pass CA cert if available; for Require mode without a CA cert,
+            // hiredis falls back to system CAs which rejects self-signed certs
+            const char* caPath = !connectionInfo.sslCACertPath.empty()
                                      ? connectionInfo.sslCACertPath.c_str()
                                      : nullptr;
 

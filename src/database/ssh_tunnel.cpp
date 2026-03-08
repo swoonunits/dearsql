@@ -50,7 +50,15 @@ std::pair<bool, std::string> SSHTunnel::start(const SSHConfig& ssh, const std::s
     args.push_back("-o");
     args.push_back("ExitOnForwardFailure=yes");
     args.push_back("-o");
-    args.push_back("StrictHostKeyChecking=accept-new");
+    const char* strictHostKeyChecking = std::getenv("DEARSQL_SSH_STRICT_HOST_KEY_CHECKING");
+    args.push_back(
+        std::string("StrictHostKeyChecking=") +
+        ((strictHostKeyChecking && *strictHostKeyChecking) ? strictHostKeyChecking : "accept-new"));
+    if (const char* knownHostsFile = std::getenv("DEARSQL_SSH_KNOWN_HOSTS_FILE");
+        knownHostsFile && *knownHostsFile) {
+        args.push_back("-o");
+        args.push_back(std::string("UserKnownHostsFile=") + knownHostsFile);
+    }
     args.push_back("-o");
     args.push_back("ServerAliveInterval=30");
     args.push_back("-o");
@@ -156,7 +164,8 @@ std::pair<bool, std::string> SSHTunnel::start(const SSHConfig& ssh, const std::s
                  ":" + std::to_string(remotePort) + " via " + ssh.host);
 
     // Wait for the tunnel port to become reachable
-    if (!waitForPortReady(localPort_, 15000)) {
+    const int failedLocalPort = localPort_;
+    if (!waitForPortReady(failedLocalPort, 15000)) {
         // Check if ssh process died
         int status = 0;
         pid_t result = waitpid(sshPid_, &status, WNOHANG);
@@ -164,13 +173,14 @@ std::pair<bool, std::string> SSHTunnel::start(const SSHConfig& ssh, const std::s
             sshPid_ = -1;
             cleanupAskPassScript();
             if (WIFEXITED(status) && WEXITSTATUS(status) == 255)
-                return {false, "SSH authentication failed"};
+                return {false, "SSH connection failed (authentication, host key verification, or "
+                               "forwarding setup error)"};
             return {false, "SSH process exited with code " +
                                std::to_string(WIFEXITED(status) ? WEXITSTATUS(status) : -1)};
         }
         // Process still running but port not reachable — kill it
         stop();
-        return {false, "SSH tunnel timed out waiting for port " + std::to_string(localPort_)};
+        return {false, "SSH tunnel timed out waiting for port " + std::to_string(failedLocalPort)};
     }
 
     cleanupAskPassScript();
@@ -256,11 +266,9 @@ bool SSHTunnel::waitForPortReady(int port, int timeoutMs) const {
         if (rc == 0)
             return true;
 
-        // Check if ssh process died
-        if (sshPid_ > 0) {
-            int status = 0;
-            if (waitpid(sshPid_, &status, WNOHANG) != 0)
-                return false;
+        // Avoid reaping the child here; the caller inspects exit status on failure.
+        if (sshPid_ > 0 && kill(sshPid_, 0) != 0 && errno == ESRCH) {
+            return false;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(150));

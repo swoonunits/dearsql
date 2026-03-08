@@ -118,8 +118,12 @@ struct DatabaseConnectionInfo {
                 sslmode == SslMode::VerifyFull) {
                 connStr += (connStr.find('?') != std::string::npos) ? "&" : "?";
                 connStr += "tls=true";
-                if (!sslCACertPath.empty())
+                if (!sslCACertPath.empty()) {
                     connStr += "&tlsCAFile=" + sslCACertPath;
+                } else if (sslmode == SslMode::Require) {
+                    // require = encrypt only, skip cert verification
+                    connStr += "&tlsAllowInvalidCertificates=true";
+                }
             }
             return connStr;
         }
