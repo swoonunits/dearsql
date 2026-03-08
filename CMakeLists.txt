@@ -266,6 +266,7 @@ elseif(WIN32)
         src/platform/windows_platform.cpp
         src/platform/windows_connection_dialog.cpp
         src/platform/windows_alert.cpp
+        assets/app.rc
     )
 else()
     list(APPEND APP_SOURCES src/platform/default_platform.cpp)
