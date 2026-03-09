@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 extern "C" const TSLanguage* tree_sitter_sql();
+extern "C" const TSLanguage* tree_sitter_json();
 
 namespace dearsql {
 
@@ -306,19 +307,58 @@ namespace dearsql {
 (all_fields) @operator
 )scm";
 
+    static constexpr const char* JSON_HIGHLIGHT_QUERY = R"scm(
+; object property keys
+(pair key: (string) @type)
+
+; string values
+(pair value: (string) @string)
+(array (string) @string)
+
+; numbers
+(number) @number
+
+; booleans and null
+[
+  (true)
+  (false)
+  (null)
+] @keyword
+
+; comments
+(comment) @comment
+)scm";
+
     void TextEditor::initTreeSitter() {
+        if (language_ == Language::Redis || language_ == Language::PlainText)
+            return;
+
         tsParser_ = ts_parser_new();
-        const TSLanguage* lang = tree_sitter_sql();
+
+        const TSLanguage* lang = nullptr;
+        const char* queryStr = nullptr;
+        size_t queryLen = 0;
+
+        if (language_ == Language::JSON) {
+            lang = tree_sitter_json();
+            queryStr = JSON_HIGHLIGHT_QUERY;
+            queryLen = strlen(JSON_HIGHLIGHT_QUERY);
+        } else {
+            lang = tree_sitter_sql();
+            queryStr = SQL_HIGHLIGHT_QUERY;
+            queryLen = strlen(SQL_HIGHLIGHT_QUERY);
+        }
+
         ts_parser_set_language(tsParser_, lang);
 
         // Compile the highlight query
         uint32_t errorOffset;
         TSQueryError errorType;
-        tsQuery_ = ts_query_new(lang, SQL_HIGHLIGHT_QUERY, strlen(SQL_HIGHLIGHT_QUERY),
-                                &errorOffset, &errorType);
+        tsQuery_ =
+            ts_query_new(lang, queryStr, static_cast<uint32_t>(queryLen), &errorOffset, &errorType);
         if (!tsQuery_) {
             Logger::error(
-                std::format("Tree-sitter SQL query compilation failed at offset {}, error type {}",
+                std::format("Tree-sitter query compilation failed at offset {}, error type {}",
                             errorOffset, static_cast<int>(errorType)));
         }
     }

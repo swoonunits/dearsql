@@ -4,6 +4,7 @@
 #include "database/redis.hpp"
 #include "imgui.h"
 #include "ui/tab/diagram_tab.hpp"
+#include "ui/tab/mongo_editor_tab.hpp"
 #include "ui/tab/redis_editor_tab.hpp"
 #include "ui/tab/redis_key_viewer_tab.hpp"
 #include "ui/tab/redis_pubsub_tab.hpp"
@@ -344,6 +345,23 @@ std::shared_ptr<Tab> TabManager::createDiagramTab(IDatabaseNode* node) {
     std::shared_ptr<Tab> tab = std::make_shared<DiagramTab>(tabName, node);
     registerOpenedTab(tab);
     std::cout << "Created new diagram tab for: " << node->getFullPath() << std::endl;
+    return tab;
+}
+
+std::shared_ptr<Tab> TabManager::createMongoEditorTab(MongoDBDatabaseNode* node) {
+    if (!node)
+        return nullptr;
+
+    const std::string baseName = "Query - " + node->getName();
+    std::string tabName = baseName;
+    int count = 1;
+    while (hasTabTitle(tabName)) {
+        ++count;
+        tabName = baseName + " (" + std::to_string(count) + ")";
+    }
+
+    auto tab = std::make_shared<MongoEditorTab>(tabName, node);
+    registerOpenedTab(tab);
     return tab;
 }
 

@@ -36,7 +36,7 @@ SSH_PORT="${SSH_PORT:-52222}"
 
 # TLS cert directory
 CERT_DIR="$ROOT_DIR/.test-certs"
-TLS_SETUP_VERSION="5"
+TLS_SETUP_VERSION="6"
 
 # Test env vars
 export DEARSQL_TEST_PG_HOST="127.0.0.1"
@@ -223,11 +223,13 @@ EXTEOF
         -out "$CERT_DIR/server.crt" -days 365 \
         -extfile "$CERT_DIR/server.ext" 2>/dev/null
 
-    chmod 600 "$CERT_DIR/server.key"
+    # world-readable: these are ephemeral test certs and container
+    # processes (redis, mongod) run as non-root users
+    chmod 644 "$CERT_DIR/server.key"
 
     # MongoDB needs combined PEM (cert + key)
     cat "$CERT_DIR/server.crt" "$CERT_DIR/server.key" > "$CERT_DIR/server.pem"
-    chmod 600 "$CERT_DIR/server.pem"
+    chmod 644 "$CERT_DIR/server.pem"
 
     # SSH test keys
     ssh-keygen -t ed25519 -f "$CERT_DIR/ssh_test_key" -N "" -q -y 2>/dev/null || \

@@ -1,5 +1,7 @@
-#include "database/ssh_tunnel.hpp"
+#if !defined(_WIN32)
+
 #include "database/db_interface.hpp"
+#include "database/ssh_tunnel.hpp"
 #include "utils/logger.hpp"
 
 #include <arpa/inet.h>
@@ -310,3 +312,5 @@ void SSHTunnel::cleanupAskPassScript() {
         askPassPath_.clear();
     }
 }
+
+#endif

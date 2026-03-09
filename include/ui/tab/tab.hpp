@@ -9,7 +9,8 @@ enum class TabType {
     DIAGRAM,
     REDIS_EDITOR,
     REDIS_KEY_VIEWER,
-    REDIS_PUBSUB
+    REDIS_PUBSUB,
+    MONGO_EDITOR
 };
 
 class Tab {

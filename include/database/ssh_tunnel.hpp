@@ -40,12 +40,17 @@ public:
 private:
     static int findAvailablePort();
     bool waitForPortReady(int port, int timeoutMs) const;
+
+#ifdef _WIN32
+    void* processHandle_ = nullptr; // HANDLE
+#else
     std::string createAskPassScript(const std::string& secret) const;
     void cleanupAskPassScript();
 
     pid_t sshPid_ = -1;
+    std::string askPassPath_;
+#endif
     int localPort_ = 0;
     std::string remoteHost_;
     int remotePort_ = 0;
-    std::string askPassPath_;
 };

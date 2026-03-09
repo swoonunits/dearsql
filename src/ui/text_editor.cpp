@@ -61,8 +61,17 @@ namespace dearsql {
     }
 
     void TextEditor::SetLanguage(Language lang) {
+        if (language_ == lang)
+            return;
         language_ = lang;
+        cleanupTreeSitter();
+        tsPreviousContent_.clear();
+        initTreeSitter();
         highlightDirty_ = true;
+    }
+
+    void TextEditor::SetPlaceholder(const std::string& text) {
+        placeholder_ = text;
     }
 
     void TextEditor::SetText(const std::string& text) {
@@ -502,6 +511,21 @@ namespace dearsql {
         renderFindHighlights(drawList, startLine, endLine);
         renderSelection(drawList, startLine, endLine);
         renderText(drawList, startLine, endLine);
+        if (content_.empty() && !placeholder_.empty()) {
+            const ImU32 placeholderColor = (palette_.text & 0x00FFFFFF) | 0x60000000;
+            const float x = textOrigin_.x;
+            float y = textOrigin_.y;
+            const char* start = placeholder_.c_str();
+            const char* end = start + placeholder_.size();
+            while (start < end) {
+                const char* lineEnd = static_cast<const char*>(memchr(start, '\n', end - start));
+                if (!lineEnd)
+                    lineEnd = end;
+                drawList->AddText(ImVec2(x, y), placeholderColor, start, lineEnd);
+                y += lineHeight_;
+                start = lineEnd < end ? lineEnd + 1 : end;
+            }
+        }
         if (isFocused)
             renderCursor(drawList);
 

@@ -131,6 +131,13 @@ target_include_directories(tree-sitter-sql-grammar PRIVATE external/tree-sitter-
 target_link_libraries(tree-sitter-sql-grammar PRIVATE tree-sitter-core)
 set_target_properties(tree-sitter-sql-grammar PROPERTIES C_STANDARD 11)
 
+add_library(tree-sitter-json-grammar STATIC
+    external/tree-sitter-json/src/parser.c
+)
+target_include_directories(tree-sitter-json-grammar PRIVATE external/tree-sitter-json/src)
+target_link_libraries(tree-sitter-json-grammar PRIVATE tree-sitter-core)
+set_target_properties(tree-sitter-json-grammar PROPERTIES C_STANDARD 11)
+
 # ImGui (from submodule - tightly integrated with platform backends)
 set(IMGUI_SOURCES
     external/imgui/imgui.cpp
@@ -200,7 +207,6 @@ set(APP_SOURCES
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
     src/database/ddl_builder.cpp
-    src/database/ssh_tunnel.cpp
     src/database/ssh_config_parser.cpp
 
     # UI
@@ -227,6 +233,8 @@ set(APP_SOURCES
     src/ui/tab/redis_key_viewer_tab.cpp
     src/ui/tab/redis_pubsub_tab.cpp
     src/ui/tab/redis_status_panel.cpp
+    # MongoDB
+    src/ui/tab/mongo_editor_tab.cpp
 
     # Utils
     src/utils/file_dialog.cpp
@@ -255,21 +263,25 @@ if(APPLE)
     list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
     list(APPEND APP_SOURCES src/platform/macos_updater.mm)
     list(APPEND APP_SOURCES src/platform/macos_alert.mm)
+    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
     list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
     list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
     list(APPEND APP_SOURCES src/ui/update_dialog.cpp)
     list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
+    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(WIN32)
     list(APPEND APP_SOURCES
         src/platform/windows_platform.cpp
         src/platform/windows_connection_dialog.cpp
         src/platform/windows_alert.cpp
+        src/platform/windows_ssh_tunnel.cpp
         assets/app.rc
     )
 else()
     list(APPEND APP_SOURCES src/platform/default_platform.cpp)
+    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 endif()
 
 # Include resource embedding functions
@@ -333,6 +345,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SYBDB_DEPS}
     tree-sitter-core
     tree-sitter-sql-grammar
+    tree-sitter-json-grammar
 )
 
 # platform-specific linking
@@ -359,6 +372,7 @@ elseif(WIN32)
         dxgi
         dwmapi
         comctl32
+        ws2_32
     )
 else()
     target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -445,10 +459,16 @@ add_executable(database_tests
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
     src/database/ddl_builder.cpp
-    src/database/ssh_tunnel.cpp
     src/database/ssh_config_parser.cpp
     src/utils/logger.cpp
 )
+
+# platform-specific ssh tunnel for tests
+if(WIN32)
+    target_sources(database_tests PRIVATE src/platform/windows_ssh_tunnel.cpp)
+else()
+    target_sources(database_tests PRIVATE src/platform/posix_ssh_tunnel.cpp)
+endif()
 
 target_include_directories(database_tests PRIVATE
     include

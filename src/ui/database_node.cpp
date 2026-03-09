@@ -28,6 +28,7 @@ namespace {
     constexpr const char* EDIT_TABLE_LABEL = "Edit Table";
     constexpr const char* SHOW_STRUCTURE_LABEL = "Show Structure";
     constexpr const char* NEW_SQL_EDITOR_LABEL = "New SQL Editor";
+    constexpr const char* NEW_QUERY_EDITOR_LABEL = "New Query Editor";
     constexpr const char* SHOW_DIAGRAM_LABEL = "Show Diagram";
 } // namespace
 
@@ -2015,8 +2016,8 @@ void DatabaseHierarchy::renderMongoDBDatabaseNode(MongoDBDatabaseNode* dbData) {
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-        if (ImGui::MenuItem(NEW_SQL_EDITOR_LABEL)) {
-            app.getTabManager()->createSQLEditorTab("", dbData);
+        if (ImGui::MenuItem(NEW_QUERY_EDITOR_LABEL)) {
+            app.getTabManager()->createMongoEditorTab(dbData);
         }
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startCollectionsLoadAsync(true);

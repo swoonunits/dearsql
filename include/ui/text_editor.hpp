@@ -25,6 +25,7 @@ namespace dearsql {
         // --- Public API ---
         void SetText(const std::string& text);
         [[nodiscard]] std::string GetText() const;
+        void SetPlaceholder(const std::string& text);
         void Render(const char* label, ImVec2 size, bool border = false);
         void SetFocus();
 
@@ -71,7 +72,7 @@ namespace dearsql {
         void SetSubmitCallback(std::function<void()> cb);
 
         // Language / highlighting mode
-        enum class Language : uint8_t { SQL, Redis, PlainText };
+        enum class Language : uint8_t { SQL, Redis, JSON, PlainText };
         void SetLanguage(Language lang);
 
         // Options
@@ -112,6 +113,7 @@ namespace dearsql {
         bool readOnly_ = false;
         bool focusRequested_ = false;
         Language language_ = Language::SQL;
+        std::string placeholder_;
 
         // --- Callbacks ---
         std::function<void()> submitCallback_;
