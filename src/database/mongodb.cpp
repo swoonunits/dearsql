@@ -382,10 +382,7 @@ std::vector<std::string> MongoDBDatabase::getDatabaseNamesAsync() const {
         auto databases = client->list_database_names();
 
         for (const auto& dbName : databases) {
-            // Filter out system databases
-            if (dbName != "admin" && dbName != "config" && dbName != "local") {
-                result.push_back(dbName);
-            }
+            result.push_back(dbName);
         }
     } catch (const std::exception& e) {
         Logger::error(std::format("Failed to list databases: {}", e.what()));
