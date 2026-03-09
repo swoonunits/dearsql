@@ -1,5 +1,6 @@
 #pragma once
 
+#if defined(__linux__)
 #include "imgui.h"
 #include <cstdint>
 
@@ -19,5 +20,6 @@ inline ImTextureID createOpenGLTextureFromRGBA(const uint8_t* pixels, int width,
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    return reinterpret_cast<ImTextureID>(static_cast<intptr_t>(texture));
+    return static_cast<ImTextureID>(texture);
 }
+#endif
