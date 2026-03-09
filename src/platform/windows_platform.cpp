@@ -133,7 +133,7 @@ namespace {
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = proc;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         wc.lpszClassName = className;
         RegisterClassExW(&wc);
@@ -150,12 +150,12 @@ namespace {
         RECT windowRect{};
         GetWindowRect(hWnd, &windowRect);
 
-        const int width = windowRect.right - windowRect.left;
-        const int height = windowRect.bottom - windowRect.top;
-        const int x =
-            parentRect.left + std::max(0, ((parentRect.right - parentRect.left) - width) / 2);
-        const int y =
-            parentRect.top + std::max(0, ((parentRect.bottom - parentRect.top) - height) / 2);
+        const LONG width = windowRect.right - windowRect.left;
+        const LONG height = windowRect.bottom - windowRect.top;
+        const LONG x =
+            parentRect.left + std::max(0L, ((parentRect.right - parentRect.left) - width) / 2);
+        const LONG y =
+            parentRect.top + std::max(0L, ((parentRect.bottom - parentRect.top) - height) / 2);
 
         SetWindowPos(hWnd, nullptr, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
     }

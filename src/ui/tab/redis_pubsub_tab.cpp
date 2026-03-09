@@ -1,3 +1,8 @@
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <poll.h>
+#endif
 #include "ui/tab/redis_pubsub_tab.hpp"
 #include "IconsFontAwesome6.h"
 #include "application.hpp"
@@ -12,7 +17,6 @@
 #include <format>
 #include <hiredis/hiredis.h>
 #include <hiredis/hiredis_ssl.h>
-#include <poll.h>
 
 RedisPubSubTab::RedisPubSubTab(const std::string& name, RedisDatabase* db)
     : Tab(name, TabType::REDIS_PUBSUB), db_(db), statusPanel_(db) {
@@ -146,10 +150,21 @@ void RedisPubSubTab::subscriberLoop(std::stop_token stopToken) {
     subState_.store(SubState::Subscribed);
 
     // poll the socket instead of redisSetTimeout (which permanently errors the context)
+#ifdef _WIN32
+    WSAPOLLFD pfd = {};
+    pfd.fd = subContext_->fd;
+    pfd.events = POLLIN;
+#else
     struct pollfd pfd = {.fd = subContext_->fd, .events = POLLIN, .revents = 0};
+#endif
 
     while (!stopToken.stop_requested()) {
-        int pollRc = poll(&pfd, 1, 100); // 100ms timeout
+        int pollRc =
+#ifdef _WIN32
+            WSAPoll(&pfd, 1, 100);
+#else
+            poll(&pfd, 1, 100);
+#endif
         if (pollRc == 0)
             continue; // timeout, check stop token
         if (pollRc < 0) {
@@ -262,7 +277,11 @@ std::string RedisPubSubTab::currentTimestampMs() {
     auto time = std::chrono::system_clock::to_time_t(now);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &time);
+#else
     localtime_r(&time, &tm);
+#endif
     return std::format("{:02d}:{:02d}:{:02d}.{:03d}", tm.tm_hour, tm.tm_min, tm.tm_sec,
                        static_cast<int>(ms.count()));
 }

@@ -99,7 +99,11 @@ std::string RedisStatusPanel::formatNow() {
     const auto now = std::chrono::system_clock::now();
     const auto time = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &time);
+#else
     localtime_r(&time, &tm);
+#endif
     char buf[16];
     std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
     return buf;
