@@ -38,7 +38,11 @@ namespace {
             const auto seconds = millis / 1000;
             const auto time = static_cast<std::time_t>(seconds);
             std::tm tm{};
+#ifdef _WIN32
+            gmtime_s(&tm, &time);
+#else
             gmtime_r(&time, &tm);
+#endif
             char buf[32];
             std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
             return std::string(buf);
