@@ -4,11 +4,11 @@
 #include <string>
 #include <vector>
 
-enum class QueryType { SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, OTHER };
+enum class QueryType { Select, Insert, Update, Delete, Create, Alter, Drop, Other };
 
 struct QueryHistoryEntry {
     std::string query;
-    QueryType type = QueryType::OTHER;
+    QueryType type = QueryType::Other;
     std::chrono::system_clock::time_point timestamp;
     int rowCount = 0;
     int durationMs = 0;

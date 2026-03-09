@@ -54,28 +54,28 @@ QueryType QueryHistory::detectQueryType(const std::string& query) {
     }
 
     if (firstWord == "SELECT") {
-        return QueryType::SELECT;
+        return QueryType::Select;
     }
     if (firstWord == "INSERT") {
-        return QueryType::INSERT;
+        return QueryType::Insert;
     }
     if (firstWord == "UPDATE") {
-        return QueryType::UPDATE;
+        return QueryType::Update;
     }
     if (firstWord == "DELETE") {
-        return QueryType::DELETE;
+        return QueryType::Delete;
     }
     if (firstWord == "CREATE") {
-        return QueryType::CREATE;
+        return QueryType::Create;
     }
     if (firstWord == "ALTER") {
-        return QueryType::ALTER;
+        return QueryType::Alter;
     }
     if (firstWord == "DROP") {
-        return QueryType::DROP;
+        return QueryType::Drop;
     }
 
-    return QueryType::OTHER;
+    return QueryType::Other;
 }
 
 std::string QueryHistory::normalizeQuery(const std::string& query) {

@@ -132,19 +132,19 @@ void DatabaseSidebarNew::renderHistory() {
     // Get query type label and color
     auto getQueryTypeInfo = [&colors](QueryType type) -> std::pair<std::string, ImVec4> {
         switch (type) {
-        case QueryType::SELECT:
+        case QueryType::Select:
             return {"SELECT", colors.blue};
-        case QueryType::INSERT:
+        case QueryType::Insert:
             return {"INSERT", colors.green};
-        case QueryType::UPDATE:
+        case QueryType::Update:
             return {"UPDATE", colors.peach};
-        case QueryType::DELETE:
+        case QueryType::Delete:
             return {"DELETE", colors.red};
-        case QueryType::CREATE:
+        case QueryType::Create:
             return {"CREATE", colors.mauve};
-        case QueryType::ALTER:
+        case QueryType::Alter:
             return {"ALTER", colors.yellow};
-        case QueryType::DROP:
+        case QueryType::Drop:
             return {"DROP", colors.maroon};
         default:
             return {"OTHER", colors.overlay1};
