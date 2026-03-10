@@ -485,7 +485,7 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
     db->checkConnectionStatusAsync();
 
     // Check refresh workflow status
-    if (type == DatabaseType::POSTGRESQL) {
+    if (type == DatabaseType::POSTGRESQL || type == DatabaseType::REDSHIFT) {
         if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
             pgDb->checkRefreshWorkflowAsync();
         }
@@ -564,8 +564,9 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
         // Create New Database (when connected)
         if (db->isConnected()) {
             auto dbType = db->getConnectionInfo().type;
-            if (dbType == DatabaseType::POSTGRESQL || dbType == DatabaseType::MYSQL ||
-                dbType == DatabaseType::MARIADB || dbType == DatabaseType::MSSQL) {
+            if (dbType == DatabaseType::POSTGRESQL || dbType == DatabaseType::REDSHIFT ||
+                dbType == DatabaseType::MYSQL || dbType == DatabaseType::MARIADB ||
+                dbType == DatabaseType::MSSQL) {
                 if (ImGui::MenuItem("Create New Database")) {
                     showCreateDatabaseDialog(&app, db);
                 }

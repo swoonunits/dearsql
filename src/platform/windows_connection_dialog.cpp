@@ -195,6 +195,8 @@ static int defaultPort(DatabaseType type) {
         return 6379;
     case DatabaseType::MSSQL:
         return 1433;
+    case DatabaseType::REDSHIFT:
+        return 5439;
     default:
         return 0;
     }
@@ -500,6 +502,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = database.empty() ? "master" : database;
             db = std::make_shared<MSSQLDatabase>(info);
             break;
+        case DatabaseType::REDSHIFT:
+            info.database = database.empty() ? "dev" : database;
+            db = std::make_shared<PostgresDatabase>(info);
+            break;
         default:
             break;
         }
@@ -563,7 +569,7 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         HWND typeCombo =
             makeCtrl("COMBOBOX", "", IDC_TYPE_COMBO, CBS_DROPDOWNLIST | WS_TABSTOP, FX, y, FW, 200);
         const char* types[] = {"SQLite", "PostgreSQL", "MySQL", "MariaDB",
-                               "Redis",  "MongoDB",    "MSSQL"};
+                               "Redis",  "MongoDB",    "MSSQL", "Redshift"};
         for (const char* t : types) {
             SendMessageA(typeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(t));
         }

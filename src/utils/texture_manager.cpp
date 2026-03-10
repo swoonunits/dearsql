@@ -27,7 +27,7 @@ void TextureManager::loadDatabaseIcons(PlatformInterface* platform) {
         {DatabaseType::SQLITE, "sqlite"},   {DatabaseType::POSTGRESQL, "postgres"},
         {DatabaseType::MYSQL, "mysql"},     {DatabaseType::MARIADB, "mariadb"},
         {DatabaseType::MONGODB, "mongodb"}, {DatabaseType::REDIS, "redis"},
-        {DatabaseType::MSSQL, "mssql"},
+        {DatabaseType::MSSQL, "mssql"},     {DatabaseType::REDSHIFT, "redshift"},
     };
 
     for (const auto& [type, name] : mappings) {

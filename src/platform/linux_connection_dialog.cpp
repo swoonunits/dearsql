@@ -331,6 +331,8 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         defaultPort = "6379";
     else if (type == DatabaseType::MSSQL)
         defaultPort = "1433";
+    else if (type == DatabaseType::REDSHIFT)
+        defaultPort = "5439";
     gtk_editable_set_text(GTK_EDITABLE(data->portEntry), defaultPort);
 
     GtkWidget* hostRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -840,6 +842,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = dbStr.empty() ? "master" : dbStr;
             db = std::make_shared<MSSQLDatabase>(info);
             break;
+        case DatabaseType::REDSHIFT:
+            info.database = dbStr.empty() ? "dev" : dbStr;
+            db = std::make_shared<PostgresDatabase>(info);
+            break;
         default:
             break;
         }
@@ -923,8 +929,8 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
 
     // Type dropdown
     static const char* typeNames[] = {"SQLite", "PostgreSQL", "MySQL", "MariaDB",
-                                      "Redis",  "MongoDB",    "MSSQL"};
-    data->typeDropdown = makeStringDropdown(typeNames, 7, static_cast<int>(initialType));
+                                      "Redis",  "MongoDB",    "MSSQL", "Redshift"};
+    data->typeDropdown = makeStringDropdown(typeNames, 8, static_cast<int>(initialType));
 
     GtkWidget* typeRow = makeRow(makeLabel("Type"), data->typeDropdown);
     gtk_box_append(GTK_BOX(mainBox), typeRow);

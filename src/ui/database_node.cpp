@@ -87,7 +87,7 @@ void DatabaseHierarchy::renderRootNode() {
 
     if (dbType == DatabaseType::SQLITE) {
         renderSQLiteNode();
-    } else if (dbType == DatabaseType::POSTGRESQL) {
+    } else if (dbType == DatabaseType::POSTGRESQL || dbType == DatabaseType::REDSHIFT) {
         auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get());
         if (!pgDb) {
             return;

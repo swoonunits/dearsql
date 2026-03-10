@@ -23,6 +23,8 @@ std::string databaseTypeToString(const DatabaseType type) {
         return "mariadb";
     case DatabaseType::MSSQL:
         return "mssql";
+    case DatabaseType::REDSHIFT:
+        return "redshift";
     }
     return "unknown";
 }
@@ -42,6 +44,8 @@ DatabaseType stringToDatabaseType(const std::string& typeStr) {
         return DatabaseType::MARIADB;
     if (typeStr == "mssql")
         return DatabaseType::MSSQL;
+    if (typeStr == "redshift")
+        return DatabaseType::REDSHIFT;
     return DatabaseType::SQLITE; // default
 }
 
@@ -102,6 +106,9 @@ DatabaseFactory::createDatabase(const DatabaseConnectionInfo& info) {
 
     case DatabaseType::MSSQL:
         return std::make_shared<MSSQLDatabase>(info);
+
+    case DatabaseType::REDSHIFT:
+        return std::make_shared<PostgresDatabase>(info);
 
     default:
         return nullptr;
