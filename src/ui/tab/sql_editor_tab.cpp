@@ -4,6 +4,7 @@
 #include "application.hpp"
 #include "database/database_node.hpp"
 #include "database/db.hpp"
+#include "database/mssql.hpp"
 #include "database/mysql.hpp"
 #include "database/postgresql.hpp"
 #include "imgui.h"
@@ -165,7 +166,7 @@ void SQLEditorTab::renderConnectionInfo() {
         renderConnectionInfoMySQL();
         break;
     case DatabaseType::MSSQL:
-        renderConnectionInfoMySQL();
+        renderConnectionInfoMSSQL();
         break;
     case DatabaseType::SQLITE:
         renderConnectionInfoSQLite();
@@ -266,6 +267,9 @@ void SQLEditorTab::renderConnectionInfoPostgres() {
             if (!db->schemasLoaded) {
                 ImGui::Indent(Theme::Spacing::L);
                 ImGui::TextDisabled("Loading...");
+                ImGui::SameLine(0, Theme::Spacing::S);
+                UIUtils::Spinner(std::format("##loading_schemas_{}", dbName).c_str(), 5.0f, 2,
+                                 ImGui::GetColorU32(ImGuiCol_TextDisabled));
                 ImGui::Unindent(Theme::Spacing::L);
             } else {
                 for (const auto& schema : db->schemas) {
@@ -298,6 +302,71 @@ void SQLEditorTab::renderConnectionInfoPostgres() {
 
 void SQLEditorTab::renderConnectionInfoMySQL() {
     auto* dbNode = dynamic_cast<MySQLDatabaseNode*>(node_);
+    if (!dbNode || !dbNode->parentDb) {
+        ImGui::Text("Database: %s", node_->getFullPath().c_str());
+        return;
+    }
+
+    auto* serverDb = dbNode->parentDb;
+    const auto& connInfo = serverDb->getConnectionInfo();
+    const auto& colors = Application::getInstance().getCurrentColors();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", connInfo.host.c_str());
+    ImGui::SameLine(0, Theme::Spacing::L);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Database:");
+    ImGui::SameLine(0, Theme::Spacing::S);
+
+    const auto& dbMap = serverDb->getDatabaseDataMap();
+    std::vector<std::string> dbNames;
+    dbNames.reserve(dbMap.size());
+    for (const auto& name : dbMap | std::views::keys) {
+        dbNames.push_back(name);
+    }
+    std::ranges::sort(dbNames);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::S, Theme::Spacing::S));
+    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
+
+    if (queryExecutionOp_.isRunning())
+        ImGui::BeginDisabled();
+
+    ImGui::SetNextItemWidth(150.0f);
+    if (ImGui::BeginCombo("##db_combo", dbNode->name.c_str())) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(ImGui::GetStyle().ItemSpacing.x, Theme::Spacing::XS));
+        for (const auto& dbName : dbNames) {
+            bool isSelected = (dbName == dbNode->name);
+            if (ImGui::Selectable(dbName.c_str(), isSelected, ImGuiSelectableFlags_None,
+                                  ImVec2(0, ImGui::GetTextLineHeight() + Theme::Spacing::S))) {
+                if (dbName != dbNode->name) {
+                    auto* newNode = serverDb->getDatabaseData(dbName);
+                    if (newNode) {
+                        switchNode(newNode);
+                    }
+                }
+            }
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndCombo();
+    }
+
+    if (queryExecutionOp_.isRunning())
+        ImGui::EndDisabled();
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
+}
+
+void SQLEditorTab::renderConnectionInfoMSSQL() {
+    auto* dbNode = dynamic_cast<MSSQLDatabaseNode*>(node_);
     if (!dbNode || !dbNode->parentDb) {
         ImGui::Text("Database: %s", node_->getFullPath().c_str());
         return;
