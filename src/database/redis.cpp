@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
+
 #include "database/redis.hpp"
 #include "utils/logger.hpp"
 #include <algorithm>
