@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <d3d11.h>
 #include <dwmapi.h>
+#include <windowsx.h>
 #include <dxgi.h>
 #include <iostream>
 #include <string>
@@ -519,7 +520,7 @@ void WindowsPlatform::layoutTitlebarControls() {
     }
 
     if (workspaceDropdown_) {
-        const int availableRight = std::max(pad, clientRect.right - captionButtonsW - pad);
+        const int availableRight = std::max((long)pad, clientRect.right - captionButtonsW - pad);
         const int comboW = std::clamp(MulDiv(clientRect.right, 22, 100), comboMinW, comboMaxW);
         const int comboX = std::max(x + addW + pad, availableRight - comboW);
         MoveWindow(workspaceDropdown_, comboX, y, comboW, scaleForWindow(hWnd, 400), TRUE);
