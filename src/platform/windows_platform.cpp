@@ -10,10 +10,10 @@
 #include <algorithm>
 #include <d3d11.h>
 #include <dwmapi.h>
-#include <windowsx.h>
 #include <dxgi.h>
 #include <iostream>
 #include <string>
+#include <windowsx.h>
 
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>

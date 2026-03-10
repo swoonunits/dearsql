@@ -65,8 +65,9 @@ namespace dearsql {
         static Palette GetLightPalette();
         static Palette FromTheme(const Theme::Colors& colors);
 
-        // SQL formatting
+        // formatting
         [[nodiscard]] static std::string FormatSQL(const std::string& sql);
+        [[nodiscard]] static std::string FormatJSON(const std::string& json);
 
         // Callbacks
         void SetSubmitCallback(std::function<void()> cb);

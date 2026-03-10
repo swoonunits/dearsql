@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <nlohmann/json.hpp>
 #include <string>
-#include <string_view>
 #include <tree_sitter/api.h>
 
 extern "C" const TSLanguage* tree_sitter_sql();
@@ -421,6 +421,21 @@ namespace dearsql {
         ts_parser_delete(parser);
 
         return result;
+    }
+
+    std::string TextEditor::FormatJSON(const std::string& json) {
+        if (json.empty())
+            return json;
+
+        try {
+            auto parsed = nlohmann::json::parse(json);
+            std::string result = parsed.dump(4);
+            if (!result.empty() && result.back() != '\n')
+                result += '\n';
+            return result;
+        } catch (const nlohmann::json::parse_error&) {
+            return json;
+        }
     }
 
 } // namespace dearsql

@@ -3,12 +3,12 @@
 #else
 #include <poll.h>
 #endif
-#include "ui/tab/redis_pubsub_tab.hpp"
 #include "IconsFontAwesome6.h"
 #include "application.hpp"
 #include "database/redis.hpp"
 #include "imgui.h"
 #include "themes.hpp"
+#include "ui/tab/redis_pubsub_tab.hpp"
 #include "utils/logger.hpp"
 #include <algorithm>
 #include <cerrno>

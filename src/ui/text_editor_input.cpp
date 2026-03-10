@@ -127,6 +127,51 @@ namespace dearsql {
             return;
 
         pushUndoSnapshot();
+
+        // auto-close brackets and quotes
+        if (input.size() == 1) {
+            const char ch = input[0];
+            const char nextChar =
+                cursorIndex_ < static_cast<int>(content_.size()) ? content_[cursorIndex_] : '\0';
+
+            // skip over closing bracket/quote if cursor is right before it
+            if ((ch == ')' || ch == ']' || ch == '}' || ch == '"' || ch == '\'') &&
+                nextChar == ch) {
+                cursorIndex_++;
+                selectionAnchor_ = cursorIndex_;
+                cursorBlinkTimer_ = 0.0f;
+                ensureCursorVisibleH_ = true;
+                updateAutoComplete();
+                return;
+            }
+
+            // auto-insert closing pair
+            char closing = '\0';
+            if (ch == '(')
+                closing = ')';
+            else if (ch == '[')
+                closing = ']';
+            else if (ch == '{')
+                closing = '}';
+            else if (ch == '"' || ch == '\'') {
+                // only auto-close quotes if not preceded by a word char
+                const bool prevIsWord = cursorIndex_ > 0 && isWordChar(content_[cursorIndex_ - 1]);
+                if (!prevIsWord)
+                    closing = ch;
+            }
+
+            if (closing) {
+                insertTextAtCursor(input + closing);
+                cursorIndex_--;
+                selectionAnchor_ = cursorIndex_;
+                cursorBlinkTimer_ = 0.0f;
+                ensureCursorVisibleV_ = true;
+                ensureCursorVisibleH_ = true;
+                updateAutoComplete();
+                return;
+            }
+        }
+
         insertTextAtCursor(input);
         cursorBlinkTimer_ = 0.0f;
         ensureCursorVisibleV_ = true;
@@ -162,11 +207,57 @@ namespace dearsql {
         if (static_cast<int>(indent.size()) > cursorCol)
             indent = indent.substr(0, cursorCol);
 
-        std::string toInsert = "\n" + indent;
-        content_.insert(cursorIndex_, toInsert);
-        colors_.insert(colors_.begin() + cursorIndex_, toInsert.size(), palette_.text);
-        cursorIndex_ += static_cast<int>(toInsert.size());
-        selectionAnchor_ = cursorIndex_;
+        // check character before cursor for increased indent
+        const char prevChar = cursorIndex_ > 0 ? content_[cursorIndex_ - 1] : '\0';
+        const char nextChar =
+            cursorIndex_ < static_cast<int>(content_.size()) ? content_[cursorIndex_] : '\0';
+        const bool shouldIncrease = (prevChar == '{' || prevChar == '[' || prevChar == '(');
+
+        // check for SQL block-opening keywords
+        bool sqlBlockOpen = false;
+        if (!shouldIncrease && (language_ == Language::SQL)) {
+            // find the last word before cursor on this line
+            int wordEnd = cursorIndex_;
+            while (wordEnd > lineStart && content_[wordEnd - 1] == ' ')
+                wordEnd--;
+            int wordStart = wordEnd;
+            while (wordStart > lineStart &&
+                   std::isalpha(static_cast<unsigned char>(content_[wordStart - 1])))
+                wordStart--;
+            if (wordEnd > wordStart) {
+                std::string lastWord = content_.substr(wordStart, wordEnd - wordStart);
+                // uppercase for comparison
+                for (auto& c : lastWord)
+                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                if (lastWord == "BEGIN" || lastWord == "THEN" || lastWord == "LOOP" ||
+                    lastWord == "AS" || lastWord == "DO")
+                    sqlBlockOpen = true;
+            }
+        }
+
+        const std::string tab(tabSize_, ' ');
+
+        if (shouldIncrease && (nextChar == '}' || nextChar == ']' || nextChar == ')')) {
+            // enter between matching brackets: split into 3 lines
+            std::string toInsert = "\n" + indent + tab + "\n" + indent;
+            content_.insert(cursorIndex_, toInsert);
+            colors_.insert(colors_.begin() + cursorIndex_, toInsert.size(), palette_.text);
+            // place cursor at end of the indented middle line
+            cursorIndex_ += static_cast<int>(indent.size() + tab.size() + 1);
+            selectionAnchor_ = cursorIndex_;
+        } else if (shouldIncrease || sqlBlockOpen) {
+            std::string toInsert = "\n" + indent + tab;
+            content_.insert(cursorIndex_, toInsert);
+            colors_.insert(colors_.begin() + cursorIndex_, toInsert.size(), palette_.text);
+            cursorIndex_ += static_cast<int>(toInsert.size());
+            selectionAnchor_ = cursorIndex_;
+        } else {
+            std::string toInsert = "\n" + indent;
+            content_.insert(cursorIndex_, toInsert);
+            colors_.insert(colors_.begin() + cursorIndex_, toInsert.size(), palette_.text);
+            cursorIndex_ += static_cast<int>(toInsert.size());
+            selectionAnchor_ = cursorIndex_;
+        }
 
         rebuildLineStarts();
         highlightDirty_ = true;
@@ -191,11 +282,23 @@ namespace dearsql {
                 --prevPos;
 
             int deleteLen = cursorIndex_ - prevPos;
+
+            // auto-delete matching closing bracket/quote
+            if (cursorIndex_ < static_cast<int>(content_.size())) {
+                const char prev = content_[prevPos];
+                const char next = content_[cursorIndex_];
+                if ((prev == '(' && next == ')') || (prev == '[' && next == ']') ||
+                    (prev == '{' && next == '}') || (prev == '"' && next == '"') ||
+                    (prev == '\'' && next == '\'')) {
+                    deleteLen++;
+                }
+            }
+
             content_.erase(prevPos, deleteLen);
             if (prevPos < static_cast<int>(colors_.size()))
                 colors_.erase(colors_.begin() + prevPos,
                               colors_.begin() +
-                                  std::min(cursorIndex_, static_cast<int>(colors_.size())));
+                                  std::min(prevPos + deleteLen, static_cast<int>(colors_.size())));
             cursorIndex_ = prevPos;
             selectionAnchor_ = cursorIndex_;
             rebuildLineStarts();

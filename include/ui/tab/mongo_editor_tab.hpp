@@ -5,9 +5,12 @@
 #include "ui/tab/tab.hpp"
 #include "ui/text_editor.hpp"
 #include <chrono>
+#include <memory>
 #include <string>
 
 class MongoDBDatabaseNode;
+class AIChatState;
+class AIChatPanel;
 
 class MongoEditorTab final : public Tab {
 public:
@@ -47,6 +50,18 @@ private:
     void renderQueryResults() const;
     void renderSingleResult(const StatementResult& r, size_t index) const;
 
+    void formatJSON();
+
     void updateCompletionKeywords();
     bool completionKeywordsSet_ = false;
+
+    // AI panel
+    std::unique_ptr<AIChatState> aiChatState_;
+    std::unique_ptr<AIChatPanel> aiChatPanel_;
+    bool aiPanelVisible_ = false;
+    float aiPanelWidth_ = 350.0f;
+
+    void initAIPanel();
+    void renderAIToggleStrip(float stripWidth, float availableHeight);
+    void renderAIPanel(float panelWidth, float availableHeight);
 };
