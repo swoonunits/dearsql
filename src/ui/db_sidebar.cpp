@@ -422,10 +422,6 @@ void DatabaseSidebarNew::render() {
         TableDialog::instance().render();
     }
 
-    if (InputDialog::instance().isOpen()) {
-        InputDialog::instance().render();
-    }
-
     ImGui::PopStyleColor(3);
     ImGui::End();
 
@@ -579,6 +575,28 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
 
         if (ImGui::MenuItem("Edit connection")) {
             showEditConnectionDialog(&app, db);
+        }
+        if (ImGui::MenuItem("Rename")) {
+            const std::string oldName = db->getConnectionInfo().name;
+            InputDialog::show(
+                "Rename Connection", "New name:", oldName, "Rename",
+                [db, &app, oldName](const std::string& newName) -> std::string {
+                    if (app.getAppState()->renameConnection(db->getConnectionId(), newName)) {
+                        auto info = db->getConnectionInfo();
+                        info.name = newName;
+                        db->setConnectionInfo(info);
+                        return "";
+                    }
+                    return "Failed to rename connection";
+                },
+                nullptr,
+                [oldName](const std::string& newName) -> std::string {
+                    if (newName == oldName)
+                        return "New name must be different";
+                    if (newName.empty())
+                        return "Name cannot be empty";
+                    return "";
+                });
         }
 
         if (db->isConnected()) {

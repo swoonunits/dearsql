@@ -480,22 +480,23 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = dbData->name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Database", "New name:", oldName, "Rename",
-                [oldName](const std::string& newName) -> std::string {
-                    if (newName == oldName)
-                        return "New name must be different";
-                    return "";
-                },
-                [this, oldName](const std::string& newName) {
+                [this, oldName](const std::string& newName) -> std::string {
                     auto [success, error] = db->renameDatabase(oldName, newName);
                     if (success) {
                         if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
                             pgDb->refreshDatabaseNames();
                         }
-                    } else {
-                        InputDialog::instance().setError(error);
+                        return "";
                     }
+                    return error;
+                },
+                nullptr,
+                [oldName](const std::string& newName) -> std::string {
+                    if (newName == oldName)
+                        return "New name must be different";
+                    return "";
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -582,18 +583,17 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = schemaData->name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Schema", "New name:", oldName, "Rename",
+                [schemaData](const std::string& newName) -> std::string {
+                    auto [success, error] = schemaData->renameSchema(newName);
+                    return success ? "" : error;
+                },
+                nullptr,
                 [oldName](const std::string& newName) -> std::string {
                     if (newName == oldName)
                         return "New name must be different";
                     return "";
-                },
-                [schemaData](const std::string& newName) {
-                    auto [success, error] = schemaData->renameSchema(newName);
-                    if (!success) {
-                        InputDialog::instance().setError(error);
-                    }
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -857,13 +857,9 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = dbData->name;
-            InputDialog::instance().showWithValidation(
-                "Rename Database", "New name:", oldName, "Rename",
-                [](const std::string&) -> std::string {
-                    return "MySQL does not support direct database renaming. You need to create a "
-                           "new database, copy all data, and drop the old one.";
-                },
-                [](const std::string&) {});
+            Alert::show("Rename Database",
+                        "MySQL does not support direct database renaming. You need to "
+                        "create a new database, copy all data, and drop the old one.");
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
             const std::string dbName = dbData->name;
@@ -1044,18 +1040,17 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Table", "New name:", oldName, "Rename",
+                [schemaNode, oldName](const std::string& newName) -> std::string {
+                    auto [success, error] = schemaNode->renameTable(oldName, newName);
+                    return success ? "" : error;
+                },
+                nullptr,
                 [oldName](const std::string& newName) -> std::string {
                     if (newName == oldName)
                         return "New name must be different";
                     return "";
-                },
-                [schemaNode, oldName](const std::string& newName) {
-                    auto [success, error] = schemaNode->renameTable(oldName, newName);
-                    if (!success) {
-                        InputDialog::instance().setError(error);
-                    }
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -1356,18 +1351,17 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Table", "New name:", oldName, "Rename",
+                [dbData, oldName](const std::string& newName) -> std::string {
+                    auto [success, error] = dbData->renameTable(oldName, newName);
+                    return success ? "" : error;
+                },
+                nullptr,
                 [oldName](const std::string& newName) -> std::string {
                     if (newName == oldName)
                         return "New name must be different";
                     return "";
-                },
-                [dbData, oldName](const std::string& newName) {
-                    auto [success, error] = dbData->renameTable(oldName, newName);
-                    if (!success) {
-                        InputDialog::instance().setError(error);
-                    }
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -1792,18 +1786,17 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Table", "New name:", oldName, "Rename",
+                [dbData, oldName](const std::string& newName) -> std::string {
+                    auto [success, error] = dbData->renameTable(oldName, newName);
+                    return success ? "" : error;
+                },
+                nullptr,
                 [oldName](const std::string& newName) -> std::string {
                     if (newName == oldName)
                         return "New name must be different";
                     return "";
-                },
-                [dbData, oldName](const std::string& newName) {
-                    auto [success, error] = dbData->renameTable(oldName, newName);
-                    if (!success) {
-                        InputDialog::instance().setError(error);
-                    }
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -2280,18 +2273,17 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
-            InputDialog::instance().showWithValidation(
+            InputDialog::show(
                 "Rename Table", "New name:", oldName, "Rename",
+                [sqliteDb, oldName](const std::string& newName) -> std::string {
+                    auto [success, error] = sqliteDb->renameTable(oldName, newName);
+                    return success ? "" : error;
+                },
+                nullptr,
                 [oldName](const std::string& newName) -> std::string {
                     if (newName == oldName)
                         return "New name must be different";
                     return "";
-                },
-                [sqliteDb, oldName](const std::string& newName) {
-                    auto [success, error] = sqliteDb->renameTable(oldName, newName);
-                    if (!success) {
-                        InputDialog::instance().setError(error);
-                    }
                 });
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {

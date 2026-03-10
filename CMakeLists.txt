@@ -211,7 +211,6 @@ set(APP_SOURCES
 
     # UI
     src/ui/table_dialog.cpp
-    src/ui/input_dialog.cpp
     src/ui/query_history.cpp
     src/ui/table_renderer.cpp
     src/ui/auto_complete_input.cpp
@@ -263,6 +262,7 @@ if(APPLE)
     list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
     list(APPEND APP_SOURCES src/platform/macos_updater.mm)
     list(APPEND APP_SOURCES src/platform/macos_alert.mm)
+    list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
     list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
@@ -270,12 +270,14 @@ elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
     list(APPEND APP_SOURCES src/ui/update_dialog.cpp)
     list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
     list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(WIN32)
     list(APPEND APP_SOURCES
         src/platform/windows_platform.cpp
         src/platform/windows_connection_dialog.cpp
         src/platform/windows_alert.cpp
+        src/platform/windows_input_dialog.cpp
         src/platform/windows_ssh_tunnel.cpp
         assets/app.rc
     )
