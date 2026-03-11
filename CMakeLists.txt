@@ -85,6 +85,8 @@ find_package(hiredis_ssl CONFIG REQUIRED)
 find_package(mongocxx CONFIG REQUIRED)
 find_package(bsoncxx CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
+find_package(unofficial-tree-sitter CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
 find_package(sentry CONFIG REQUIRED)
 include(cmake/FreeTDS.cmake)
@@ -116,27 +118,20 @@ if(APPLE)
     endif()
 endif()
 
-# tree-sitter (for text editor syntax highlighting)
-add_library(tree-sitter-core STATIC external/tree-sitter/lib/src/lib.c)
-target_include_directories(tree-sitter-core PUBLIC
-    external/tree-sitter/lib/include
-    external/tree-sitter/lib/src
-)
-set_target_properties(tree-sitter-core PROPERTIES C_STANDARD 11)
-
+# tree-sitter grammars (core library from vcpkg)
 add_library(tree-sitter-sql-grammar STATIC
     external/tree-sitter-sql/src/parser.c
     external/tree-sitter-sql/src/scanner.c
 )
 target_include_directories(tree-sitter-sql-grammar PRIVATE external/tree-sitter-sql/src)
-target_link_libraries(tree-sitter-sql-grammar PRIVATE tree-sitter-core)
+target_link_libraries(tree-sitter-sql-grammar PRIVATE unofficial::tree-sitter::tree-sitter)
 set_target_properties(tree-sitter-sql-grammar PROPERTIES C_STANDARD 11)
 
 add_library(tree-sitter-json-grammar STATIC
     external/tree-sitter-json/src/parser.c
 )
 target_include_directories(tree-sitter-json-grammar PRIVATE external/tree-sitter-json/src)
-target_link_libraries(tree-sitter-json-grammar PRIVATE tree-sitter-core)
+target_link_libraries(tree-sitter-json-grammar PRIVATE unofficial::tree-sitter::tree-sitter)
 set_target_properties(tree-sitter-json-grammar PROPERTIES C_STANDARD 11)
 
 # ImGui (from submodule - tightly integrated with platform backends)
@@ -313,8 +308,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     external/imgui-node-editor
     external/imgui-node-editor/external/stb_image
     external/IconFontCppHeaders
-    external/cpp-httplib
-    external/tree-sitter/lib/include
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/include
 )
@@ -350,7 +343,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SYBDB_LIBRARY}
     ${SYBDB_DEPS}
     odpi
-    tree-sitter-core
+    httplib::httplib
+    unofficial::tree-sitter::tree-sitter
     tree-sitter-sql-grammar
     tree-sitter-json-grammar
 )
@@ -484,7 +478,6 @@ endif()
 target_include_directories(database_tests PRIVATE
     include
     tests/database
-    external/cpp-httplib
 )
 if(SYBDB_INCLUDE_DIR AND NOT SYBDB_INCLUDE_DIR STREQUAL "")
     target_include_directories(database_tests SYSTEM AFTER PRIVATE ${SYBDB_INCLUDE_DIR})
@@ -517,12 +510,11 @@ add_executable(sql_format_tests
 target_include_directories(sql_format_tests PRIVATE
     include
     external/imgui
-    external/tree-sitter/lib/include
 )
 
 target_link_libraries(sql_format_tests PRIVATE
     GTest::gtest_main
-    tree-sitter-core
+    unofficial::tree-sitter::tree-sitter
     tree-sitter-sql-grammar
 )
 

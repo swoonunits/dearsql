@@ -11,12 +11,6 @@
 [submodule "external/imgui_test_engine"]
 	path = external/imgui_test_engine
 	url = https://github.com/ocornut/imgui_test_engine.git
-[submodule "external/cpp-httplib"]
-	path = external/cpp-httplib
-	url = https://github.com/yhirose/cpp-httplib.git
-[submodule "external/tree-sitter"]
-	path = external/tree-sitter
-	url = https://github.com/tree-sitter/tree-sitter.git
 [submodule "external/tree-sitter-sql"]
 	path = external/tree-sitter-sql
 	url = https://github.com/DerekStride/tree-sitter-sql.git
