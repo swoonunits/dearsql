@@ -8,7 +8,17 @@
 #include <string>
 #include <vector>
 
-enum class DatabaseType { SQLITE, POSTGRESQL, MYSQL, MARIADB, REDIS, MONGODB, MSSQL, ORACLE, REDSHIFT };
+enum class DatabaseType {
+    SQLITE,
+    POSTGRESQL,
+    MYSQL,
+    MARIADB,
+    REDIS,
+    MONGODB,
+    MSSQL,
+    ORACLE,
+    REDSHIFT
+};
 
 enum class SSHAuthMethod { Password, PrivateKey };
 

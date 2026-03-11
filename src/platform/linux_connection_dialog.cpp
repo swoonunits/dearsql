@@ -940,8 +940,8 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
     gtk_box_append(GTK_BOX(mainBox), nameRow);
 
     // Type dropdown
-    static const char* typeNames[] = {"SQLite", "PostgreSQL", "MySQL", "MariaDB",
-                                      "Redis",  "MongoDB",    "MSSQL", "Oracle", "Redshift"};
+    static const char* typeNames[] = {"SQLite",  "PostgreSQL", "MySQL",  "MariaDB", "Redis",
+                                      "MongoDB", "MSSQL",      "Oracle", "Redshift"};
     data->typeDropdown = makeStringDropdown(typeNames, 9, static_cast<int>(initialType));
 
     GtkWidget* typeRow = makeRow(makeLabel("Type"), data->typeDropdown);
