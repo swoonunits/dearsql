@@ -6,6 +6,7 @@
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
+#include "database/oracle.hpp"
 #include "database/postgresql.hpp"
 #include "database/query_executor.hpp"
 #include "database/redis.hpp"
@@ -331,6 +332,8 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         defaultPort = "6379";
     else if (type == DatabaseType::MSSQL)
         defaultPort = "1433";
+    else if (type == DatabaseType::ORACLE)
+        defaultPort = "1521";
     else if (type == DatabaseType::REDSHIFT)
         defaultPort = "5439";
     gtk_editable_set_text(GTK_EDITABLE(data->portEntry), defaultPort);
@@ -346,8 +349,11 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
 
     // Database (not for Redis)
     if (type != DatabaseType::REDIS) {
-        data->databaseEntry = makeEntry("(optional)");
-        GtkWidget* dbRow = makeRow(makeLabel("Database"), data->databaseEntry);
+        const char* dbLabel = type == DatabaseType::ORACLE ? "Service" : "Database";
+        const char* dbPlaceholder =
+            type == DatabaseType::ORACLE ? "e.g. XEPDB1, ORCL, FREEPDB1" : "(optional)";
+        data->databaseEntry = makeEntry(dbPlaceholder);
+        GtkWidget* dbRow = makeRow(makeLabel(dbLabel), data->databaseEntry);
         gtk_box_append(GTK_BOX(data->fieldsBox), dbRow);
     }
 
@@ -358,8 +364,10 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         GtkWidget* sslRow = makeRow(makeLabel("SSL Mode"), data->sslModeDropdown);
         gtk_box_append(GTK_BOX(data->fieldsBox), sslRow);
 
-        data->sslCACertPathEntry = makeEntry("/path/to/ca-cert.pem");
-        data->sslCACertPathRow = makeRow(makeLabel("CA Cert"), data->sslCACertPathEntry);
+        const bool isOracle = type == DatabaseType::ORACLE;
+        data->sslCACertPathEntry = makeEntry(isOracle ? "/path/to/wallet" : "/path/to/ca-cert.pem");
+        data->sslCACertPathRow =
+            makeRow(makeLabel(isOracle ? "Wallet" : "CA Cert"), data->sslCACertPathEntry);
         gtk_box_append(GTK_BOX(data->fieldsBox), data->sslCACertPathRow);
         gtk_widget_set_visible(data->sslCACertPathRow, FALSE);
 
@@ -842,6 +850,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = dbStr.empty() ? "master" : dbStr;
             db = std::make_shared<MSSQLDatabase>(info);
             break;
+        case DatabaseType::ORACLE:
+            info.database = dbStr;
+            db = std::make_shared<OracleDatabase>(info);
+            break;
         case DatabaseType::REDSHIFT:
             info.database = dbStr.empty() ? "dev" : dbStr;
             db = std::make_shared<PostgresDatabase>(info);
@@ -929,8 +941,8 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
 
     // Type dropdown
     static const char* typeNames[] = {"SQLite", "PostgreSQL", "MySQL", "MariaDB",
-                                      "Redis",  "MongoDB",    "MSSQL", "Redshift"};
-    data->typeDropdown = makeStringDropdown(typeNames, 8, static_cast<int>(initialType));
+                                      "Redis",  "MongoDB",    "MSSQL", "Oracle", "Redshift"};
+    data->typeDropdown = makeStringDropdown(typeNames, 9, static_cast<int>(initialType));
 
     GtkWidget* typeRow = makeRow(makeLabel("Type"), data->typeDropdown);
     gtk_box_append(GTK_BOX(mainBox), typeRow);

@@ -6,6 +6,7 @@
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
+#include "database/oracle.hpp"
 #include "database/postgresql.hpp"
 #include "database/redis.hpp"
 #include "database/sqlite.hpp"
@@ -195,6 +196,8 @@ static int defaultPort(DatabaseType type) {
         return 6379;
     case DatabaseType::MSSQL:
         return 1433;
+    case DatabaseType::ORACLE:
+        return 1521;
     case DatabaseType::REDSHIFT:
         return 5439;
     default:
@@ -268,6 +271,8 @@ static void updateFieldVisibility(HWND dialog, DatabaseType type) {
         auto sslCfg = getSslConfig(type);
         bool needsCACert =
             (sslIdx >= 0 && sslIdx < sslCfg.count) && sslModeNeedsCACert(sslCfg.values[sslIdx]);
+        SetWindowTextA(GetDlgItem(dialog, IDC_SSL_CA_CERT_LABEL),
+                       type == DatabaseType::ORACLE ? "Wallet:" : "CA cert:");
         showCtrl(dialog, IDC_SSL_CA_CERT_LABEL, needsCACert);
         showCtrl(dialog, IDC_SSL_CA_CERT_EDIT, needsCACert);
         showCtrl(dialog, IDC_SSL_CA_CERT_BROWSE, needsCACert);
@@ -502,6 +507,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = database.empty() ? "master" : database;
             db = std::make_shared<MSSQLDatabase>(info);
             break;
+        case DatabaseType::ORACLE:
+            info.database = database;
+            db = std::make_shared<OracleDatabase>(info);
+            break;
         case DatabaseType::REDSHIFT:
             info.database = database.empty() ? "dev" : database;
             db = std::make_shared<PostgresDatabase>(info);
@@ -569,7 +578,7 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         HWND typeCombo =
             makeCtrl("COMBOBOX", "", IDC_TYPE_COMBO, CBS_DROPDOWNLIST | WS_TABSTOP, FX, y, FW, 200);
         const char* types[] = {"SQLite", "PostgreSQL", "MySQL", "MariaDB",
-                               "Redis",  "MongoDB",    "MSSQL", "Redshift"};
+                               "Redis",  "MongoDB",    "MSSQL", "Oracle", "Redshift"};
         for (const char* t : types) {
             SendMessageA(typeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(t));
         }

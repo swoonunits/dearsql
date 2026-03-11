@@ -48,6 +48,8 @@ namespace {
             conn.connectionInfo.type = DatabaseType::MARIADB;
         } else if (typeStr == "mssql") {
             conn.connectionInfo.type = DatabaseType::MSSQL;
+        } else if (typeStr == "oracle") {
+            conn.connectionInfo.type = DatabaseType::ORACLE;
         } else if (typeStr == "redshift") {
             conn.connectionInfo.type = DatabaseType::REDSHIFT;
         } else {
@@ -127,9 +129,11 @@ namespace {
             (showAllStr != "NULL" && showAllStr != "0" && !showAllStr.empty());
 
         std::string sslmodeStr = columnText(stmt, 13);
-        conn.connectionInfo.sslmode = (sslmodeStr == "NULL" || sslmodeStr.empty())
-                                          ? SslMode::Prefer
-                                          : stringToSslMode(sslmodeStr);
+        conn.connectionInfo.sslmode =
+            (sslmodeStr == "NULL" || sslmodeStr.empty())
+                ? (conn.connectionInfo.type == DatabaseType::ORACLE ? SslMode::Disable
+                                                                    : SslMode::Prefer)
+                : stringToSslMode(sslmodeStr);
 
         // SSH tunnel fields (columns 14-20)
         std::string sshEnabledStr = columnText(stmt, 14);
@@ -397,6 +401,9 @@ int AppState::saveConnection(const SavedConnection& connection) const {
     case DatabaseType::MSSQL:
         typeStr = "mssql";
         break;
+    case DatabaseType::ORACLE:
+        typeStr = "oracle";
+        break;
     case DatabaseType::REDSHIFT:
         typeStr = "redshift";
         break;
@@ -508,6 +515,9 @@ bool AppState::updateConnection(const SavedConnection& connection) const {
         break;
     case DatabaseType::MSSQL:
         typeStr = "mssql";
+        break;
+    case DatabaseType::ORACLE:
+        typeStr = "oracle";
         break;
     case DatabaseType::REDSHIFT:
         typeStr = "redshift";

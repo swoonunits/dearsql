@@ -11,6 +11,8 @@ std::string DDLBuilder::quoteIdentifier(const std::string& id) const {
         return std::format("\"{}\"", id);
     case DatabaseType::MSSQL:
         return std::format("[{}]", id);
+    case DatabaseType::ORACLE:
+        return std::format("\"{}\"", id);
     case DatabaseType::SQLITE:
     default:
         return std::format("\"{}\"", id);
