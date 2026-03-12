@@ -7,6 +7,7 @@
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
 #include "database/oracle.hpp"
+#include "database/oracle/oracle_client_installer.hpp"
 #include "database/postgresql.hpp"
 #include "database/redis.hpp"
 #include "database/sqlite.hpp"
@@ -60,6 +61,9 @@ enum {
     IDC_STATUS_LABEL,
     IDC_CONNECT_BTN,
     IDC_CANCEL_BTN,
+    // Oracle client
+    IDC_ORACLE_CLIENT_LABEL,
+    IDC_ORACLE_CLIENT_STATUS,
     // labels (static text)
     IDC_LABEL_NAME,
     IDC_LABEL_TYPE,
@@ -79,6 +83,7 @@ enum {
 
 // custom message for async connect result
 #define WM_CONNECT_RESULT (WM_APP + 1)
+#define IDT_ORACLE_POLL 1001
 
 // ---------------------------------------------------------------------------
 // internal state
@@ -98,6 +103,10 @@ struct ConnectionDialogData {
 
     // current database type index
     int currentTypeIndex = 0;
+
+    // Oracle client installer
+    OracleClientInstaller oracleInstaller;
+    std::string lastOracleStatusMsg;
 };
 
 struct AsyncConnectResult {
@@ -170,7 +179,6 @@ static void setFormEnabled(HWND dialog, bool enabled) {
     EnableWindow(GetDlgItem(dialog, IDC_USERNAME_EDIT), e);
     EnableWindow(GetDlgItem(dialog, IDC_PASSWORD_EDIT), e);
     EnableWindow(GetDlgItem(dialog, IDC_SHOW_ALL_DBS_CHECK), e);
-
     // SSH
     EnableWindow(GetDlgItem(dialog, IDC_SSH_ENABLED_CHECK), e);
     EnableWindow(GetDlgItem(dialog, IDC_SSH_HOST_EDIT), e);
@@ -242,6 +250,18 @@ static void updateFieldVisibility(HWND dialog, DatabaseType type) {
     showCtrl(dialog, IDC_PASSWORD_EDIT, isServer);
 
     showCtrl(dialog, IDC_SHOW_ALL_DBS_CHECK, isServer && !isRedis);
+
+    // Oracle client status
+    bool isOracle = (type == DatabaseType::ORACLE);
+    showCtrl(dialog, IDC_ORACLE_CLIENT_LABEL, isOracle);
+    showCtrl(dialog, IDC_ORACLE_CLIENT_STATUS, isOracle);
+    if (isOracle) {
+        if (OracleClientInstaller::isInstalled()) {
+            SetWindowTextA(GetDlgItem(dialog, IDC_ORACLE_CLIENT_STATUS), "Installed");
+        } else {
+            SetWindowTextA(GetDlgItem(dialog, IDC_ORACLE_CLIENT_STATUS), "Not found");
+        }
+    }
 
     // SSH fields
     showCtrl(dialog, IDC_SSH_ENABLED_CHECK, isServer);
@@ -610,6 +630,11 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
                  RH);
         y += RS;
 
+        // Oracle client status
+        makeCtrl("STATIC", "Client:", IDC_ORACLE_CLIENT_LABEL, SS_RIGHT, LX, y + 3, LW, RH);
+        makeCtrl("STATIC", "", IDC_ORACLE_CLIENT_STATUS, SS_LEFT, FX, y + 3, FW, RH);
+        y += RS;
+
         // SSL mode
         makeCtrl("STATIC", "SSL:", IDC_LABEL_SSL, SS_RIGHT, LX, y + 3, LW, RH);
         makeCtrl("COMBOBOX", "", IDC_SSL_MODE_COMBO, CBS_DROPDOWNLIST | WS_TABSTOP, FX, y, FW, 200);
@@ -786,6 +811,14 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
             auto type = static_cast<DatabaseType>(data->currentTypeIndex);
             if (type == DatabaseType::SQLITE) {
                 connectSQLite(data);
+            } else if (type == DatabaseType::ORACLE && !OracleClientInstaller::isInstalled() &&
+                       !data->oracleInstaller.isRunning()) {
+                // auto-install Oracle client, then connect after it finishes
+                data->oracleInstaller.startInstall();
+                EnableWindow(GetDlgItem(hwnd, IDC_CONNECT_BTN), FALSE);
+                SetWindowTextA(GetDlgItem(hwnd, IDC_ORACLE_CLIENT_STATUS), "Downloading...");
+                setStatus(hwnd, "Installing Oracle Instant Client...");
+                SetTimer(hwnd, IDT_ORACLE_POLL, 200, nullptr);
             } else {
                 connectServerAsync(data);
             }
@@ -822,6 +855,37 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
     }
 
+    case WM_TIMER: {
+        if (wParam == IDT_ORACLE_POLL && data) {
+            data->oracleInstaller.checkStatus();
+
+            if (data->oracleInstaller.isRunning()) {
+                auto msg = data->oracleInstaller.getStatusMessage();
+                if (msg != data->lastOracleStatusMsg) {
+                    data->lastOracleStatusMsg = msg;
+                    SetWindowTextA(GetDlgItem(hwnd, IDC_ORACLE_CLIENT_STATUS), msg.c_str());
+                }
+                return 0;
+            }
+
+            // async op finished
+            KillTimer(hwnd, IDT_ORACLE_POLL);
+            auto status = data->oracleInstaller.getStatus();
+
+            if (status == OracleClientInstaller::Status::Done) {
+                SetWindowTextA(GetDlgItem(hwnd, IDC_ORACLE_CLIENT_STATUS), "Installed");
+                setStatus(hwnd, "");
+                connectServerAsync(data);
+            } else if (status == OracleClientInstaller::Status::Failed) {
+                std::string msg = "Install failed: " + data->oracleInstaller.getError();
+                SetWindowTextA(GetDlgItem(hwnd, IDC_ORACLE_CLIENT_STATUS), msg.c_str());
+                setStatus(hwnd, "Oracle Client installation failed. Click Connect to retry.");
+                EnableWindow(GetDlgItem(hwnd, IDC_CONNECT_BTN), TRUE);
+            }
+        }
+        return 0;
+    }
+
     case WM_CLOSE:
         if (data) {
             data->cancelled.store(true);
@@ -830,8 +894,10 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
 
     case WM_DESTROY:
+        KillTimer(hwnd, IDT_ORACLE_POLL);
         sActiveConnectionDialog = nullptr;
         if (data) {
+            data->oracleInstaller.cancel();
             data->editingDb.reset();
             delete data;
         }

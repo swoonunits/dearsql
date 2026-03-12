@@ -193,6 +193,8 @@ bool OracleClientInstaller::downloadAndExtract(std::stop_token stopToken) {
     }
 
     Logger::info("Download complete, extracting...");
+    status = Status::Extracting;
+    statusMessage = "Extracting Oracle Instant Client...";
 
     // extract
     int ret = -1;
@@ -249,6 +251,7 @@ bool OracleClientInstaller::downloadAndExtract(std::stop_token stopToken) {
 #if defined(__linux__)
     // Oracle Instant Client requires libaio.so.1 on Linux.
     // bundle it into the install dir so ODPI-C finds it via oracleClientLibDir
+    statusMessage = "Installing libaio dependency...";
     ensureLibaio(installDir);
 #endif
 

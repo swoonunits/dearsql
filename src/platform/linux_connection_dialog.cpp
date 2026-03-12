@@ -7,6 +7,7 @@
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
 #include "database/oracle.hpp"
+#include "database/oracle/oracle_client_installer.hpp"
 #include "database/postgresql.hpp"
 #include "database/query_executor.hpp"
 #include "database/redis.hpp"
@@ -55,6 +56,14 @@ struct ConnectionDialogData {
     GtkWidget* usernameEntry = nullptr;
     GtkWidget* passwordEntry = nullptr;
     GtkWidget* credentialsRow = nullptr;
+
+    // Oracle Instant Client
+    GtkWidget* oracleClientRow = nullptr;
+    GtkWidget* oracleClientStatusLabel = nullptr;
+    GtkWidget* oracleClientSpinner = nullptr;
+    OracleClientInstaller oracleInstaller;
+    guint oraclePollingTimerId = 0;
+    std::string lastOracleStatusMsg;
 
     // Show all databases
     GtkWidget* showAllDbsCheck = nullptr;
@@ -355,6 +364,40 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         data->databaseEntry = makeEntry(dbPlaceholder);
         GtkWidget* dbRow = makeRow(makeLabel(dbLabel), data->databaseEntry);
         gtk_box_append(GTK_BOX(data->fieldsBox), dbRow);
+    }
+
+    // Oracle Instant Client status
+    data->oracleClientRow = nullptr;
+    data->oracleClientStatusLabel = nullptr;
+    data->oracleClientSpinner = nullptr;
+    if (data->oraclePollingTimerId) {
+        g_source_remove(data->oraclePollingTimerId);
+        data->oraclePollingTimerId = 0;
+    }
+
+    if (type == DatabaseType::ORACLE) {
+        data->oracleClientRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget* clientLabel = makeLabel("Client");
+
+        data->oracleClientStatusLabel = gtk_label_new("");
+        gtk_widget_set_hexpand(data->oracleClientStatusLabel, TRUE);
+        gtk_widget_set_halign(data->oracleClientStatusLabel, GTK_ALIGN_START);
+
+        data->oracleClientSpinner = gtk_spinner_new();
+
+        gtk_box_append(GTK_BOX(data->oracleClientRow), clientLabel);
+        gtk_box_append(GTK_BOX(data->oracleClientRow), data->oracleClientStatusLabel);
+        gtk_box_append(GTK_BOX(data->oracleClientRow), data->oracleClientSpinner);
+        gtk_box_append(GTK_BOX(data->fieldsBox), data->oracleClientRow);
+
+        // set initial status (only when not actively installing)
+        if (OracleClientInstaller::isInstalled() && !data->oracleInstaller.isRunning()) {
+            gtk_label_set_text(GTK_LABEL(data->oracleClientStatusLabel),
+                               "Oracle Instant Client: installed");
+        } else if (!data->oracleInstaller.isRunning()) {
+            gtk_label_set_text(GTK_LABEL(data->oracleClientStatusLabel),
+                               "Oracle Instant Client: not found");
+        }
     }
 
     // SSL Mode (all server types)
@@ -914,6 +957,11 @@ static void connectServerAsync(ConnectionDialogData* data) {
 
 static void destroyConnectionDialogData(gpointer ptr) {
     auto* data = static_cast<ConnectionDialogData*>(ptr);
+    if (data->oraclePollingTimerId) {
+        g_source_remove(data->oraclePollingTimerId);
+        data->oraclePollingTimerId = 0;
+    }
+    data->oracleInstaller.cancel();
     data->editingDb.reset();
     delete data;
 }
@@ -1008,6 +1056,65 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
 
             if (type == DatabaseType::SQLITE) {
                 connectSQLite(d);
+            } else if (type == DatabaseType::ORACLE && !OracleClientInstaller::isInstalled() &&
+                       !d->oracleInstaller.isRunning()) {
+                // auto-install Oracle client, then connect after it finishes
+                d->oracleInstaller.startInstall();
+                gtk_widget_set_sensitive(d->connectButton, FALSE);
+                if (d->oracleClientSpinner)
+                    gtk_spinner_start(GTK_SPINNER(d->oracleClientSpinner));
+                if (d->oracleClientStatusLabel)
+                    gtk_label_set_text(GTK_LABEL(d->oracleClientStatusLabel), "Downloading...");
+                gtk_label_set_text(GTK_LABEL(d->statusLabel),
+                                   "Installing Oracle Instant Client...");
+
+                if (!d->oraclePollingTimerId) {
+                    d->oraclePollingTimerId = g_timeout_add(
+                        200,
+                        +[](gpointer ud2) -> gboolean {
+                            auto* d2 = static_cast<ConnectionDialogData*>(ud2);
+                            d2->oracleInstaller.checkStatus();
+
+                            if (d2->oracleInstaller.isRunning()) {
+                                auto msg = d2->oracleInstaller.getStatusMessage();
+                                if (d2->oracleClientStatusLabel && msg != d2->lastOracleStatusMsg) {
+                                    d2->lastOracleStatusMsg = msg;
+                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
+                                                       msg.c_str());
+                                }
+                                return G_SOURCE_CONTINUE;
+                            }
+
+                            if (d2->oracleClientSpinner)
+                                gtk_spinner_stop(GTK_SPINNER(d2->oracleClientSpinner));
+                            auto status = d2->oracleInstaller.getStatus();
+
+                            if (status == OracleClientInstaller::Status::Done) {
+                                if (d2->oracleClientStatusLabel)
+                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
+                                                       "Oracle Instant Client: installed");
+                                if (d2->statusLabel)
+                                    gtk_label_set_text(GTK_LABEL(d2->statusLabel), "");
+                                // now proceed with connection
+                                connectServerAsync(d2);
+                            } else if (status == OracleClientInstaller::Status::Failed) {
+                                std::string msg =
+                                    "Install failed: " + d2->oracleInstaller.getError();
+                                if (d2->oracleClientStatusLabel)
+                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
+                                                       msg.c_str());
+                                if (d2->statusLabel)
+                                    gtk_label_set_text(GTK_LABEL(d2->statusLabel),
+                                                       "Oracle Client installation failed. Click "
+                                                       "Connect to retry.");
+                                gtk_widget_set_sensitive(d2->connectButton, TRUE);
+                            }
+
+                            d2->oraclePollingTimerId = 0;
+                            return G_SOURCE_REMOVE;
+                        },
+                        d);
+                }
             } else {
                 connectServerAsync(d);
             }
@@ -1094,6 +1201,9 @@ static void populateFieldsFromConnection(ConnectionDialogData* data,
     case DatabaseType::MYSQL:
     case DatabaseType::MARIADB:
     case DatabaseType::MONGODB:
+    case DatabaseType::MSSQL:
+    case DatabaseType::ORACLE:
+    case DatabaseType::REDSHIFT:
         if (data->hostEntry)
             gtk_editable_set_text(GTK_EDITABLE(data->hostEntry), info.host.c_str());
         if (data->portEntry) {
