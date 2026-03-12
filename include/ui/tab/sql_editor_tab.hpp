@@ -77,6 +77,10 @@ private:
     void renderConnectionInfoMSSQL();
     void renderConnectionInfoOracle();
     void renderConnectionInfoSQLite();
+    void renderDatabaseCombo(const std::string& host, const char* label,
+                             const std::string& currentName,
+                             const std::vector<std::string>& dbNames,
+                             const std::function<void(const std::string&)>& onSelect);
     void renderToolbar();
     void renderQueryResults() const;
     void renderSingleResult(const StatementResult& r, size_t index) const;

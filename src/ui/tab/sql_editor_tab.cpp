@@ -313,61 +313,18 @@ void SQLEditorTab::renderConnectionInfoMySQL() {
     }
 
     auto* serverDb = dbNode->parentDb;
-    const auto& connInfo = serverDb->getConnectionInfo();
-    const auto& colors = Application::getInstance().getCurrentColors();
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", connInfo.host.c_str());
-    ImGui::SameLine(0, Theme::Spacing::L);
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Database:");
-    ImGui::SameLine(0, Theme::Spacing::S);
-
     const auto& dbMap = serverDb->getDatabaseDataMap();
     std::vector<std::string> dbNames;
     dbNames.reserve(dbMap.size());
-    for (const auto& name : dbMap | std::views::keys) {
+    for (const auto& name : dbMap | std::views::keys)
         dbNames.push_back(name);
-    }
     std::ranges::sort(dbNames);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::S, Theme::Spacing::S));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-
-    if (queryExecutionOp_.isRunning())
-        ImGui::BeginDisabled();
-
-    ImGui::SetNextItemWidth(150.0f);
-    if (ImGui::BeginCombo("##db_combo", dbNode->name.c_str())) {
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(ImGui::GetStyle().ItemSpacing.x, Theme::Spacing::XS));
-        for (const auto& dbName : dbNames) {
-            bool isSelected = (dbName == dbNode->name);
-            if (ImGui::Selectable(dbName.c_str(), isSelected, ImGuiSelectableFlags_None,
-                                  ImVec2(0, ImGui::GetTextLineHeight() + Theme::Spacing::S))) {
-                if (dbName != dbNode->name) {
-                    auto* newNode = serverDb->getDatabaseData(dbName);
-                    if (newNode) {
-                        switchNode(newNode);
-                    }
-                }
-            }
-            if (isSelected) {
-                ImGui::SetItemDefaultFocus();
-            }
-        }
-        ImGui::PopStyleVar();
-        ImGui::EndCombo();
-    }
-
-    if (queryExecutionOp_.isRunning())
-        ImGui::EndDisabled();
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
+    renderDatabaseCombo(serverDb->getConnectionInfo().host, "Database:", dbNode->name, dbNames,
+                        [serverDb, this](const std::string& name) {
+                            if (auto* n = serverDb->getDatabaseData(name))
+                                switchNode(n);
+                        });
 }
 
 void SQLEditorTab::renderConnectionInfoMSSQL() {
@@ -378,61 +335,18 @@ void SQLEditorTab::renderConnectionInfoMSSQL() {
     }
 
     auto* serverDb = dbNode->parentDb;
-    const auto& connInfo = serverDb->getConnectionInfo();
-    const auto& colors = Application::getInstance().getCurrentColors();
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", connInfo.host.c_str());
-    ImGui::SameLine(0, Theme::Spacing::L);
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Database:");
-    ImGui::SameLine(0, Theme::Spacing::S);
-
     const auto& dbMap = serverDb->getDatabaseDataMap();
     std::vector<std::string> dbNames;
     dbNames.reserve(dbMap.size());
-    for (const auto& name : dbMap | std::views::keys) {
+    for (const auto& name : dbMap | std::views::keys)
         dbNames.push_back(name);
-    }
     std::ranges::sort(dbNames);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::S, Theme::Spacing::S));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-
-    if (queryExecutionOp_.isRunning())
-        ImGui::BeginDisabled();
-
-    ImGui::SetNextItemWidth(150.0f);
-    if (ImGui::BeginCombo("##db_combo", dbNode->name.c_str())) {
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(ImGui::GetStyle().ItemSpacing.x, Theme::Spacing::XS));
-        for (const auto& dbName : dbNames) {
-            bool isSelected = (dbName == dbNode->name);
-            if (ImGui::Selectable(dbName.c_str(), isSelected, ImGuiSelectableFlags_None,
-                                  ImVec2(0, ImGui::GetTextLineHeight() + Theme::Spacing::S))) {
-                if (dbName != dbNode->name) {
-                    auto* newNode = serverDb->getDatabaseData(dbName);
-                    if (newNode) {
-                        switchNode(newNode);
-                    }
-                }
-            }
-            if (isSelected) {
-                ImGui::SetItemDefaultFocus();
-            }
-        }
-        ImGui::PopStyleVar();
-        ImGui::EndCombo();
-    }
-
-    if (queryExecutionOp_.isRunning())
-        ImGui::EndDisabled();
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
+    renderDatabaseCombo(serverDb->getConnectionInfo().host, "Database:", dbNode->name, dbNames,
+                        [serverDb, this](const std::string& name) {
+                            if (auto* n = serverDb->getDatabaseData(name))
+                                switchNode(n);
+                        });
 }
 
 void SQLEditorTab::renderConnectionInfoOracle() {
@@ -443,24 +357,37 @@ void SQLEditorTab::renderConnectionInfoOracle() {
     }
 
     auto* serverDb = dbNode->parentDb;
-    const auto& connInfo = serverDb->getConnectionInfo();
-    const auto& colors = Application::getInstance().getCurrentColors();
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s", connInfo.host.c_str());
-    ImGui::SameLine(0, Theme::Spacing::L);
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Schema:");
-    ImGui::SameLine(0, Theme::Spacing::S);
-
     const auto& dbMap = serverDb->getDatabaseDataMap();
     std::vector<std::string> dbNames;
     dbNames.reserve(dbMap.size());
-    for (const auto& name : dbMap | std::views::keys) {
+    for (const auto& name : dbMap | std::views::keys)
         dbNames.push_back(name);
-    }
     std::ranges::sort(dbNames);
+
+    renderDatabaseCombo(serverDb->getConnectionInfo().host, "Schema:", dbNode->name, dbNames,
+                        [serverDb, this](const std::string& name) {
+                            if (auto* n = serverDb->getDatabaseData(name))
+                                switchNode(n);
+                        });
+}
+
+void SQLEditorTab::renderConnectionInfoSQLite() {
+    ImGui::Text("Database: %s", node_->getFullPath().c_str());
+}
+
+void SQLEditorTab::renderDatabaseCombo(const std::string& host, const char* label,
+                                       const std::string& currentName,
+                                       const std::vector<std::string>& dbNames,
+                                       const std::function<void(const std::string&)>& onSelect) {
+    const auto& colors = Application::getInstance().getCurrentColors();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", host.c_str());
+    ImGui::SameLine(0, Theme::Spacing::L);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", label);
+    ImGui::SameLine(0, Theme::Spacing::S);
 
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
@@ -471,18 +398,15 @@ void SQLEditorTab::renderConnectionInfoOracle() {
         ImGui::BeginDisabled();
 
     ImGui::SetNextItemWidth(150.0f);
-    if (ImGui::BeginCombo("##schema_combo", dbNode->name.c_str())) {
+    if (ImGui::BeginCombo("##db_combo", currentName.c_str())) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(ImGui::GetStyle().ItemSpacing.x, Theme::Spacing::XS));
-        for (const auto& dbName : dbNames) {
-            bool isSelected = (dbName == dbNode->name);
-            if (ImGui::Selectable(dbName.c_str(), isSelected, ImGuiSelectableFlags_None,
+        for (const auto& name : dbNames) {
+            bool isSelected = (name == currentName);
+            if (ImGui::Selectable(name.c_str(), isSelected, ImGuiSelectableFlags_None,
                                   ImVec2(0, ImGui::GetTextLineHeight() + Theme::Spacing::S))) {
-                if (dbName != dbNode->name) {
-                    auto* newNode = serverDb->getDatabaseData(dbName);
-                    if (newNode) {
-                        switchNode(newNode);
-                    }
+                if (name != currentName) {
+                    onSelect(name);
                 }
             }
             if (isSelected) {
@@ -498,10 +422,6 @@ void SQLEditorTab::renderConnectionInfoOracle() {
 
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
-}
-
-void SQLEditorTab::renderConnectionInfoSQLite() {
-    ImGui::Text("Database: %s", node_->getFullPath().c_str());
 }
 
 void SQLEditorTab::switchNode(IDatabaseNode* newNode) {

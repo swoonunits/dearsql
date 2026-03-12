@@ -505,6 +505,11 @@ void TableViewerTab::handleKeyboardNavigation() {
         return;
     }
 
+    // skip when a text input (e.g. filter box) has keyboard focus
+    if (ImGui::GetIO().WantTextInput) {
+        return;
+    }
+
     const int maxRows = static_cast<int>(tableData.size());
     const int maxCols = static_cast<int>(columnNames.size());
 
