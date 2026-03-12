@@ -4,7 +4,6 @@
 #include "oracle/oracle_utils.hpp"
 #include "utils/logger.hpp"
 #include <cstdlib>
-#include <filesystem>
 #include <format>
 
 #if defined(__linux__)

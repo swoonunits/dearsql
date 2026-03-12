@@ -1,8 +1,6 @@
 #pragma once
 
 #include "database/async_helper.hpp"
-#include <filesystem>
-#include <functional>
 #include <string>
 
 // downloads and extracts Oracle Instant Client Basic Lite to the app data dir

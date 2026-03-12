@@ -36,7 +36,6 @@ static const CGFloat kFieldWidth = kDialogWidth - kFieldX - kMargin;
     std::shared_ptr<DatabaseInterface> _editingDb;
     std::atomic<bool> _cancelled;
     OracleClientInstaller _oracleInstaller;
-    NSString* _lastOracleStatusMsg;
 }
 
 @property(nonatomic, assign) Application* app;
@@ -81,9 +80,6 @@ static const CGFloat kFieldWidth = kDialogWidth - kFieldX - kMargin;
 @property(nonatomic, strong) NSButton* showAllDbsCheckbox;
 
 // Oracle Instant Client
-@property(nonatomic, strong) NSTextField* oracleClientLabel;
-@property(nonatomic, strong) NSTextField* oracleClientStatusLabel;
-@property(nonatomic, strong) NSProgressIndicator* oracleClientSpinner;
 @property(nonatomic, strong) NSTimer* oraclePollingTimer;
 
 // SSH Tunnel
@@ -406,18 +402,6 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.databaseField = [self makeTextField:@"(optional)"];
     [cv addSubview:self.databaseField];
 
-    // Oracle Instant Client status
-    self.oracleClientLabel = [self makeLabel:@"Client"];
-    [cv addSubview:self.oracleClientLabel];
-    self.oracleClientStatusLabel = [NSTextField labelWithString:@""];
-    self.oracleClientStatusLabel.font = [NSFont systemFontOfSize:12];
-    [cv addSubview:self.oracleClientStatusLabel];
-    self.oracleClientSpinner = [[NSProgressIndicator alloc] init];
-    self.oracleClientSpinner.style = NSProgressIndicatorStyleSpinning;
-    self.oracleClientSpinner.controlSize = NSControlSizeSmall;
-    self.oracleClientSpinner.displayedWhenStopped = NO;
-    [cv addSubview:self.oracleClientSpinner];
-
     // SSL Mode
     self.sslModeLabel = [self makeLabel:@"SSL Mode"];
     [cv addSubview:self.sslModeLabel];
@@ -602,44 +586,18 @@ static NSWindow* sActiveConnectionDialog = nil;
 
 - (void)hideAllOptionalFields {
     for (NSView* v in @[
-             self.sqlitePathLabel,
-             self.sqlitePathField,
-             self.browseButton,
-             self.hostLabel,
-             self.hostField,
-             self.portLabel,
-             self.portField,
-             self.databaseLabel,
-             self.databaseField,
-             self.oracleClientLabel,
-             self.oracleClientStatusLabel,
-             self.oracleClientSpinner,
-             self.sslModeLabel,
-             self.sslModePopup,
-             self.sslCACertPathLabel,
-             self.sslCACertPathField,
-             self.authLabel,
-             self.authSegment,
-             self.usernameLabel,
-             self.usernameField,
-             self.passwordLabel,
-             self.passwordField,
-             self.showAllDbsCheckbox,
-             self.sshSeparator,
-             self.sshEnabledCheckbox,
-             self.sshHostLabel,
-             self.sshHostField,
-             self.sshPortLabel,
-             self.sshPortField,
-             self.sshUsernameLabel,
-             self.sshUsernameField,
-             self.sshAuthLabel,
-             self.sshAuthSegment,
-             self.sshPasswordLabel,
-             self.sshPasswordField,
-             self.sshKeyPathLabel,
-             self.sshKeyPathField,
-             self.sshKeyBrowseButton
+             self.sqlitePathLabel,    self.sqlitePathField,    self.browseButton,
+             self.hostLabel,          self.hostField,          self.portLabel,
+             self.portField,          self.databaseLabel,      self.databaseField,
+             self.sslModeLabel,       self.sslModePopup,       self.sslCACertPathLabel,
+             self.sslCACertPathField, self.authLabel,          self.authSegment,
+             self.usernameLabel,      self.usernameField,      self.passwordLabel,
+             self.passwordField,      self.showAllDbsCheckbox, self.sshSeparator,
+             self.sshEnabledCheckbox, self.sshHostLabel,       self.sshHostField,
+             self.sshPortLabel,       self.sshPortField,       self.sshUsernameLabel,
+             self.sshUsernameField,   self.sshAuthLabel,       self.sshAuthSegment,
+             self.sshPasswordLabel,   self.sshPasswordField,   self.sshKeyPathLabel,
+             self.sshKeyPathField,    self.sshKeyBrowseButton
          ]) {
         v.hidden = YES;
     }
@@ -708,9 +666,6 @@ static NSWindow* sActiveConnectionDialog = nil;
         h += kRowHeight + kRowSpacing; // Host + Port
         if (type != DatabaseType::REDIS) {
             h += kRowHeight + kRowSpacing; // Database
-        }
-        if (type == DatabaseType::ORACLE) {
-            h += kRowHeight + kRowSpacing; // Oracle client status
         }
         h += kRowHeight + kRowSpacing; // SSL Mode
         {
@@ -831,24 +786,6 @@ static NSWindow* sActiveConnectionDialog = nil;
                 self.databaseField.toolTip = nil;
             }
             y -= kRowSpacing;
-        }
-
-        // Oracle Instant Client status (only for Oracle)
-        if (type == DatabaseType::ORACLE) {
-            self.oracleClientLabel.hidden = NO;
-            self.oracleClientStatusLabel.hidden = NO;
-            self.oracleClientSpinner.hidden = NO;
-            y -= kRowHeight;
-            self.oracleClientLabel.frame = NSMakeRect(kMargin, y, kLabelWidth, kRowHeight);
-            CGFloat spinnerW = 20;
-            self.oracleClientStatusLabel.frame =
-                NSMakeRect(kFieldX, y, kFieldWidth - spinnerW - 8, kRowHeight);
-            self.oracleClientSpinner.frame =
-                NSMakeRect(kFieldX + kFieldWidth - spinnerW, y + 4, 16, 16);
-            y -= kRowSpacing;
-
-            // update oracle client status display
-            [self updateOracleClientStatus];
         }
 
         // SSL Mode (per-backend items)
@@ -1005,18 +942,6 @@ static NSWindow* sActiveConnectionDialog = nil;
 
 // MARK: - Actions
 
-- (void)updateOracleClientStatus {
-    if (OracleClientInstaller::isInstalled() && !_oracleInstaller.isRunning()) {
-        self.oracleClientStatusLabel.stringValue = @"Installed";
-        self.oracleClientStatusLabel.textColor = [NSColor systemGreenColor];
-        [self.oracleClientSpinner stopAnimation:nil];
-    } else if (!_oracleInstaller.isRunning()) {
-        self.oracleClientStatusLabel.stringValue = @"Not found";
-        self.oracleClientStatusLabel.textColor = [NSColor secondaryLabelColor];
-        [self.oracleClientSpinner stopAnimation:nil];
-    }
-}
-
 - (void)typeChanged:(id)sender {
     DatabaseType type = [self selectedDatabaseType];
 
@@ -1115,9 +1040,8 @@ static NSWindow* sActiveConnectionDialog = nil;
 - (void)installOracleClientThenConnect {
     _oracleInstaller.startInstall();
     self.connectButton.enabled = NO;
-    [self.oracleClientSpinner startAnimation:nil];
-    self.oracleClientStatusLabel.stringValue = @"Downloading...";
-    self.oracleClientStatusLabel.textColor = [NSColor secondaryLabelColor];
+    [self setFormEnabled:NO];
+    [self.spinner startAnimation:nil];
     self.statusLabel.stringValue = @"Installing Oracle Instant Client...";
     self.statusLabel.textColor = [NSColor secondaryLabelColor];
 
@@ -1132,36 +1056,24 @@ static NSWindow* sActiveConnectionDialog = nil;
                                        NSString* msg = [NSString
                                            stringWithUTF8String:_oracleInstaller.getStatusMessage()
                                                                     .c_str()];
-                                       if (![msg isEqualToString:_lastOracleStatusMsg]) {
-                                           _lastOracleStatusMsg = msg;
-                                           self.oracleClientStatusLabel.stringValue = msg;
-                                       }
+                                       self.statusLabel.stringValue = msg;
                                        return;
                                    }
 
-                                   [self.oracleClientSpinner stopAnimation:nil];
                                    auto status = _oracleInstaller.getStatus();
 
                                    if (status == OracleClientInstaller::Status::Done) {
-                                       self.oracleClientStatusLabel.stringValue = @"Installed";
-                                       self.oracleClientStatusLabel.textColor =
-                                           [NSColor systemGreenColor];
-                                       self.statusLabel.stringValue = @"";
-                                       // now proceed with connection
+                                       self.statusLabel.stringValue = @"Connecting...";
                                        [self connectServerAsync];
                                    } else if (status == OracleClientInstaller::Status::Failed) {
+                                       [self.spinner stopAnimation:nil];
                                        NSString* err = [NSString
-                                           stringWithUTF8String:("Install failed: " +
-                                                                 _oracleInstaller.getError())
+                                           stringWithUTF8String:_oracleInstaller.getError()
                                                                     .c_str()];
-                                       self.oracleClientStatusLabel.stringValue = err;
-                                       self.oracleClientStatusLabel.textColor =
-                                           [NSColor systemRedColor];
-                                       self.statusLabel.stringValue =
-                                           @"Oracle Client installation failed. Click Connect to "
-                                           @"retry.";
+                                       self.statusLabel.stringValue = err;
                                        self.statusLabel.textColor = [NSColor systemRedColor];
                                        self.connectButton.enabled = YES;
+                                       [self setFormEnabled:YES];
                                    }
 
                                    [timer invalidate];

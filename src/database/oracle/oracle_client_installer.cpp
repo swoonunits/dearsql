@@ -11,57 +11,82 @@
 
 namespace fs = std::filesystem;
 
-// Oracle Instant Client 23.7 Basic Lite — direct download, no login required
+// Oracle Instant Client Basic Lite — direct download, no login required
+// versions vary per platform; check Oracle's download pages for updates
+static constexpr const char* kDownloadHost = "https://download.oracle.com";
+
 #if defined(__linux__) && defined(__x86_64__)
-static constexpr const char* kDownloadHost = "https://download.oracle.com";
-static constexpr const char* kDownloadPath = "/otn_software/linux/instantclient/2370000/"
-                                             "instantclient-basiclite-linux.x64-23.7.0.25.01.zip";
-static constexpr const char* kArchiveName = "instantclient-basiclite-linux.x64-23.7.0.25.01.zip";
-static constexpr const char* kExtractedDirName = "instantclient_23_7";
+static constexpr const char* kDownloadPath = "/otn_software/linux/instantclient/2326100/"
+                                             "instantclient-basiclite-linux.x64-23.26.1.0.0.zip";
+static constexpr const char* kArchiveName = "instantclient-basiclite-linux.x64-23.26.1.0.0.zip";
+static constexpr const char* kExpectedDirName = "instantclient_23_26";
 #elif defined(__linux__) && defined(__aarch64__)
-static constexpr const char* kDownloadHost = "https://download.oracle.com";
-static constexpr const char* kDownloadPath = "/otn_software/linux/instantclient/2370000/"
-                                             "instantclient-basiclite-linux.arm64-23.7.0.25.01.zip";
-static constexpr const char* kArchiveName = "instantclient-basiclite-linux.arm64-23.7.0.25.01.zip";
-static constexpr const char* kExtractedDirName = "instantclient_23_7";
+static constexpr const char* kDownloadPath = "/otn_software/linux/instantclient/2326100/"
+                                             "instantclient-basiclite-linux.arm64-23.26.1.0.0.zip";
+static constexpr const char* kArchiveName = "instantclient-basiclite-linux.arm64-23.26.1.0.0.zip";
+static constexpr const char* kExpectedDirName = "instantclient_23_26";
 #elif defined(__APPLE__) && defined(__aarch64__)
-static constexpr const char* kDownloadHost = "https://download.oracle.com";
-static constexpr const char* kDownloadPath = "/otn_software/mac/instantclient/2370000/"
-                                             "instantclient-basiclite-macos.arm64-23.7.0.25.01.dmg";
-static constexpr const char* kArchiveName = "instantclient-basiclite-macos.arm64-23.7.0.25.01.dmg";
-static constexpr const char* kExtractedDirName = "instantclient_23_7";
+static constexpr const char* kDownloadPath =
+    "/otn_software/mac/instantclient/233023/"
+    "instantclient-basiclite-macos.arm64-23.3.0.23.09-2.dmg";
+static constexpr const char* kArchiveName =
+    "instantclient-basiclite-macos.arm64-23.3.0.23.09-2.dmg";
+static constexpr const char* kExpectedDirName = "instantclient_23_3";
 #elif defined(__APPLE__) && defined(__x86_64__)
-static constexpr const char* kDownloadHost = "https://download.oracle.com";
-static constexpr const char* kDownloadPath = "/otn_software/mac/instantclient/2370000/"
-                                             "instantclient-basiclite-macos.x64-23.7.0.25.01.dmg";
-static constexpr const char* kArchiveName = "instantclient-basiclite-macos.x64-23.7.0.25.01.dmg";
-static constexpr const char* kExtractedDirName = "instantclient_23_7";
+static constexpr const char* kDownloadPath =
+    "/otn_software/mac/instantclient/1916000/"
+    "instantclient-basiclite-macos.x64-19.16.0.0.0dbru.dmg";
+static constexpr const char* kArchiveName = "instantclient-basiclite-macos.x64-19.16.0.0.0dbru.dmg";
+static constexpr const char* kExpectedDirName = "instantclient_19_16";
 #elif defined(_WIN32)
-static constexpr const char* kDownloadHost = "https://download.oracle.com";
-static constexpr const char* kDownloadPath = "/otn_software/nt/instantclient/2370000/"
-                                             "instantclient-basiclite-windows.x64-23.7.0.25.01.zip";
-static constexpr const char* kArchiveName = "instantclient-basiclite-windows.x64-23.7.0.25.01.zip";
-static constexpr const char* kExtractedDirName = "instantclient_23_7";
+static constexpr const char* kDownloadPath = "/otn_software/nt/instantclient/2326100/"
+                                             "instantclient-basiclite-windows.x64-23.26.1.0.0.zip";
+static constexpr const char* kArchiveName = "instantclient-basiclite-windows.x64-23.26.1.0.0.zip";
+static constexpr const char* kExpectedDirName = "instantclient_23_26";
 #else
-static constexpr const char* kDownloadHost = "";
 static constexpr const char* kDownloadPath = "";
 static constexpr const char* kArchiveName = "";
-static constexpr const char* kExtractedDirName = "";
+static constexpr const char* kExpectedDirName = "";
 #endif
 
-std::string OracleClientInstaller::getInstallDir() {
-    fs::path base;
+static fs::path getBaseDir() {
 #ifdef _WIN32
     const char* home = std::getenv("USERPROFILE");
 #else
     const char* home = std::getenv("HOME");
 #endif
     if (home) {
-        base = fs::path(home) / ".dearsql" / "oracle-client";
-    } else {
-        base = fs::path(".") / "oracle-client";
+        return fs::path(home) / ".dearsql" / "oracle-client";
     }
-    return (base / kExtractedDirName).string();
+    return fs::path(".") / "oracle-client";
+}
+
+// cached install dir — cleared by startInstall() so post-install picks up the new path
+static std::string sCachedInstallDir;
+
+std::string OracleClientInstaller::getInstallDir() {
+    if (!sCachedInstallDir.empty()) {
+        return sCachedInstallDir;
+    }
+
+    fs::path base = getBaseDir();
+    fs::path expected = base / kExpectedDirName;
+    if (fs::exists(expected)) {
+        sCachedInstallDir = expected.string();
+        return sCachedInstallDir;
+    }
+
+    // fallback: scan for any instantclient_* directory (handles version mismatches)
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(base, ec)) {
+        if (entry.is_directory() &&
+            entry.path().filename().string().starts_with("instantclient_")) {
+            sCachedInstallDir = entry.path().string();
+            return sCachedInstallDir;
+        }
+    }
+
+    return expected.string();
 }
 
 bool OracleClientInstaller::isInstalled() {
@@ -95,7 +120,9 @@ void OracleClientInstaller::startInstall() {
         return;
     }
 
-    if (std::strlen(kDownloadHost) == 0) {
+    sCachedInstallDir.clear();
+
+    if (std::strlen(kDownloadPath) == 0) {
         status = Status::Failed;
         error = "Oracle Instant Client auto-install is not supported on this platform";
         return;
@@ -133,9 +160,9 @@ void OracleClientInstaller::checkStatus() {
 }
 
 bool OracleClientInstaller::downloadAndExtract(std::stop_token stopToken) {
-    // ensure parent directory exists
-    fs::path installDir = fs::path(getInstallDir());
-    fs::path parentDir = installDir.parent_path();
+    // use canonical path for fresh install (not the fallback-scanned one)
+    fs::path parentDir = getBaseDir();
+    fs::path installDir = parentDir / kExpectedDirName;
     std::error_code ec;
     fs::create_directories(parentDir, ec);
     if (ec) {
@@ -211,9 +238,10 @@ bool OracleClientInstaller::downloadAndExtract(std::stop_token stopToken) {
                                            archiveStr, mountPoint);
         ret = std::system(mountCmd.c_str());
         if (ret == 0) {
-            // find and copy the instantclient directory from the mounted volume
-            std::string copyCmd =
-                std::format("cp -R '{}/'{} '{}'", mountPoint, kExtractedDirName, destStr);
+            // copy all contents from mounted DMG into the install directory
+            std::string icDir = (installDir).string();
+            fs::create_directories(icDir, ec);
+            std::string copyCmd = std::format("cp -R '{}/.' '{}'", mountPoint, icDir);
             ret = std::system(copyCmd.c_str());
 
             // always try to unmount
@@ -242,6 +270,9 @@ bool OracleClientInstaller::downloadAndExtract(std::stop_token stopToken) {
         error = "Failed to extract Oracle Instant Client archive";
         return false;
     }
+
+    // clear cache so isInstalled() picks up the freshly extracted dir
+    sCachedInstallDir.clear();
 
     if (!isInstalled()) {
         error = "Extraction completed but Oracle Client libraries not found in expected location";

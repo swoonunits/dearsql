@@ -58,12 +58,8 @@ struct ConnectionDialogData {
     GtkWidget* credentialsRow = nullptr;
 
     // Oracle Instant Client
-    GtkWidget* oracleClientRow = nullptr;
-    GtkWidget* oracleClientStatusLabel = nullptr;
-    GtkWidget* oracleClientSpinner = nullptr;
     OracleClientInstaller oracleInstaller;
     guint oraclePollingTimerId = 0;
-    std::string lastOracleStatusMsg;
 
     // Show all databases
     GtkWidget* showAllDbsCheck = nullptr;
@@ -366,38 +362,9 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         gtk_box_append(GTK_BOX(data->fieldsBox), dbRow);
     }
 
-    // Oracle Instant Client status
-    data->oracleClientRow = nullptr;
-    data->oracleClientStatusLabel = nullptr;
-    data->oracleClientSpinner = nullptr;
     if (data->oraclePollingTimerId) {
         g_source_remove(data->oraclePollingTimerId);
         data->oraclePollingTimerId = 0;
-    }
-
-    if (type == DatabaseType::ORACLE) {
-        data->oracleClientRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        GtkWidget* clientLabel = makeLabel("Client");
-
-        data->oracleClientStatusLabel = gtk_label_new("");
-        gtk_widget_set_hexpand(data->oracleClientStatusLabel, TRUE);
-        gtk_widget_set_halign(data->oracleClientStatusLabel, GTK_ALIGN_START);
-
-        data->oracleClientSpinner = gtk_spinner_new();
-
-        gtk_box_append(GTK_BOX(data->oracleClientRow), clientLabel);
-        gtk_box_append(GTK_BOX(data->oracleClientRow), data->oracleClientStatusLabel);
-        gtk_box_append(GTK_BOX(data->oracleClientRow), data->oracleClientSpinner);
-        gtk_box_append(GTK_BOX(data->fieldsBox), data->oracleClientRow);
-
-        // set initial status (only when not actively installing)
-        if (OracleClientInstaller::isInstalled() && !data->oracleInstaller.isRunning()) {
-            gtk_label_set_text(GTK_LABEL(data->oracleClientStatusLabel),
-                               "Oracle Instant Client: installed");
-        } else if (!data->oracleInstaller.isRunning()) {
-            gtk_label_set_text(GTK_LABEL(data->oracleClientStatusLabel),
-                               "Oracle Instant Client: not found");
-        }
     }
 
     // SSL Mode (all server types)
@@ -1061,10 +1028,10 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
                 // auto-install Oracle client, then connect after it finishes
                 d->oracleInstaller.startInstall();
                 gtk_widget_set_sensitive(d->connectButton, FALSE);
-                if (d->oracleClientSpinner)
-                    gtk_spinner_start(GTK_SPINNER(d->oracleClientSpinner));
-                if (d->oracleClientStatusLabel)
-                    gtk_label_set_text(GTK_LABEL(d->oracleClientStatusLabel), "Downloading...");
+                gtk_widget_set_sensitive(d->nameEntry, FALSE);
+                gtk_widget_set_sensitive(d->typeDropdown, FALSE);
+                gtk_widget_set_sensitive(d->fieldsBox, FALSE);
+                gtk_spinner_start(GTK_SPINNER(d->spinner));
                 gtk_label_set_text(GTK_LABEL(d->statusLabel),
                                    "Installing Oracle Instant Client...");
 
@@ -1077,37 +1044,24 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
 
                             if (d2->oracleInstaller.isRunning()) {
                                 auto msg = d2->oracleInstaller.getStatusMessage();
-                                if (d2->oracleClientStatusLabel && msg != d2->lastOracleStatusMsg) {
-                                    d2->lastOracleStatusMsg = msg;
-                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
-                                                       msg.c_str());
-                                }
+                                gtk_label_set_text(GTK_LABEL(d2->statusLabel), msg.c_str());
                                 return G_SOURCE_CONTINUE;
                             }
 
-                            if (d2->oracleClientSpinner)
-                                gtk_spinner_stop(GTK_SPINNER(d2->oracleClientSpinner));
                             auto status = d2->oracleInstaller.getStatus();
 
                             if (status == OracleClientInstaller::Status::Done) {
-                                if (d2->oracleClientStatusLabel)
-                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
-                                                       "Oracle Instant Client: installed");
-                                if (d2->statusLabel)
-                                    gtk_label_set_text(GTK_LABEL(d2->statusLabel), "");
-                                // now proceed with connection
+                                gtk_label_set_text(GTK_LABEL(d2->statusLabel), "Connecting...");
                                 connectServerAsync(d2);
                             } else if (status == OracleClientInstaller::Status::Failed) {
-                                std::string msg =
-                                    "Install failed: " + d2->oracleInstaller.getError();
-                                if (d2->oracleClientStatusLabel)
-                                    gtk_label_set_text(GTK_LABEL(d2->oracleClientStatusLabel),
-                                                       msg.c_str());
-                                if (d2->statusLabel)
-                                    gtk_label_set_text(GTK_LABEL(d2->statusLabel),
-                                                       "Oracle Client installation failed. Click "
-                                                       "Connect to retry.");
+                                gtk_spinner_stop(GTK_SPINNER(d2->spinner));
+                                gtk_label_set_text(GTK_LABEL(d2->statusLabel),
+                                                   d2->oracleInstaller.getError().c_str());
                                 gtk_widget_set_sensitive(d2->connectButton, TRUE);
+                                gtk_widget_set_sensitive(d2->nameEntry, TRUE);
+                                gtk_widget_set_sensitive(d2->typeDropdown,
+                                                         d2->editingConnectionId == -1);
+                                gtk_widget_set_sensitive(d2->fieldsBox, TRUE);
                             }
 
                             d2->oraclePollingTimerId = 0;

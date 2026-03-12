@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <filesystem>
 #include <format>
 #include <gtest/gtest.h>
 #include <optional>
