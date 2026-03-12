@@ -202,6 +202,15 @@ bool Application::initialize() {
     static_cast<LinuxPlatform*>(platform_.get())->applyCurrentTheme();
 #endif
 
+    // Restore font scale from settings
+    const std::string fontScaleStr = appState->getSetting("font_scale", "1.00");
+    try {
+        fontScale_ = std::clamp(std::stof(fontScaleStr), 0.7f, 2.0f);
+    } catch (const std::exception&) {
+        fontScale_ = 1.0f;
+    }
+    ImGui::GetStyle().FontScaleMain = fontScale_;
+
     // Load stored license
     LicenseManager::instance().loadStoredLicense();
 
@@ -375,6 +384,14 @@ void Application::setDarkTheme(const bool dark) {
         appState->setSetting("theme", darkTheme ? "dark" : "light");
     }
     SentryUtils::addBreadcrumb("app", "Theme changed", "theme", darkTheme ? "dark" : "light");
+}
+
+void Application::setFontScale(const float scale) {
+    fontScale_ = std::clamp(scale, 0.7f, 2.0f);
+    ImGui::GetStyle().FontScaleMain = fontScale_;
+    if (appState) {
+        appState->setSetting("font_scale", std::format("{:.2f}", fontScale_));
+    }
 }
 
 bool Application::hasPendingAsyncWork() const {

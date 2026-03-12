@@ -59,6 +59,7 @@ private:
     void* oldWndProc_ = nullptr;
     HWND sidebarButton_ = nullptr;
     HWND addButton_ = nullptr;
+    HWND menuButton_ = nullptr;
     HWND workspaceDropdown_ = nullptr;
     bool updatingWorkspaceDropdown_ = false;
     bool lastAppliedDarkTheme_ = true;

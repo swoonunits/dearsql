@@ -11,6 +11,7 @@
 #include <d3d11.h>
 #include <dwmapi.h>
 #include <dxgi.h>
+#include <format>
 #include <iostream>
 #include <string>
 #include <windowsx.h>
@@ -36,9 +37,18 @@ namespace {
         IDC_TITLEBAR_WORKSPACE = 5001,
         IDC_TITLEBAR_ADD_BUTTON,
         IDC_TITLEBAR_SIDEBAR_BUTTON,
+        IDC_TITLEBAR_MENU_BUTTON,
         IDC_WORKSPACE_NAME_EDIT,
         IDC_WORKSPACE_CREATE_BUTTON,
         IDC_WORKSPACE_CANCEL_BUTTON,
+    };
+
+    enum : int {
+        IDM_FONT_DECREASE = 6001,
+        IDM_FONT_INCREASE,
+        IDM_FONT_RESET,
+        IDM_THEME_LIGHT,
+        IDM_THEME_DARK,
     };
 
     HWND sActiveCreateWorkspaceDialog = nullptr;
@@ -457,6 +467,14 @@ void WindowsPlatform::createTitlebarControls(HWND hWnd) {
         applyDefaultGuiFont(addButton_);
     }
 
+    if (!menuButton_) {
+        menuButton_ = CreateWindowExW(0, L"BUTTON", L"\u2630",
+                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0,
+                                      0, hWnd, reinterpret_cast<HMENU>(IDC_TITLEBAR_MENU_BUTTON),
+                                      GetModuleHandleW(nullptr), nullptr);
+        applyDefaultGuiFont(menuButton_);
+    }
+
     if (!workspaceDropdown_) {
         workspaceDropdown_ = CreateWindowExW(
             0, L"COMBOBOX", L"",
@@ -471,6 +489,11 @@ void WindowsPlatform::destroyTitlebarControls() {
     if (workspaceDropdown_) {
         DestroyWindow(workspaceDropdown_);
         workspaceDropdown_ = nullptr;
+    }
+
+    if (menuButton_) {
+        DestroyWindow(menuButton_);
+        menuButton_ = nullptr;
     }
 
     if (addButton_) {
@@ -519,11 +542,19 @@ void WindowsPlatform::layoutTitlebarControls() {
         MoveWindow(addButton_, x, y, addW, buttonH, TRUE);
     }
 
+    const int menuW = MulDiv(36, dpi, USER_DEFAULT_SCREEN_DPI);
+
     if (workspaceDropdown_) {
-        const int availableRight = std::max((long)pad, clientRect.right - captionButtonsW - pad);
+        const int availableRight = std::max((long)pad, clientRect.right - captionButtonsW - pad -
+                                                           (menuButton_ ? menuW + pad : 0));
         const int comboW = std::clamp(MulDiv(clientRect.right, 22, 100), comboMinW, comboMaxW);
         const int comboX = std::max(x + addW + pad, availableRight - comboW);
         MoveWindow(workspaceDropdown_, comboX, y, comboW, scaleForWindow(hWnd, 400), TRUE);
+    }
+
+    if (menuButton_) {
+        const int menuX = clientRect.right - captionButtonsW - pad - menuW;
+        MoveWindow(menuButton_, menuX, y, menuW, buttonH, TRUE);
     }
 }
 
@@ -576,7 +607,7 @@ LRESULT WindowsPlatform::handleWindowMessage(HWND hWnd, UINT msg, WPARAM wParam,
 
         const POINT screenPt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         if (pointInControl(sidebarButton_, screenPt) || pointInControl(addButton_, screenPt) ||
-            pointInControl(workspaceDropdown_, screenPt)) {
+            pointInControl(menuButton_, screenPt) || pointInControl(workspaceDropdown_, screenPt)) {
             return HTCLIENT;
         }
 
@@ -642,6 +673,53 @@ LRESULT WindowsPlatform::handleWindowMessage(HWND hWnd, UINT msg, WPARAM wParam,
             if (app_) {
                 showConnectionDialog(app_);
             }
+            return 0;
+        }
+
+        if (controlId == IDC_TITLEBAR_MENU_BUTTON && notification == BN_CLICKED) {
+            HMENU hMenu = CreatePopupMenu();
+            if (hMenu && app_) {
+                int pct = static_cast<int>(app_->getFontScale() * 100);
+                auto fontLabel = std::format(L"Font Size: {}%", pct);
+                AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, fontLabel.c_str());
+                AppendMenuW(hMenu, MF_STRING, IDM_FONT_DECREASE, L"Decrease (A-)");
+                AppendMenuW(hMenu, MF_STRING, IDM_FONT_INCREASE, L"Increase (A+)");
+                AppendMenuW(hMenu, MF_STRING, IDM_FONT_RESET, L"Reset (100%)");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING | (app_->isDarkTheme() ? 0 : MF_CHECKED),
+                            IDM_THEME_LIGHT, L"Light Theme");
+                AppendMenuW(hMenu, MF_STRING | (app_->isDarkTheme() ? MF_CHECKED : 0),
+                            IDM_THEME_DARK, L"Dark Theme");
+
+                RECT btnRect{};
+                GetWindowRect(menuButton_, &btnRect);
+                TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_TOPALIGN, btnRect.right, btnRect.bottom,
+                               0, hWnd, nullptr);
+                DestroyMenu(hMenu);
+            }
+            return 0;
+        }
+
+        if (controlId == IDM_FONT_DECREASE && app_) {
+            app_->setFontScale(app_->getFontScale() - 0.1f);
+            return 0;
+        }
+        if (controlId == IDM_FONT_INCREASE && app_) {
+            app_->setFontScale(app_->getFontScale() + 0.1f);
+            return 0;
+        }
+        if (controlId == IDM_FONT_RESET && app_) {
+            app_->setFontScale(1.0f);
+            return 0;
+        }
+        if (controlId == IDM_THEME_LIGHT && app_) {
+            app_->setDarkTheme(false);
+            applyTitlebarTheme();
+            return 0;
+        }
+        if (controlId == IDM_THEME_DARK && app_) {
+            app_->setDarkTheme(true);
+            applyTitlebarTheme();
             return 0;
         }
 

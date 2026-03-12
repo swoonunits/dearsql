@@ -87,6 +87,7 @@ private:
     GtkWidget* themeDarkButton_;
     GtkWidget* themeAutoButton_;
     GtkWidget* licenseButton_;
+    GtkWidget* fontSizeLabel_;
     GtkStringList* workspaceModel_;
     std::vector<int> workspaceIdsByIndex_;
 

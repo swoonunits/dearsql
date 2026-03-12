@@ -48,6 +48,11 @@ public:
     void setDarkTheme(bool dark);
     [[nodiscard]] const Theme::Colors& getCurrentColors() const;
 
+    [[nodiscard]] float getFontScale() const {
+        return fontScale_;
+    }
+    void setFontScale(float scale);
+
     // Selection state
     [[nodiscard]] std::shared_ptr<DatabaseInterface> getSelectedDatabase() const;
     void setSelectedDatabase(const std::shared_ptr<DatabaseInterface>& db);
@@ -126,6 +131,7 @@ private:
 
     // Application state
     bool darkTheme = true;
+    float fontScale_ = 1.0f;
     bool sidebarVisible = true;
     float sidebarWidth = 0.25f;
     float targetSidebarWidth = 0.25f;

@@ -12,6 +12,7 @@
 #include "platform/opengl_texture.hpp"
 #include "themes.hpp"
 #include <cmath>
+#include <format>
 #include <iostream>
 
 #ifdef GDK_WINDOWING_X11
@@ -69,9 +70,9 @@ LinuxPlatform::LinuxPlatform(Application* app)
     : app_(app), window_(nullptr), glArea_(nullptr), headerBar_(nullptr), sidebarButton_(nullptr),
       workspaceDropdown_(nullptr), addButton_(nullptr), menuButton_(nullptr), menuPopover_(nullptr),
       updateButton_(nullptr), themeLightButton_(nullptr), themeDarkButton_(nullptr),
-      themeAutoButton_(nullptr), licenseButton_(nullptr), workspaceModel_(nullptr),
-      shouldClose_(false), realized_(false), fbWidth_(1280), fbHeight_(720), mouseX_(0),
-      mouseY_(0) {}
+      themeAutoButton_(nullptr), licenseButton_(nullptr), fontSizeLabel_(nullptr),
+      workspaceModel_(nullptr), shouldClose_(false), realized_(false), fbWidth_(1280),
+      fbHeight_(720), mouseX_(0), mouseY_(0) {}
 
 LinuxPlatform::~LinuxPlatform() {
     cleanup();
@@ -229,6 +230,53 @@ void LinuxPlatform::setupTitlebar() {
 
     gtk_box_append(GTK_BOX(menuBox), themeButtonBox);
 
+    // Font size section
+    GtkWidget* fontSizeHeaderLabel = gtk_label_new("Font Size");
+    gtk_widget_set_halign(fontSizeHeaderLabel, GTK_ALIGN_START);
+    gtk_widget_add_css_class(fontSizeHeaderLabel, "dim-label");
+    gtk_box_append(GTK_BOX(menuBox), fontSizeHeaderLabel);
+
+    GtkWidget* fontSizeBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_halign(fontSizeBox, GTK_ALIGN_FILL);
+    gtk_widget_add_css_class(fontSizeBox, "linked");
+
+    GtkWidget* fontDecButton = gtk_button_new_with_label("A-");
+    gtk_widget_set_tooltip_text(fontDecButton, "Decrease Font Size");
+    gtk_widget_set_hexpand(fontDecButton, TRUE);
+    g_signal_connect(fontDecButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
+                         auto* platform = static_cast<LinuxPlatform*>(userData);
+                         if (platform->app_) {
+                             platform->app_->setFontScale(platform->app_->getFontScale() - 0.1f);
+                             auto label = std::format(
+                                 "{}%", static_cast<int>(platform->app_->getFontScale() * 100));
+                             gtk_label_set_text(GTK_LABEL(platform->fontSizeLabel_), label.c_str());
+                         }
+                     }),
+                     this);
+    gtk_box_append(GTK_BOX(fontSizeBox), fontDecButton);
+
+    auto fontLabel = std::format("{}%", app_ ? static_cast<int>(app_->getFontScale() * 100) : 100);
+    fontSizeLabel_ = gtk_label_new(fontLabel.c_str());
+    gtk_widget_set_hexpand(fontSizeLabel_, TRUE);
+    gtk_box_append(GTK_BOX(fontSizeBox), fontSizeLabel_);
+
+    GtkWidget* fontIncButton = gtk_button_new_with_label("A+");
+    gtk_widget_set_tooltip_text(fontIncButton, "Increase Font Size");
+    gtk_widget_set_hexpand(fontIncButton, TRUE);
+    g_signal_connect(fontIncButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
+                         auto* platform = static_cast<LinuxPlatform*>(userData);
+                         if (platform->app_) {
+                             platform->app_->setFontScale(platform->app_->getFontScale() + 0.1f);
+                             auto label = std::format(
+                                 "{}%", static_cast<int>(platform->app_->getFontScale() * 100));
+                             gtk_label_set_text(GTK_LABEL(platform->fontSizeLabel_), label.c_str());
+                         }
+                     }),
+                     this);
+    gtk_box_append(GTK_BOX(fontSizeBox), fontIncButton);
+
+    gtk_box_append(GTK_BOX(menuBox), fontSizeBox);
+
     // Separator
     GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_append(GTK_BOX(menuBox), separator);
@@ -279,6 +327,11 @@ void LinuxPlatform::setupTitlebar() {
                          auto* platform = static_cast<LinuxPlatform*>(userData);
                          platform->updateThemeButtons();
                          platform->updateLicenseButton();
+                         if (platform->fontSizeLabel_ && platform->app_) {
+                             auto label = std::format(
+                                 "{}%", static_cast<int>(platform->app_->getFontScale() * 100));
+                             gtk_label_set_text(GTK_LABEL(platform->fontSizeLabel_), label.c_str());
+                         }
                      }),
                      this);
 
