@@ -79,7 +79,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(PostgreSQL REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(unofficial-libmysql CONFIG REQUIRED)
+find_package(unofficial-libmariadb CONFIG REQUIRED)
 find_package(hiredis CONFIG REQUIRED)
 find_package(hiredis_ssl CONFIG REQUIRED)
 find_package(mongocxx CONFIG REQUIRED)
@@ -334,7 +334,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     unofficial::sqlite3::sqlite3
     nlohmann_json::nlohmann_json
     PostgreSQL::PostgreSQL
-    unofficial::libmysql::libmysql
+    unofficial::libmariadb
     hiredis::hiredis
     hiredis::hiredis_ssl
     $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
@@ -490,7 +490,7 @@ target_link_libraries(database_tests PRIVATE
     GTest::gtest_main
     unofficial::sqlite3::sqlite3
     PostgreSQL::PostgreSQL
-    unofficial::libmysql::libmysql
+    unofficial::libmariadb
     hiredis::hiredis
     hiredis::hiredis_ssl
     $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
