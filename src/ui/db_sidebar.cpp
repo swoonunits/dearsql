@@ -17,6 +17,7 @@
 #include "ui/input_dialog.hpp"
 #include "ui/query_history.hpp"
 #include "ui/table_dialog.hpp"
+#include "utils/file_dialog.hpp"
 #include "utils/logger.hpp"
 #include "utils/spinner.hpp"
 #include "utils/texture_manager.hpp"
@@ -65,6 +66,13 @@ void DatabaseSidebarNew::renderEmpty() {
             Logger::info("Opening database connection dialog");
             showConnectionDialog();
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem(ICON_FA_FILE_CSV " Open CSV File...")) {
+            const std::string path = FileDialog::openCSVFile();
+            if (!path.empty()) {
+                Application::getInstance().getTabManager()->createCsvEditorTab(path);
+            }
+        }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
     }
@@ -93,6 +101,28 @@ void DatabaseSidebarNew::renderStructure() {
         }
     } else {
         renderEmpty();
+    }
+
+    // right-click on empty sidebar space
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !ImGui::IsAnyItemHovered()) {
+        ImGui::OpenPopup("SidebarContextMenu");
+    }
+    if (ImGui::BeginPopup("SidebarContextMenu")) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem("Add Database Connection")) {
+            showConnectionDialog();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(ICON_FA_FILE_CSV " Open CSV File...")) {
+            const std::string path = FileDialog::openCSVFile();
+            if (!path.empty()) {
+                Application::getInstance().getTabManager()->createCsvEditorTab(path);
+            }
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
     }
 
     ImGui::PopStyleVar(2);

@@ -226,6 +226,7 @@ set(APP_SOURCES
     src/ui/text_editor_input.cpp
     src/ui/text_editor_highlight.cpp
     src/ui/text_editor_format.cpp
+    src/ui/tab/csv_editor_tab.cpp
     # Redis
     src/ui/tab/redis_editor_tab.cpp
     src/ui/tab/redis_key_viewer_tab.cpp
@@ -309,6 +310,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     external/imgui-node-editor
     external/imgui-node-editor/external/stb_image
     external/IconFontCppHeaders
+    external/csv2/include
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/include
 )
@@ -505,12 +507,14 @@ add_test(NAME database_tests COMMAND database_tests)
 # =============================================================================
 add_executable(sql_format_tests
     tests/ui/sql_format_test.cpp
+    tests/ui/csv_parser_test.cpp
     src/ui/text_editor_format.cpp
 )
 
 target_include_directories(sql_format_tests PRIVATE
     include
     external/imgui
+    external/csv2/include
 )
 
 target_link_libraries(sql_format_tests PRIVATE
