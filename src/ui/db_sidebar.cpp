@@ -96,7 +96,9 @@ void DatabaseSidebarNew::renderStructure() {
     syncHierarchyCache(databases);
 
     if (!databases.empty()) {
-        for (const auto& db : databases) {
+        // copy shared_ptrs so a removal during rendering doesn't invalidate the iterator
+        const auto snapshot = databases;
+        for (const auto& db : snapshot) {
             renderDatabaseNode(db);
         }
     } else {
@@ -665,7 +667,7 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
                 });
         }
 
-        if (db->isConnected()) {
+        if (db->isConnected() && db->getConnectionInfo().type != DatabaseType::SQLITE) {
             if (ImGui::MenuItem("Disconnect")) {
                 db->disconnect();
             }
@@ -679,7 +681,8 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
                 std::format("Remove '{}' and delete the saved connection?", connectionInfo.name),
                 {{"Cancel", []() {}, AlertButton::Style::Cancel},
                  {"Remove",
-                  [db, &app, connectionInfo]() {
+                  [db, connectionInfo]() {
+                      auto& app = Application::getInstance();
                       if (app.getAppState()->deleteConnection(db->getConnectionId())) {
                           Logger::info(
                               std::format("Removed saved connection: {}", connectionInfo.name));

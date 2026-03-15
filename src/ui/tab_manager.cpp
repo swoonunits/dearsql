@@ -44,6 +44,41 @@ void TabManager::closeAllTabs() {
     pendingFocusTabId_ = 0;
 }
 
+void TabManager::closeTabsForDatabase(DatabaseInterface* db) {
+    if (!db)
+        return;
+
+    auto* redisDb = dynamic_cast<RedisDatabase*>(db);
+
+    std::erase_if(tabs, [db, redisDb](const std::shared_ptr<Tab>& tab) {
+        IDatabaseNode* node = nullptr;
+        if (auto* t = dynamic_cast<SQLEditorTab*>(tab.get()))
+            node = t->getDatabaseNode();
+        else if (auto* t = dynamic_cast<TableViewerTab*>(tab.get()))
+            node = t->getDatabaseNode();
+        else if (auto* t = dynamic_cast<DiagramTab*>(tab.get()))
+            node = t->getDatabaseNode();
+        else if (auto* t = dynamic_cast<MongoEditorTab*>(tab.get()))
+            node = t->getDatabaseNode();
+
+        if (node)
+            return node->ownerDatabase() == db;
+
+        if (redisDb) {
+            if (auto* t = dynamic_cast<RedisEditorTab*>(tab.get()))
+                return t->getDatabase() == redisDb;
+            if (auto* t = dynamic_cast<RedisKeyViewerTab*>(tab.get()))
+                return t->getDatabase() == redisDb;
+            if (auto* t = dynamic_cast<RedisPubSubTab*>(tab.get()))
+                return t->getDatabase() == redisDb;
+        }
+
+        return false;
+    });
+
+    pruneTabState();
+}
+
 bool TabManager::hasTabId(const std::uint64_t id) const {
     const auto it = std::ranges::find_if(
         tabs, [id](const std::shared_ptr<Tab>& tab) { return tab && tab->getId() == id; });

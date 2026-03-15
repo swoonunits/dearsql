@@ -18,7 +18,8 @@ public:
     ConnectionPool(size_t poolSize, ConnFactory factory, ConnCloser closer,
                    ConnValidator validator = nullptr, int maxReconnectAttempts = 3)
         : factory_(std::move(factory)), closer_(std::move(closer)),
-          validator_(std::move(validator)), maxReconnectAttempts_(std::max(1, maxReconnectAttempts)) {
+          validator_(std::move(validator)),
+          maxReconnectAttempts_(std::max(1, maxReconnectAttempts)) {
         try {
             for (size_t i = 0; i < poolSize; ++i) {
                 ConnHandle conn = factory_();
@@ -28,7 +29,8 @@ public:
         } catch (...) {
             // destructor won't run on a half-constructed object; clean up manually
             for (auto conn : all_) {
-                if (closer_) closer_(conn);
+                if (closer_)
+                    closer_(conn);
             }
             throw;
         }
@@ -148,10 +150,13 @@ private:
                 {
                     std::lock_guard lock(mutex_);
                     auto it = std::find(all_.begin(), all_.end(), oldConn);
-                    if (it != all_.end()) *it = newConn;
-                    else all_.push_back(newConn);
+                    if (it != all_.end())
+                        *it = newConn;
+                    else
+                        all_.push_back(newConn);
                 }
-                if (closer_) closer_(oldConn);
+                if (closer_)
+                    closer_(oldConn);
                 return newConn;
             } catch (...) {
                 lastEx = std::current_exception();

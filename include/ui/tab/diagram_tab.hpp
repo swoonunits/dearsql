@@ -36,6 +36,10 @@ public:
 
     void render() override;
 
+    [[nodiscard]] IDatabaseNode* getDatabaseNode() const {
+        return node_;
+    }
+
 private:
     void initializeEditor();
     void loadDatabaseSchema();

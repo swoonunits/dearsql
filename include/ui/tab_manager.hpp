@@ -9,6 +9,7 @@
 class IDatabaseNode;
 class MongoDBDatabaseNode;
 class RedisDatabase;
+class DatabaseInterface;
 
 class TabManager {
 public:
@@ -20,6 +21,7 @@ public:
     void removeTab(const std::shared_ptr<Tab>& tab);
     void closeTab(std::uint64_t id);
     void closeAllTabs();
+    void closeTabsForDatabase(DatabaseInterface* db);
 
     // Tab queries
     [[nodiscard]] bool hasTabId(std::uint64_t id) const;
