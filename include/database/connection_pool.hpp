@@ -16,9 +16,9 @@ public:
     using ConnValidator = std::function<bool(ConnHandle)>;
 
     ConnectionPool(size_t poolSize, ConnFactory factory, ConnCloser closer,
-                   ConnValidator validator = nullptr)
+                   ConnValidator validator = nullptr, int maxReconnectAttempts = 3)
         : factory_(std::move(factory)), closer_(std::move(closer)),
-          validator_(std::move(validator)) {
+          validator_(std::move(validator)), maxReconnectAttempts_(maxReconnectAttempts) {
         for (size_t i = 0; i < poolSize; ++i) {
             ConnHandle conn = factory_();
             all_.push_back(conn);
@@ -89,47 +89,69 @@ public:
     };
 
     Session acquire() {
-        std::unique_lock lock(mutex_);
+        ConnHandle conn;
+        {
+            std::unique_lock lock(mutex_);
 
-        constexpr auto timeout = std::chrono::seconds(30);
-        if (!cv_.wait_for(lock, timeout, [this] { return !available_.empty() || shutdown_; })) {
-            throw std::runtime_error("ConnectionPool: acquire timeout (30s)");
-        }
-
-        if (shutdown_) {
-            throw std::runtime_error("ConnectionPool: pool is shutting down");
-        }
-
-        ConnHandle conn = available_.front();
-        available_.pop();
-        ++inUse_;
-
-        // Validate connection, replace if dead
-        try {
-            if (validator_ && !validator_(conn)) {
-                if (closer_) {
-                    closer_(conn);
-                }
-                // Remove from all_ and create a replacement
-                auto it = std::find(all_.begin(), all_.end(), conn);
-                if (it != all_.end()) {
-                    *it = factory_();
-                    conn = *it;
-                } else {
-                    conn = factory_();
-                    all_.push_back(conn);
-                }
+            constexpr auto timeout = std::chrono::seconds(30);
+            if (!cv_.wait_for(lock, timeout, [this] { return !available_.empty() || shutdown_; })) {
+                throw std::runtime_error("ConnectionPool: acquire timeout (30s)");
             }
-        } catch (...) {
-            --inUse_;
-            cv_.notify_all();
-            throw;
+
+            if (shutdown_) {
+                throw std::runtime_error("ConnectionPool: pool is shutting down");
+            }
+
+            conn = available_.front();
+            available_.pop();
+            ++inUse_;
+        }
+
+        // validate + auto-reconnect outside the lock so other threads aren't blocked
+        if (validator_ && !validator_(conn)) {
+            try {
+                conn = reconnect_(conn);
+            } catch (...) {
+                {
+                    std::lock_guard lock(mutex_);
+                    --inUse_;
+                }
+                cv_.notify_all();
+                throw;
+            }
         }
 
         return Session(*this, conn);
     }
 
 private:
+    // close stale conn and retry factory up to maxReconnectAttempts_ times
+    ConnHandle reconnect_(ConnHandle oldConn) {
+        if (closer_) {
+            closer_(oldConn);
+        }
+
+        std::exception_ptr lastEx;
+        for (int attempt = 0; attempt < maxReconnectAttempts_; ++attempt) {
+            try {
+                ConnHandle newConn = factory_();
+                {
+                    std::lock_guard lock(mutex_);
+                    auto it = std::find(all_.begin(), all_.end(), oldConn);
+                    if (it != all_.end()) {
+                        *it = newConn;
+                    } else {
+                        all_.push_back(newConn);
+                    }
+                }
+                return newConn;
+            } catch (...) {
+                lastEx = std::current_exception();
+            }
+        }
+        std::rethrow_exception(lastEx);
+    }
+
     void release(ConnHandle conn) {
         {
             std::lock_guard lock(mutex_);
@@ -150,6 +172,7 @@ private:
     ConnFactory factory_;
     ConnCloser closer_;
     ConnValidator validator_;
+    int maxReconnectAttempts_;
     size_t inUse_ = 0;
     bool shutdown_ = false;
 };
