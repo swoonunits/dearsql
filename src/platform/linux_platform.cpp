@@ -122,9 +122,10 @@ bool LinuxPlatform::initializeGTK(int* argc, char*** argv) {
     return true;
 }
 
-static gboolean onDrop(GtkDropTarget*, const GValue* value, double, double, gpointer userData) {
+gboolean LinuxPlatform::onDrop(GtkDropTarget*, const GValue* value, double, double,
+                               gpointer userData) {
     auto* platform = static_cast<LinuxPlatform*>(userData);
-    if (!platform->app_ || !G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
+    if (!platform || !platform->app_ || !G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
         return FALSE;
 
     auto* files = static_cast<GSList*>(g_value_get_boxed(value));
@@ -135,7 +136,9 @@ static gboolean onDrop(GtkDropTarget*, const GValue* value, double, double, gpoi
             g_free(path);
         }
     }
-    gtk_window_present(GTK_WINDOW(platform->window_));
+    if (platform->window_) {
+        gtk_window_present(GTK_WINDOW(platform->window_));
+    }
     return TRUE;
 }
 
@@ -168,7 +171,7 @@ void LinuxPlatform::setupInputHandlers() {
 
     // drop target: open supported files dropped onto the window
     GtkDropTarget* dropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
-    g_signal_connect(dropTarget, "drop", G_CALLBACK(onDrop), this);
+    g_signal_connect(dropTarget, "drop", G_CALLBACK(LinuxPlatform::onDrop), this);
     gtk_widget_add_controller(glArea_, GTK_EVENT_CONTROLLER(dropTarget));
 }
 

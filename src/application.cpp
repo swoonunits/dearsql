@@ -791,8 +791,12 @@ void Application::setupDockingLayout(const ImGuiID dockSpaceId) {
         ImGui::DockBuilderSplitNode(dockSpaceId, ImGuiDir_Left, sidebarWidth, &leftDockId,
                                     &centerDockId);
 
-        ImGui::DockBuilderGetNode(leftDockId)->LocalFlags |=
-            ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_NoDockingInCentralNode;
+        if (auto* leftNode = ImGui::DockBuilderGetNode(leftDockId)) {
+            const auto sidebarFlags = static_cast<ImGuiDockNodeFlags>(
+                ImGuiDockNodeFlags_NoTabBar |
+                static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_NoDockingInCentralNode));
+            leftNode->SetLocalFlags(leftNode->LocalFlags | sidebarFlags);
+        }
 
         ImGui::DockBuilderDockWindow("Databases", leftDockId);
         const std::string wsTitle = getCurrentWorkspaceName() + "###workspace_main";
