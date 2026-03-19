@@ -20,6 +20,7 @@
 #include "utils/logger.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
+#include "utils/table_importer.hpp"
 #include <format>
 #include <ranges>
 
@@ -1061,6 +1062,7 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
             schemaNode->startTableRefreshAsync(table.name);
         }
         TableExporter::renderExportMenu(schemaNode, table.name);
+        TableImporter::renderImportMenu(schemaNode, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
@@ -1367,6 +1369,7 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
             dbData->startTableRefreshAsync(table.name);
         }
         TableExporter::renderExportMenu(dbData, table.name);
+        TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
@@ -1800,6 +1803,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
             dbData->startTableRefreshAsync(table.name);
         }
         TableExporter::renderExportMenu(dbData, table.name);
+        TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
@@ -2204,6 +2208,7 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
             dbData->startTableRefreshAsync(table.name);
         }
         TableExporter::renderExportMenu(dbData, table.name);
+        TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
@@ -2689,6 +2694,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
             app.getTabManager()->createTableEditorTab(sqliteDb, table);
         }
         TableExporter::renderExportMenu(sqliteDb, table.name);
+        TableImporter::renderImportMenu(sqliteDb, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
