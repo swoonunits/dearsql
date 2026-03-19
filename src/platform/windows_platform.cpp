@@ -6,6 +6,7 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_glfw.h"
 #include "license/license_manager.hpp"
+#include "platform/windows_updater.hpp"
 #include "themes.hpp"
 
 #include "IconsFontAwesome6.h"
@@ -599,6 +600,9 @@ void WindowsPlatform::renderTitlebarPopups() {
         // --- Action buttons ---
         if (ImGui::Selectable("Manage License...")) {
             showLicenseDialog();
+        }
+        if (ImGui::Selectable("Check for Updates...")) {
+            checkForUpdatesWindows();
         }
         if (ImGui::Selectable("Report Bug...")) {
             ShellExecuteW(nullptr, L"open",

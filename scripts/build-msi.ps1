@@ -19,7 +19,7 @@ Write-Host "=== Building $AppName $AppVersion MSI installer ==="
 
 # Step 1: Build release
 Write-Host "`n--- Step 1: Building release ---"
-& "$RootDir\scripts\build-windows.ps1" release
+& "$RootDir\scripts\build-windows.ps1" release --reconfigure
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Find the release exe
@@ -38,6 +38,15 @@ if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
 New-Item -ItemType Directory -Path $StageDir | Out-Null
 Copy-Item $ExePath "$StageDir\dearsql.exe"
 Write-Host "Staged: $StageDir\dearsql.exe"
+
+# Stage WinSparkle.dll (required for auto-updates)
+$WinSparkleDll = "$RootDir\external\WinSparkle\x64\Release\WinSparkle.dll"
+if (Test-Path $WinSparkleDll) {
+    Copy-Item $WinSparkleDll "$StageDir\WinSparkle.dll"
+    Write-Host "Staged: $StageDir\WinSparkle.dll"
+} else {
+    Write-Warning "WinSparkle.dll not found at $WinSparkleDll - auto-update will not work"
+}
 
 # Step 3: Build MSI with WiX
 Write-Host "`n--- Step 3: Building MSI ---"

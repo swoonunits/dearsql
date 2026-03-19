@@ -4,6 +4,9 @@ build_*/
 out/
 vcpkg_installed/
 
+# Auto-downloaded dependencies
+external/WinSparkle/
+
 # IDE specific files
 .vscode/
 .idea/
