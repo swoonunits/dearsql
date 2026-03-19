@@ -107,7 +107,10 @@ private:
     void setupInputHandlers();
     void updateImGuiMousePos();
     void updateImGuiKeyMods(GdkModifierType state);
+    void noteInteraction();
     ImGuiKey gtkKeyToImGuiKey(guint keyval);
+
+    gint64 lastInteractionTimeUs_ = 0;
 };
 
 #endif // defined(__linux__)
