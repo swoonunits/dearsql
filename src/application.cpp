@@ -259,6 +259,7 @@ void Application::run() {
 
     double lastInteractionTime = glfwGetTime();
     bool lastWindowFocused = glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+    bool lastHadAsyncWork = false;
 
     while (!glfwWindowShouldClose(window)) {
         if (isShutdownRequested()) {
@@ -295,12 +296,16 @@ void Application::run() {
         lastWindowFocused = windowFocused;
 
         const bool hasAsyncWork = AsyncOperationControl::hasRunningTasks();
+        // force one extra render when async work just finished so check() can drain the future
+        const bool asyncJustFinished = lastHadAsyncWork && !hasAsyncWork;
+        lastHadAsyncWork = hasAsyncWork;
 
-        // Skip rendering when unfocused or when focused but idle (matching Linux behavior)
-        if (!windowFocused && !hasAsyncWork) {
+        // never call renderFrame() when unfocused: CAMetalLayer::nextDrawable blocks
+        // when the window is backgrounded, causing sluggish app switches
+        if (!windowFocused) {
             continue;
         }
-        if (idleBecauseInactive && !hasAsyncWork) {
+        if (idleBecauseInactive && !hasAsyncWork && !asyncJustFinished) {
             continue;
         }
 

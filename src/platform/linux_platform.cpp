@@ -1703,14 +1703,20 @@ void LinuxPlatform::runMainLoop() {
         lastWindowFocused = windowFocused;
 
         const bool hasAsyncWork = AsyncOperationControl::hasRunningTasks();
+        // force one extra render when async work just finished so AsyncOperation::check()
+        // can drain the ready future and deliver the result to the UI
+        const bool asyncJustFinished = lastHadAsyncWork_ && !hasAsyncWork;
+        lastHadAsyncWork_ = hasAsyncWork;
         const double timeSinceInteraction =
             static_cast<double>(
                 std::max<gint64>(0, g_get_monotonic_time() - lastInteractionTimeUs_)) /
             1000000.0;
-        const bool idleBecauseUnfocused = !windowFocused && !hasAsyncWork;
+        const bool idleBecauseUnfocused = !windowFocused && !hasAsyncWork && !asyncJustFinished;
         const bool idleBecauseInactive =
-            windowFocused && (timeSinceInteraction >= kIdleActivationDelaySeconds) && !hasAsyncWork;
-        const bool shouldRender = hasAsyncWork || (windowFocused && !idleBecauseInactive);
+            windowFocused && (timeSinceInteraction >= kIdleActivationDelaySeconds) &&
+            !hasAsyncWork && !asyncJustFinished;
+        const bool shouldRender =
+            hasAsyncWork || asyncJustFinished || (windowFocused && !idleBecauseInactive);
 
         if (glArea_ && realized_ && shouldRender) {
             gtk_gl_area_queue_render(GTK_GL_AREA(glArea_));
