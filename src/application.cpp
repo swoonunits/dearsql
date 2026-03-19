@@ -294,14 +294,19 @@ void Application::run() {
         }
         lastWindowFocused = windowFocused;
 
-        if (!windowFocused && !AsyncOperationControl::hasRunningTasks()) {
+        const bool hasAsyncWork = AsyncOperationControl::hasRunningTasks();
+
+        // Skip rendering when unfocused or when focused but idle (matching Linux behavior)
+        if (!windowFocused && !hasAsyncWork) {
+            continue;
+        }
+        if (idleBecauseInactive && !hasAsyncWork) {
             continue;
         }
 
         platform_->renderFrame();
 
         const bool userActive = isImGuiUserActive();
-        const bool hasAsyncWork = AsyncOperationControl::hasRunningTasks();
 
         if (userActive || hasAsyncWork) {
             lastInteractionTime = glfwGetTime();
@@ -792,7 +797,7 @@ void Application::setupDockingLayout(const ImGuiID dockSpaceId) {
 
     ImGui::DockBuilderRemoveNode(dockSpaceId);
     ImGui::DockBuilderAddNode(dockSpaceId, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockSpaceId, ImGui::GetMainViewport()->Size);
+    ImGui::DockBuilderSetNodeSize(dockSpaceId, ImGui::GetWindowSize());
 
     const std::string preferredTabWindowName =
         tabManager ? tabManager->getPreferredTabWindowNameForDocking() : std::string{};
@@ -915,6 +920,7 @@ void Application::renderMainUI() {
     const bool shouldShowSidebar = sidebarWidth > 0.01f;
 
     if (shouldShowSidebar) {
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, colors.base);
         ImGui::PushStyleColor(ImGuiCol_Tab, colors.base);
         ImGui::PushStyleColor(ImGuiCol_TabActive, colors.surface0);
         ImGui::PushStyleColor(ImGuiCol_TabHovered, colors.surface1);
@@ -929,7 +935,7 @@ void Application::renderMainUI() {
         ImGui::End();
 
         ImGui::PopStyleVar(1);
-        ImGui::PopStyleColor(3);
+        ImGui::PopStyleColor(4);
     }
 
     // Main workspace area - positioning depends on sidebar visibility

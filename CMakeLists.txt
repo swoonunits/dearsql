@@ -44,6 +44,11 @@ if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif()
 
+# Use static runtime on Windows to match vcpkg x64-windows-static triplet
+if(WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -303,6 +308,13 @@ add_executable(${PROJECT_NAME}
     ${IMGUI_NODE_EDITOR_SOURCES}
 )
 
+# On Windows release builds, hide the console window while keeping main() entry point
+if(WIN32)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
+        $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>)
+endif()
+
 target_include_directories(${PROJECT_NAME} PRIVATE
     include
     external/imgui
@@ -314,6 +326,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/include
 )
+
+# Windows: prevent min/max macros from <windows.h> clashing with std::min/std::max
+if(WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    # Embed manifest to activate Common Controls v6 (needed for TaskDialogIndirect)
+    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_FLAGS
+        "/MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/assets/app.manifest")
+endif()
 
 # platform-specific include directories
 if(LINUX)
@@ -376,6 +396,7 @@ elseif(WIN32)
         dxgi
         dwmapi
         comctl32
+        uxtheme
         ws2_32
     )
 else()

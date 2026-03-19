@@ -2,20 +2,22 @@
 
 #include "platform/windows_platform.hpp"
 #include "application.hpp"
+#include "config.hpp"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_glfw.h"
-#include "platform/alert.hpp"
-#include "platform/connection_dialog.hpp"
+#include "license/license_manager.hpp"
 #include "themes.hpp"
 
-#include <algorithm>
+#include "IconsFontAwesome6.h"
+
 #include <d3d11.h>
+#include <shellapi.h>
 #include <dwmapi.h>
 #include <dxgi.h>
-#include <format>
 #include <iostream>
 #include <string>
 #include <windowsx.h>
+#include <commctrl.h>
 
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -24,275 +26,150 @@
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-#ifndef DWMWA_CAPTION_COLOR
-#define DWMWA_CAPTION_COLOR 35
-#endif
 
-namespace {
+// ---------------------------------------------------------------------------
+// Static members
+// ---------------------------------------------------------------------------
 
-    constexpr wchar_t kPlatformPropName[] = L"DearSQL_WindowsPlatform";
-    constexpr wchar_t kOldWndProcPropName[] = L"DearSQL_WindowsPlatformOldWndProc";
-    constexpr wchar_t kCreateWorkspaceDialogClass[] = L"DearSQL_CreateWorkspaceDialog";
+WNDPROC WindowsPlatform::originalWndProc_ = nullptr;
+WindowsPlatform* WindowsPlatform::instance_ = nullptr;
 
-    enum : int {
-        IDC_TITLEBAR_WORKSPACE = 5001,
-        IDC_TITLEBAR_ADD_BUTTON,
-        IDC_TITLEBAR_SIDEBAR_BUTTON,
-        IDC_TITLEBAR_MENU_BUTTON,
-        IDC_WORKSPACE_NAME_EDIT,
-        IDC_WORKSPACE_CREATE_BUTTON,
-        IDC_WORKSPACE_CANCEL_BUTTON,
-    };
+// ---------------------------------------------------------------------------
+// Custom WndProc for DWM custom frame
+// ---------------------------------------------------------------------------
 
-    enum : int {
-        IDM_FONT_DECREASE = 6001,
-        IDM_FONT_INCREASE,
-        IDM_FONT_RESET,
-        IDM_THEME_LIGHT,
-        IDM_THEME_DARK,
-    };
-
-    HWND sActiveCreateWorkspaceDialog = nullptr;
-
-    struct CreateWorkspaceDialogData {
-        Application* app = nullptr;
-        WindowsPlatform* platform = nullptr;
-        HWND parentHwnd = nullptr;
-        HWND nameEdit = nullptr;
-    };
-
-    std::wstring widen(const std::string& value) {
-        if (value.empty()) {
-            return {};
-        }
-
-        const int needed = MultiByteToWideChar(CP_UTF8, 0, value.c_str(),
-                                               static_cast<int>(value.size()), nullptr, 0);
-        if (needed <= 0) {
-            return {};
-        }
-
-        std::wstring wide(needed, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), wide.data(),
-                            needed);
-        return wide;
+LRESULT CALLBACK WindowsPlatform::customWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // Let DWM handle its messages first (shadow, etc.)
+    LRESULT dwmResult = 0;
+    if (DwmDefWindowProc(hWnd, msg, wParam, lParam, &dwmResult)) {
+        return dwmResult;
     }
 
-    std::string narrow(const std::wstring& value) {
-        if (value.empty()) {
-            return {};
-        }
-
-        const int needed =
-            WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr,
-                                0, nullptr, nullptr);
-        if (needed <= 0) {
-            return {};
-        }
-
-        std::string narrowValue(needed, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()),
-                            narrowValue.data(), needed, nullptr, nullptr);
-        return narrowValue;
+    switch (msg) {
+    case WM_ACTIVATE: {
+        // Extend DWM frame by 1px at top for the window shadow effect
+        MARGINS margins = {0, 0, 1, 0};
+        DwmExtendFrameIntoClientArea(hWnd, &margins);
+        return 0;
     }
 
-    std::string trim(std::string value) {
-        const auto first = value.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos) {
-            return {};
-        }
-
-        const auto last = value.find_last_not_of(" \t\r\n");
-        return value.substr(first, last - first + 1);
-    }
-
-    int getWindowDpi(HWND hWnd) {
-        if (!hWnd) {
-            return USER_DEFAULT_SCREEN_DPI;
-        }
-        return static_cast<int>(GetDpiForWindow(hWnd));
-    }
-
-    int scaleForWindow(HWND hWnd, int value) {
-        return MulDiv(value, getWindowDpi(hWnd), USER_DEFAULT_SCREEN_DPI);
-    }
-
-    void applyDefaultGuiFont(HWND hWnd) {
-        if (!hWnd) {
-            return;
-        }
-
-        SendMessageW(hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),
-                     TRUE);
-    }
-
-    bool pointInControl(HWND hWnd, POINT screenPt) {
-        if (!hWnd || !IsWindowVisible(hWnd)) {
-            return false;
-        }
-
-        RECT rect{};
-        GetWindowRect(hWnd, &rect);
-        return PtInRect(&rect, screenPt) != FALSE;
-    }
-
-    void ensureWindowClassRegistered(const wchar_t* className, WNDPROC proc) {
-        WNDCLASSEXW wc{};
-        if (GetClassInfoExW(GetModuleHandleW(nullptr), className, &wc)) {
-            return;
-        }
-
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = proc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-        wc.lpszClassName = className;
-        RegisterClassExW(&wc);
-    }
-
-    void centerWindowToParent(HWND hWnd, HWND parentHwnd) {
-        RECT parentRect{};
-        if (parentHwnd && GetWindowRect(parentHwnd, &parentRect)) {
-            // parent rect set
-        } else {
-            SystemParametersInfoW(SPI_GETWORKAREA, 0, &parentRect, 0);
-        }
-
-        RECT windowRect{};
-        GetWindowRect(hWnd, &windowRect);
-
-        const LONG width = windowRect.right - windowRect.left;
-        const LONG height = windowRect.bottom - windowRect.top;
-        const LONG x =
-            parentRect.left + std::max(0L, ((parentRect.right - parentRect.left) - width) / 2);
-        const LONG y =
-            parentRect.top + std::max(0L, ((parentRect.bottom - parentRect.top) - height) / 2);
-
-        SetWindowPos(hWnd, nullptr, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-
-    CreateWorkspaceDialogData* getWorkspaceDialogData(HWND hWnd) {
-        return reinterpret_cast<CreateWorkspaceDialogData*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-    }
-
-    LRESULT CALLBACK CreateWorkspaceDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-        switch (msg) {
-        case WM_CREATE: {
-            auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
-            auto* data = static_cast<CreateWorkspaceDialogData*>(create->lpCreateParams);
-            SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
-
-            const int padX = scaleForWindow(hWnd, 16);
-            const int padY = scaleForWindow(hWnd, 16);
-            const int labelY = padY;
-            const int editY = labelY + scaleForWindow(hWnd, 22);
-            const int editH = scaleForWindow(hWnd, 28);
-            const int buttonY = editY + editH + scaleForWindow(hWnd, 16);
-            const int buttonW = scaleForWindow(hWnd, 88);
-            const int buttonH = scaleForWindow(hWnd, 28);
-            const int gap = scaleForWindow(hWnd, 8);
-            const int clientW = scaleForWindow(hWnd, 360);
-
-            HWND label = CreateWindowExW(0, L"STATIC", L"Enter a name for the new workspace:",
-                                         WS_CHILD | WS_VISIBLE, padX, labelY, clientW - padX * 2,
-                                         scaleForWindow(hWnd, 18), hWnd, nullptr,
-                                         GetModuleHandleW(nullptr), nullptr);
-            applyDefaultGuiFont(label);
-
-            data->nameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                             padX, editY, clientW - padX * 2, editH, hWnd,
-                                             reinterpret_cast<HMENU>(IDC_WORKSPACE_NAME_EDIT),
-                                             GetModuleHandleW(nullptr), nullptr);
-            applyDefaultGuiFont(data->nameEdit);
-            SendMessageW(data->nameEdit, EM_SETLIMITTEXT, 128, 0);
-
-            HWND cancelButton = CreateWindowExW(
-                0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                clientW - padX - buttonW * 2 - gap, buttonY, buttonW, buttonH, hWnd,
-                reinterpret_cast<HMENU>(IDC_WORKSPACE_CANCEL_BUTTON), GetModuleHandleW(nullptr),
-                nullptr);
-            applyDefaultGuiFont(cancelButton);
-
-            HWND createButton = CreateWindowExW(
-                0, L"BUTTON", L"Create", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-                clientW - padX - buttonW, buttonY, buttonW, buttonH, hWnd,
-                reinterpret_cast<HMENU>(IDC_WORKSPACE_CREATE_BUTTON), GetModuleHandleW(nullptr),
-                nullptr);
-            applyDefaultGuiFont(createButton);
-
-            centerWindowToParent(hWnd, data->parentHwnd);
-            SetFocus(data->nameEdit);
+    case WM_NCCALCSIZE: {
+        if (wParam == TRUE) {
+            // Return 0 to remove the standard non-client frame.
+            // When maximized, the OS extends the window beyond the screen by the
+            // frame thickness. Compensate so the window doesn't cover the taskbar.
+            auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+            if (IsZoomed(hWnd)) {
+                HMONITOR monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi = {sizeof(mi)};
+                if (GetMonitorInfoW(monitor, &mi)) {
+                    params->rgrc[0] = mi.rcWork;
+                }
+            }
             return 0;
         }
-
-        case WM_COMMAND: {
-            auto* data = getWorkspaceDialogData(hWnd);
-            if (!data) {
-                return 0;
-            }
-
-            const int controlId = LOWORD(wParam);
-            if (controlId == IDC_WORKSPACE_CANCEL_BUTTON) {
-                DestroyWindow(hWnd);
-                return 0;
-            }
-
-            if (controlId != IDC_WORKSPACE_CREATE_BUTTON) {
-                break;
-            }
-
-            const int textLen = GetWindowTextLengthW(data->nameEdit);
-            std::wstring workspaceNameWide(static_cast<size_t>(textLen) + 1, L'\0');
-            if (textLen > 0) {
-                GetWindowTextW(data->nameEdit, workspaceNameWide.data(), textLen + 1);
-            }
-            workspaceNameWide.resize(static_cast<size_t>(textLen));
-
-            const std::string workspaceName = trim(narrow(workspaceNameWide));
-            if (workspaceName.empty()) {
-                MessageBoxW(hWnd, L"Workspace name cannot be empty.", L"Create Workspace",
-                            MB_OK | MB_ICONWARNING);
-                return 0;
-            }
-
-            if (!data->app) {
-                DestroyWindow(hWnd);
-                return 0;
-            }
-
-            const int newWorkspaceId = data->app->createWorkspace(workspaceName);
-            if (newWorkspaceId <= 0) {
-                MessageBoxW(hWnd, L"Failed to create workspace.", L"Create Workspace",
-                            MB_OK | MB_ICONERROR);
-                return 0;
-            }
-
-            DestroyWindow(hWnd);
-            return 0;
-        }
-
-        case WM_CLOSE:
-            DestroyWindow(hWnd);
-            return 0;
-
-        case WM_DESTROY: {
-            auto* data = getWorkspaceDialogData(hWnd);
-            sActiveCreateWorkspaceDialog = nullptr;
-            delete data;
-            SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
-            return 0;
-        }
-
-        default:
-            break;
-        }
-
-        return DefWindowProcW(hWnd, msg, wParam, lParam);
+        break;
     }
 
-} // namespace
+    case WM_NCHITTEST: {
+        if (instance_) {
+            LRESULT hit = instance_->hitTest(hWnd, lParam);
+            if (hit != HTNOWHERE) {
+                return hit;
+            }
+        }
+        break;
+    }
+
+    case WM_GETMINMAXINFO: {
+        // Ensure maximized window fits in the work area (excludes taskbar).
+        auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+        HMONITOR monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {sizeof(mi)};
+        if (GetMonitorInfoW(monitor, &mi)) {
+            mmi->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+            mmi->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+            mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+            mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+        }
+        return 0;
+    }
+
+    case WM_SIZE: {
+        // Resize D3D11 swap chain when the window is resized.
+        if (wParam != SIZE_MINIMIZED && instance_ && instance_->swapChain_) {
+            instance_->cleanupRenderTarget();
+            instance_->swapChain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+            instance_->createRenderTarget();
+        }
+        break; // Also let GLFW process this
+    }
+    }
+
+    return CallWindowProcW(originalWndProc_, hWnd, msg, wParam, lParam);
+}
+
+LRESULT WindowsPlatform::hitTest(HWND hWnd, LPARAM lParam) const {
+    POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    RECT rc;
+    GetWindowRect(hWnd, &rc);
+
+    const int border = getResizeBorderWidth();
+    const int titlebar = getTitlebarHeightPixels();
+    const bool maximized = IsZoomed(hWnd);
+
+    // --- Resize borders (disabled when maximized) ---
+    if (!maximized) {
+        // Top edge
+        if (pt.y >= rc.top && pt.y < rc.top + border) {
+            if (pt.x < rc.left + border) return HTTOPLEFT;
+            if (pt.x >= rc.right - border) return HTTOPRIGHT;
+            return HTTOP;
+        }
+        // Bottom edge
+        if (pt.y >= rc.bottom - border) {
+            if (pt.x < rc.left + border) return HTBOTTOMLEFT;
+            if (pt.x >= rc.right - border) return HTBOTTOMRIGHT;
+            return HTBOTTOM;
+        }
+        // Left edge
+        if (pt.x >= rc.left && pt.x < rc.left + border) return HTLEFT;
+        // Right edge
+        if (pt.x >= rc.right - border) return HTRIGHT;
+    }
+
+    // --- Titlebar area ---
+    if (pt.y < rc.top + titlebar) {
+        // Caption buttons zone (right side: 3 buttons * 46px)
+        if (pt.x >= rc.right - 138) {
+            return HTCLIENT;
+        }
+        // Left interactive zone (sidebar toggle, add button, etc.)
+        if (pt.x < rc.left + static_cast<int>(interactiveLeftEnd_)) {
+            return HTCLIENT;
+        }
+        // Right interactive zone (workspace dropdown, menu button)
+        if (interactiveRightStart_ > 0 && pt.x >= rc.left + static_cast<int>(interactiveRightStart_)) {
+            return HTCLIENT;
+        }
+        return HTCAPTION;
+    }
+
+    // Everything else is normal client area.
+    return HTCLIENT;
+}
+
+int WindowsPlatform::getTitlebarHeightPixels() const {
+    return 32;
+}
+
+int WindowsPlatform::getResizeBorderWidth() const {
+    return GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+}
+
+// ---------------------------------------------------------------------------
+// WindowsPlatform core
+// ---------------------------------------------------------------------------
 
 WindowsPlatform::WindowsPlatform(Application* app) : app_(app) {
     lastAppliedDarkTheme_ = app ? app->isDarkTheme() : true;
@@ -318,7 +195,9 @@ bool WindowsPlatform::initializePlatform(GLFWwindow* window) {
 
     std::cout << "DirectX 11 device initialized successfully" << std::endl;
 
-    // drag-and-drop: open supported files dropped onto the window
+    // Install custom frame (subclass the HWND created by GLFW)
+    subclassWindow();
+
     glfwSetDropCallback(window, [](GLFWwindow* w, int count, const char** paths) {
         for (int i = 0; i < count; i++) {
             Application::getInstance().openFile(std::string(paths[i]));
@@ -327,6 +206,26 @@ bool WindowsPlatform::initializePlatform(GLFWwindow* window) {
     });
 
     return true;
+}
+
+void WindowsPlatform::subclassWindow() {
+    HWND hWnd = getHWND();
+    if (!hWnd) return;
+
+    instance_ = this;
+    originalWndProc_ =
+        reinterpret_cast<WNDPROC>(SetWindowLongPtrW(hWnd, GWLP_WNDPROC,
+                                                     reinterpret_cast<LONG_PTR>(customWndProc)));
+
+    // Extend DWM frame (1px top for shadow)
+    MARGINS margins = {0, 0, 1, 0};
+    DwmExtendFrameIntoClientArea(hWnd, &margins);
+
+    // Force a WM_NCCALCSIZE so the custom frame takes effect immediately
+    RECT rc;
+    GetWindowRect(hWnd, &rc);
+    SetWindowPos(hWnd, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 bool WindowsPlatform::initializeImGuiBackend() {
@@ -345,29 +244,16 @@ void WindowsPlatform::setupTitlebar() {
         return;
     }
 
-    titlebarHeightPx_ = scaleForWindow(hWnd, 40);
-    if (!oldWndProc_) {
-        SetPropW(hWnd, kPlatformPropName, this);
-        oldWndProc_ = reinterpret_cast<void*>(SetWindowLongPtrW(
-            hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WindowsPlatform::TitlebarWindowProc)));
-        SetPropW(hWnd, kOldWndProcPropName, oldWndProc_);
-        SetWindowPos(hWnd, nullptr, 0, 0, 0, 0,
-                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-
-    createTitlebarControls(hWnd);
-    layoutTitlebarControls();
-    updateWorkspaceDropdown();
     applyTitlebarTheme();
-    std::cout << "Windows titlebar configured" << std::endl;
+    std::cout << "Windows custom titlebar configured" << std::endl;
 }
 
 float WindowsPlatform::getTitlebarHeight() const {
-    return static_cast<float>(titlebarHeightPx_);
+    return static_cast<float>(getTitlebarHeightPixels());
 }
 
 float WindowsPlatform::getClientAreaTopInset() const {
-    return static_cast<float>(titlebarHeightPx_);
+    return static_cast<float>(getTitlebarHeightPixels());
 }
 
 void WindowsPlatform::onSidebarToggleClicked() {
@@ -377,17 +263,363 @@ void WindowsPlatform::onSidebarToggleClicked() {
 }
 
 void WindowsPlatform::cleanup() {
-    destroyTitlebarControls();
-
-    if (HWND hWnd = getHWND(); hWnd && oldWndProc_) {
-        SetWindowLongPtrW(hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(oldWndProc_));
-        RemovePropW(hWnd, kPlatformPropName);
-        RemovePropW(hWnd, kOldWndProcPropName);
-        oldWndProc_ = nullptr;
-    }
-
     cleanupD3DDevice();
 }
+
+// ---------------------------------------------------------------------------
+// Titlebar rendering (ImGui)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void DrawMinimizeIcon(ImDrawList* dl, ImVec2 center, ImU32 col) {
+    dl->AddLine({center.x - 5, center.y}, {center.x + 5, center.y}, col, 1.0f);
+}
+
+void DrawMaximizeIcon(ImDrawList* dl, ImVec2 center, ImU32 col) {
+    dl->AddRect({center.x - 5, center.y - 5}, {center.x + 5, center.y + 5}, col, 0, 0, 1.0f);
+}
+
+void DrawRestoreIcon(ImDrawList* dl, ImVec2 center, ImU32 col, ImU32 bgCol) {
+    const float s = 4.0f, off = 2.0f;
+    // Back rectangle (top-right, partially occluded)
+    dl->AddRect({center.x - s + off, center.y - s - off},
+                {center.x + s + off, center.y + s - off}, col, 0, 0, 1.0f);
+    // Front rectangle (bottom-left) — fill to occlude back rect lines
+    ImVec2 p1{center.x - s, center.y - s + off};
+    ImVec2 p2{center.x + s - off, center.y + s};
+    dl->AddRectFilled(p1, p2, bgCol);
+    dl->AddRect(p1, p2, col, 0, 0, 1.0f);
+}
+
+void DrawCloseIcon(ImDrawList* dl, ImVec2 center, ImU32 col) {
+    dl->AddLine({center.x - 5, center.y - 5}, {center.x + 5, center.y + 5}, col, 1.0f);
+    dl->AddLine({center.x + 5, center.y - 5}, {center.x - 5, center.y + 5}, col, 1.0f);
+}
+
+} // namespace
+
+void WindowsPlatform::renderTitlebar() {
+    const float tbHeight = static_cast<float>(getTitlebarHeightPixels());
+    if (tbHeight <= 0) return;
+
+    const bool isDark = app_->isDarkTheme();
+    const auto& colors = isDark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
+    const bool maximized = IsZoomed(getHWND());
+
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImVec2 origin = vp->Pos;
+    const float winW = vp->Size.x;
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 mouse = io.MousePos;
+
+    // --- Background ---
+    fg->AddRectFilled(origin, {origin.x + winW, origin.y + tbHeight},
+                      ImGui::GetColorU32(colors.mantle));
+
+    titlebarWidgetHovered_ = false;
+
+    const ImVec4 hoverBg = isDark ? ImVec4(1, 1, 1, 0.1f) : ImVec4(0, 0, 0, 0.06f);
+    const ImVec4 activeBg = isDark ? ImVec4(1, 1, 1, 0.15f) : ImVec4(0, 0, 0, 0.10f);
+
+    // Helper: manual foreground button (no ImGui window context needed)
+    auto fgButton = [&](ImVec2 bMin, ImVec2 bMax, auto drawIcon,
+                        ImVec4 hBg, ImVec4 aBg, bool whiteIconOnHover) -> bool {
+        bool hovered = (mouse.x >= bMin.x && mouse.x < bMax.x &&
+                        mouse.y >= bMin.y && mouse.y < bMax.y);
+        bool held = hovered && io.MouseDown[0];
+        bool clicked = hovered && io.MouseReleased[0];
+        titlebarWidgetHovered_ |= hovered;
+
+        if (held)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(aBg));
+        else if (hovered)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(hBg));
+
+        ImVec2 center{(bMin.x + bMax.x) * 0.5f, (bMin.y + bMax.y) * 0.5f};
+        ImVec4 iCol = (hovered && whiteIconOnHover) ? ImVec4(1, 1, 1, 1) : colors.text;
+        drawIcon(fg, center, ImGui::GetColorU32(iCol));
+
+        return clicked;
+    };
+
+    // Helper: simple icon button (rounded, fixed size)
+    const float iconBtnSize = tbHeight - 4.0f;
+    auto fgIconBtn = [&](float x, const char* iconText) -> bool {
+        float iy = origin.y + (tbHeight - iconBtnSize) * 0.5f;
+        ImVec2 bMin{x, iy}, bMax{x + iconBtnSize, iy + iconBtnSize};
+        bool hovered = (mouse.x >= bMin.x && mouse.x < bMax.x &&
+                        mouse.y >= bMin.y && mouse.y < bMax.y);
+        bool held = hovered && io.MouseDown[0];
+        bool clicked = hovered && io.MouseReleased[0];
+        titlebarWidgetHovered_ |= hovered;
+
+        if (held)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(activeBg), 4.0f);
+        else if (hovered)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(hoverBg), 4.0f);
+
+        // Center icon text
+        ImVec2 textSize = ImGui::CalcTextSize(iconText);
+        fg->AddText({(bMin.x + bMax.x - textSize.x) * 0.5f,
+                     (bMin.y + bMax.y - textSize.y) * 0.5f},
+                    ImGui::GetColorU32(colors.text), iconText);
+
+        return clicked;
+    };
+
+    // ===================== RIGHT SIDE: Caption buttons =====================
+    const float captionBtnW = 46.0f;
+    const ImVec4 closeHoverBg = ImVec4(0.77f, 0.17f, 0.11f, 1.0f);
+    const ImVec4 closeActiveBg = ImVec4(0.67f, 0.14f, 0.09f, 1.0f);
+
+    float rx = origin.x + winW - captionBtnW * 3;
+
+    if (fgButton({rx, origin.y}, {rx + captionBtnW, origin.y + tbHeight},
+                 DrawMinimizeIcon, hoverBg, activeBg, false))
+        ShowWindow(getHWND(), SW_MINIMIZE);
+    rx += captionBtnW;
+
+    if (maximized) {
+        if (fgButton({rx, origin.y}, {rx + captionBtnW, origin.y + tbHeight},
+                     [&](ImDrawList* d, ImVec2 c, ImU32 col) {
+                         DrawRestoreIcon(d, c, col, ImGui::GetColorU32(colors.mantle));
+                     },
+                     hoverBg, activeBg, false))
+            ShowWindow(getHWND(), SW_RESTORE);
+    } else {
+        if (fgButton({rx, origin.y}, {rx + captionBtnW, origin.y + tbHeight},
+                     DrawMaximizeIcon, hoverBg, activeBg, false))
+            ShowWindow(getHWND(), SW_MAXIMIZE);
+    }
+    rx += captionBtnW;
+
+    if (fgButton({rx, origin.y}, {rx + captionBtnW, origin.y + tbHeight},
+                 DrawCloseIcon, closeHoverBg, closeActiveBg, true))
+        PostMessageW(getHWND(), WM_CLOSE, 0, 0);
+
+    // ===================== RIGHT SIDE: Menu + Workspace (before caption) =====================
+    const float rightGroupX = origin.x + winW - captionBtnW * 3 - 8.0f; // 8px gap before caption btns
+
+    // Menu button (rightmost before caption buttons)
+    float menuX = rightGroupX - iconBtnSize;
+    if (fgIconBtn(menuX, ICON_FA_ELLIPSIS_VERTICAL)) {
+        openMenuPopup_ = true;
+        menuPopupPos_ = {menuX, origin.y + tbHeight};
+    }
+
+    // Workspace dropdown
+    const std::string wsName = app_->getCurrentWorkspaceName();
+    const std::string wsLabel = wsName + "  " ICON_FA_CHEVRON_DOWN;
+    ImVec2 wsTextSize = ImGui::CalcTextSize(wsLabel.c_str());
+    float wsBtnW = wsTextSize.x + 16.0f;
+    float wsX = menuX - 4.0f - wsBtnW;
+    {
+        float iy = origin.y + (tbHeight - iconBtnSize) * 0.5f;
+        ImVec2 bMin{wsX, iy}, bMax{wsX + wsBtnW, iy + iconBtnSize};
+        bool hovered = (mouse.x >= bMin.x && mouse.x < bMax.x &&
+                        mouse.y >= bMin.y && mouse.y < bMax.y);
+        bool held = hovered && io.MouseDown[0];
+        bool clicked = hovered && io.MouseReleased[0];
+        titlebarWidgetHovered_ |= hovered;
+
+        if (held)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(activeBg), 4.0f);
+        else if (hovered)
+            fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(hoverBg), 4.0f);
+
+        fg->AddText({bMin.x + 8.0f, (bMin.y + bMax.y - wsTextSize.y) * 0.5f},
+                    ImGui::GetColorU32(colors.text), wsLabel.c_str());
+
+        if (clicked) {
+            openWorkspacePopup_ = true;
+            workspacePopupPos_ = {wsX, origin.y + tbHeight};
+        }
+    }
+
+    // Track right interactive zone start for hit testing
+    interactiveRightStart_ = wsX;
+
+    // ===================== LEFT SIDE: Sidebar toggle + Add connection =====================
+    const float leftPad = 8.0f;
+    float lx = origin.x + leftPad;
+
+    // Sidebar toggle (hamburger icon drawn manually)
+    {
+        float iy = origin.y + (tbHeight - iconBtnSize) * 0.5f;
+        ImVec2 bMin{lx, iy}, bMax{lx + iconBtnSize, iy + iconBtnSize};
+        bool hovered = (mouse.x >= bMin.x && mouse.x < bMax.x &&
+                        mouse.y >= bMin.y && mouse.y < bMax.y);
+        bool held = hovered && io.MouseDown[0];
+        bool clicked = hovered && io.MouseReleased[0];
+        titlebarWidgetHovered_ |= hovered;
+        if (held) fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(activeBg), 4.0f);
+        else if (hovered) fg->AddRectFilled(bMin, bMax, ImGui::GetColorU32(hoverBg), 4.0f);
+
+        ImVec2 center{(bMin.x + bMax.x) * 0.5f, (bMin.y + bMax.y) * 0.5f};
+        ImU32 iconCol = ImGui::GetColorU32(colors.text);
+        fg->AddLine({center.x - 5, center.y - 4}, {center.x + 5, center.y - 4}, iconCol, 1.5f);
+        fg->AddLine({center.x - 5, center.y},     {center.x + 5, center.y},     iconCol, 1.5f);
+        fg->AddLine({center.x - 5, center.y + 4}, {center.x + 5, center.y + 4}, iconCol, 1.5f);
+
+        if (clicked) onSidebarToggleClicked();
+    }
+    lx += iconBtnSize + 2.0f;
+
+    // Add connection button (+)
+    if (fgIconBtn(lx, ICON_FA_PLUS)) {
+        if (app_->getDatabaseSidebar()) {
+            app_->getDatabaseSidebar()->showConnectionDialog();
+        }
+    }
+    lx += iconBtnSize + 8.0f;
+
+    // Track left interactive zone end for hit testing
+    interactiveLeftEnd_ = lx;
+
+    // --- Title text ---
+    const float titleY = origin.y + (tbHeight - ImGui::GetFontSize()) * 0.5f;
+#ifdef NDEBUG
+    fg->AddText({lx, titleY}, ImGui::GetColorU32(colors.subtext1), APP_NAME);
+#else
+    fg->AddText({lx, titleY}, ImGui::GetColorU32(colors.subtext1), "DearSQL (Debug)");
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Titlebar popups (workspace dropdown, menu)
+// ---------------------------------------------------------------------------
+
+void WindowsPlatform::renderTitlebarPopups() {
+    if (!app_) return;
+
+    const bool isDark = app_->isDarkTheme();
+    const auto& colors = isDark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
+
+    // We need an ImGui window context to host popups
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize({1, 1});
+    ImGui::Begin("##TitlebarPopupHost", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs);
+
+    // --- Workspace popup ---
+    if (openWorkspacePopup_) {
+        ImGui::OpenPopup("##WorkspacePopup");
+        openWorkspacePopup_ = false;
+    }
+    ImGui::SetNextWindowPos(workspacePopupPos_);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8, 8});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6, 6});
+    if (ImGui::BeginPopup("##WorkspacePopup")) {
+        auto workspaces = app_->getWorkspaces();
+        for (const auto& ws : workspaces) {
+            bool isCurrent = (ws.id == app_->getCurrentWorkspaceId());
+            if (ImGui::Selectable(ws.name.c_str(), isCurrent)) {
+                app_->setCurrentWorkspace(ws.id);
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("New Workspace...")) {
+            app_->createWorkspace("New Workspace", "");
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+
+    // --- Menu popup ---
+    if (openMenuPopup_) {
+        ImGui::OpenPopup("##MenuPopup");
+        openMenuPopup_ = false;
+    }
+    // Anchor popup so its RIGHT edge aligns with the menu button's right edge
+    const float popupW = 220.0f;
+    const float iconBtnSz = static_cast<float>(getTitlebarHeightPixels()) - 4.0f;
+    ImGui::SetNextWindowPos({menuPopupPos_.x + iconBtnSz - popupW, menuPopupPos_.y});
+    ImGui::SetNextWindowSize({popupW, 0});
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 12});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8, 8});
+    if (ImGui::BeginPopup("##MenuPopup")) {
+        const float contentW = popupW - 24.0f; // minus padding
+
+        // --- Theme section ---
+        ImGui::TextColored(colors.subtext0, "Theme");
+        {
+            float btnW = (contentW - 8.0f) / 2.0f; // 2 buttons with 8px gap
+            auto themeBtn = [&](const char* label, bool selected, auto action) {
+                if (selected) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, colors.blue);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.blue);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+                }
+                if (ImGui::Button(label, {btnW, 0})) action();
+                if (selected) ImGui::PopStyleColor(3);
+            };
+            themeBtn(ICON_FA_SUN "  Light", !isDark, [&] { app_->setDarkTheme(false); });
+            ImGui::SameLine();
+            themeBtn(ICON_FA_MOON "  Dark", isDark, [&] { app_->setDarkTheme(true); });
+        }
+
+        ImGui::Spacing();
+
+        // --- Font size section ---
+        ImGui::TextColored(colors.subtext0, "Font Size");
+        {
+            float sideBtnW = 36.0f;
+            float currentScale = app_->getFontScale();
+            if (ImGui::Button("A-", {sideBtnW, 0})) {
+                app_->setFontScale(currentScale - 0.1f);
+            }
+            ImGui::SameLine();
+            char sizeLabel[16];
+            snprintf(sizeLabel, sizeof(sizeLabel), "%d%%", static_cast<int>(currentScale * 100));
+            float centerW = contentW - sideBtnW * 2 - 8.0f * 2;
+            float textW = ImGui::CalcTextSize(sizeLabel).x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (centerW - textW) * 0.5f);
+            ImGui::TextUnformatted(sizeLabel);
+            ImGui::SameLine();
+            float aplusX = ImGui::GetWindowContentRegionMax().x - sideBtnW;
+            ImGui::SetCursorPosX(aplusX);
+            if (ImGui::Button("A+", {sideBtnW, 0})) {
+                app_->setFontScale(currentScale + 0.1f);
+            }
+        }
+
+        ImGui::Separator();
+
+        // --- Action buttons ---
+        if (ImGui::Selectable("Manage License...")) {
+            showLicenseDialog();
+        }
+        if (ImGui::Selectable("Report Bug...")) {
+            ShellExecuteW(nullptr, L"open",
+                          L"https://github.com/nicholasgasior/dearsql/issues/new"
+                          L"?labels=bug&title=%5BBug%5D",
+                          nullptr, nullptr, SW_SHOWNORMAL);
+        }
+
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+}
+
+// ---------------------------------------------------------------------------
+// Frame rendering
+// ---------------------------------------------------------------------------
 
 void WindowsPlatform::renderFrame() {
     if (!d3dDevice_ || !swapChain_ || !mainRenderTargetView_) {
@@ -402,6 +634,8 @@ void WindowsPlatform::renderFrame() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    renderTitlebar();
+    renderTitlebarPopups();
     app_->renderMainUI();
 
     ImGui::Render();
@@ -413,7 +647,6 @@ void WindowsPlatform::renderFrame() {
 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-    // vsync
     swapChain_->Present(1, 0);
 }
 
@@ -422,36 +655,7 @@ void WindowsPlatform::shutdownImGui() {
     std::cout << "ImGui DirectX 11 backend shutdown" << std::endl;
 }
 
-void WindowsPlatform::updateWorkspaceDropdown() {
-    if (!workspaceDropdown_ || !app_) {
-        return;
-    }
-
-    updatingWorkspaceDropdown_ = true;
-    SendMessageW(workspaceDropdown_, CB_RESETCONTENT, 0, 0);
-    workspaceIdsByIndex_.clear();
-
-    const auto workspaces = app_->getWorkspaces();
-    const int currentWorkspaceId = app_->getCurrentWorkspaceId();
-    int selectedIndex = 0;
-
-    for (std::size_t i = 0; i < workspaces.size(); ++i) {
-        const auto wideName = widen(workspaces[i].name);
-        const LRESULT index = SendMessageW(workspaceDropdown_, CB_ADDSTRING, 0,
-                                           reinterpret_cast<LPARAM>(wideName.c_str()));
-        if (index >= 0) {
-            workspaceIdsByIndex_.push_back(workspaces[i].id);
-            if (workspaces[i].id == currentWorkspaceId) {
-                selectedIndex = static_cast<int>(index);
-            }
-        }
-    }
-
-    newWorkspaceItemIndex_ = static_cast<int>(SendMessageW(
-        workspaceDropdown_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"New Workspace...")));
-    SendMessageW(workspaceDropdown_, CB_SETCURSEL, selectedIndex, 0);
-    updatingWorkspaceDropdown_ = false;
-}
+void WindowsPlatform::updateWorkspaceDropdown() {}
 
 HWND WindowsPlatform::getHWND() const {
     if (!window_) {
@@ -460,375 +664,387 @@ HWND WindowsPlatform::getHWND() const {
     return glfwGetWin32Window(window_);
 }
 
-void WindowsPlatform::createTitlebarControls(HWND hWnd) {
-    if (!sidebarButton_) {
-        sidebarButton_ = CreateWindowExW(
-            0, L"BUTTON", L"Sidebar", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0,
-            0, hWnd, reinterpret_cast<HMENU>(IDC_TITLEBAR_SIDEBAR_BUTTON),
-            GetModuleHandleW(nullptr), nullptr);
-        applyDefaultGuiFont(sidebarButton_);
-    }
+void WindowsPlatform::createTitlebarControls(HWND) {}
+void WindowsPlatform::destroyTitlebarControls() {}
+void WindowsPlatform::layoutTitlebarControls() {}
+void WindowsPlatform::showCreateWorkspaceDialog() {}
 
-    if (!addButton_) {
-        addButton_ = CreateWindowExW(0, L"BUTTON", L"Add",
-                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0, 0,
-                                     hWnd, reinterpret_cast<HMENU>(IDC_TITLEBAR_ADD_BUTTON),
-                                     GetModuleHandleW(nullptr), nullptr);
-        applyDefaultGuiFont(addButton_);
-    }
-
-    if (!menuButton_) {
-        menuButton_ = CreateWindowExW(0, L"BUTTON", L"\u2630",
-                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0,
-                                      0, hWnd, reinterpret_cast<HMENU>(IDC_TITLEBAR_MENU_BUTTON),
-                                      GetModuleHandleW(nullptr), nullptr);
-        applyDefaultGuiFont(menuButton_);
-    }
-
-    if (!workspaceDropdown_) {
-        workspaceDropdown_ = CreateWindowExW(
-            0, L"COMBOBOX", L"",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL, 0,
-            0, 0, 240, hWnd, reinterpret_cast<HMENU>(IDC_TITLEBAR_WORKSPACE),
-            GetModuleHandleW(nullptr), nullptr);
-        applyDefaultGuiFont(workspaceDropdown_);
-    }
+LRESULT WindowsPlatform::handleWindowMessage(HWND, UINT, WPARAM, LPARAM, bool& handled) {
+    handled = false;
+    return 0;
 }
 
-void WindowsPlatform::destroyTitlebarControls() {
-    if (workspaceDropdown_) {
-        DestroyWindow(workspaceDropdown_);
-        workspaceDropdown_ = nullptr;
-    }
+// ---------------------------------------------------------------------------
+// Native License Dialog
+// ---------------------------------------------------------------------------
 
-    if (menuButton_) {
-        DestroyWindow(menuButton_);
-        menuButton_ = nullptr;
-    }
+namespace {
 
-    if (addButton_) {
-        DestroyWindow(addButton_);
-        addButton_ = nullptr;
-    }
+// Control IDs for the license dialog
+enum {
+    IDC_LICENSE_KEY_EDIT = 200,
+    IDC_LICENSE_STATUS_LABEL,
+    IDC_LICENSE_ACTIVATE_BTN,
+    IDC_LICENSE_DEACTIVATE_BTN,
+    IDC_LICENSE_CLOSE_BTN,
+    IDC_LICENSE_CANCEL_BTN,
+    IDC_LICENSE_PURCHASE_LINK,
+};
 
-    if (sidebarButton_) {
-        DestroyWindow(sidebarButton_);
-        sidebarButton_ = nullptr;
-    }
+struct LicenseDialogData {
+    WindowsPlatform* platform = nullptr;
+    Application* app = nullptr;
+    HWND dialog = nullptr;
+    HWND statusLabel = nullptr;
+    HWND actionButton = nullptr; // activate or deactivate
+    bool licensed = false;
+};
 
-    workspaceIdsByIndex_.clear();
-    newWorkspaceItemIndex_ = -1;
+static HFONT sDialogFont = nullptr;
+static HFONT sDialogBoldFont = nullptr;
+
+HFONT getDialogFont() {
+    if (!sDialogFont) {
+        NONCLIENTMETRICSW ncm = {sizeof(ncm)};
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        sDialogFont = CreateFontIndirectW(&ncm.lfMessageFont);
+    }
+    return sDialogFont;
 }
 
-void WindowsPlatform::layoutTitlebarControls() {
-    HWND hWnd = getHWND();
-    if (!hWnd) {
-        return;
+HFONT getDialogBoldFont() {
+    if (!sDialogBoldFont) {
+        NONCLIENTMETRICSW ncm = {sizeof(ncm)};
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        ncm.lfMessageFont.lfWeight = FW_BOLD;
+        ncm.lfMessageFont.lfHeight = static_cast<LONG>(ncm.lfMessageFont.lfHeight * 1.2);
+        sDialogBoldFont = CreateFontIndirectW(&ncm.lfMessageFont);
     }
-
-    RECT clientRect{};
-    GetClientRect(hWnd, &clientRect);
-
-    const int dpi = getWindowDpi(hWnd);
-    titlebarHeightPx_ = MulDiv(40, dpi, USER_DEFAULT_SCREEN_DPI);
-
-    const int pad = MulDiv(8, dpi, USER_DEFAULT_SCREEN_DPI);
-    const int buttonH = titlebarHeightPx_ - pad * 2;
-    const int sidebarW = MulDiv(72, dpi, USER_DEFAULT_SCREEN_DPI);
-    const int addW = MulDiv(52, dpi, USER_DEFAULT_SCREEN_DPI);
-    const int comboMinW = MulDiv(150, dpi, USER_DEFAULT_SCREEN_DPI);
-    const int comboMaxW = MulDiv(260, dpi, USER_DEFAULT_SCREEN_DPI);
-    const int captionButtonsW = MulDiv(3 * GetSystemMetricsForDpi(SM_CXSIZE, dpi), 1, 1);
-
-    int x = pad;
-    const int y = pad;
-
-    if (sidebarButton_) {
-        MoveWindow(sidebarButton_, x, y, sidebarW, buttonH, TRUE);
-        x += sidebarW + pad;
-    }
-
-    if (addButton_) {
-        MoveWindow(addButton_, x, y, addW, buttonH, TRUE);
-    }
-
-    const int menuW = MulDiv(36, dpi, USER_DEFAULT_SCREEN_DPI);
-
-    if (workspaceDropdown_) {
-        const int availableRight = std::max((long)pad, clientRect.right - captionButtonsW - pad -
-                                                           (menuButton_ ? menuW + pad : 0));
-        const int comboW = std::clamp(MulDiv(clientRect.right, 22, 100), comboMinW, comboMaxW);
-        const int comboX = std::max(x + addW + pad, availableRight - comboW);
-        MoveWindow(workspaceDropdown_, comboX, y, comboW, scaleForWindow(hWnd, 400), TRUE);
-    }
-
-    if (menuButton_) {
-        const int menuX = clientRect.right - captionButtonsW - pad - menuW;
-        MoveWindow(menuButton_, menuX, y, menuW, buttonH, TRUE);
-    }
+    return sDialogBoldFont;
 }
 
-void WindowsPlatform::showCreateWorkspaceDialog() {
-    if (sActiveCreateWorkspaceDialog) {
-        SetForegroundWindow(sActiveCreateWorkspaceDialog);
-        return;
-    }
-
-    ensureWindowClassRegistered(kCreateWorkspaceDialogClass, CreateWorkspaceDialogProc);
-
-    auto* data = new CreateWorkspaceDialogData();
-    data->app = app_;
-    data->platform = this;
-    data->parentHwnd = getHWND();
-
-    HWND hWnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME, kCreateWorkspaceDialogClass, L"Create New Workspace",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
-        scaleForWindow(getHWND(), 360), scaleForWindow(getHWND(), 170), data->parentHwnd, nullptr,
-        GetModuleHandleW(nullptr), data);
-    sActiveCreateWorkspaceDialog = hWnd;
+void setFont(HWND hwnd, HFONT font) {
+    SendMessageW(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
 
-LRESULT WindowsPlatform::handleWindowMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                             bool& handled) {
-    handled = true;
+HWND createLabel(HWND parent, const wchar_t* text, int x, int y, int w, int h,
+                 DWORD style = 0, int id = -1) {
+    HWND hwnd = CreateWindowExW(0, L"STATIC", text,
+                                WS_CHILD | WS_VISIBLE | SS_LEFT | style,
+                                x, y, w, h, parent,
+                                id >= 0 ? reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)) : nullptr,
+                                GetModuleHandleW(nullptr), nullptr);
+    setFont(hwnd, getDialogFont());
+    return hwnd;
+}
+
+LRESULT CALLBACK LicenseDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* data = reinterpret_cast<LicenseDialogData*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
 
     switch (msg) {
-    case WM_NCCALCSIZE:
-        if (wParam == TRUE) {
-            auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
-            if (IsZoomed(hWnd)) {
-                MONITORINFO monitorInfo{sizeof(monitorInfo)};
-                if (GetMonitorInfoW(MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST),
-                                    &monitorInfo)) {
-                    params->rgrc[0] = monitorInfo.rcWork;
-                }
+    case WM_CREATE: {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        data = static_cast<LicenseDialogData*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        data->dialog = hWnd;
+
+        auto& lm = LicenseManager::instance();
+        data->licensed = lm.hasValidLicense();
+
+        constexpr int pad = 20;
+        constexpr int labelH = 20;
+        constexpr int editH = 24;
+        constexpr int btnH = 28;
+        constexpr int btnW = 100;
+        int y = pad;
+        int contentW = 410;
+
+        if (data->licensed) {
+            const auto info = lm.getLicenseInfo();
+
+            // Title
+            HWND title = createLabel(hWnd, L"License Active", pad, y, contentW, 28);
+            setFont(title, getDialogBoldFont());
+            y += 32;
+
+            // Email
+            createLabel(hWnd, L"Email:", pad, y, 80, labelH);
+            std::wstring email = info.customerEmail.empty()
+                ? L"N/A"
+                : std::wstring(info.customerEmail.begin(), info.customerEmail.end());
+            createLabel(hWnd, email.c_str(), pad + 85, y, contentW - 85, labelH);
+            y += labelH + 6;
+
+            // Key (masked)
+            createLabel(hWnd, L"Key:", pad, y, 80, labelH);
+            std::string maskedKey = info.licenseKey;
+            if (maskedKey.length() > 8) {
+                maskedKey = maskedKey.substr(0, 4) + "..." + maskedKey.substr(maskedKey.length() - 4);
             }
-            return 0;
+            std::wstring wKey(maskedKey.begin(), maskedKey.end());
+            createLabel(hWnd, wKey.c_str(), pad + 85, y, contentW - 85, labelH);
+            y += labelH + 6;
+
+            // Device ID
+            createLabel(hWnd, L"Device ID:", pad, y, 80, labelH);
+            std::string deviceId = lm.getInstanceId();
+            std::wstring wDeviceId(deviceId.begin(), deviceId.end());
+            createLabel(hWnd, wDeviceId.c_str(), pad + 85, y, contentW - 85, labelH);
+            y += labelH + 12;
+
+            // Status label
+            data->statusLabel = createLabel(hWnd, L"", pad, y, contentW, labelH,
+                                            0, IDC_LICENSE_STATUS_LABEL);
+            y += labelH + 12;
+
+            // Deactivate button
+            data->actionButton = CreateWindowExW(0, L"BUTTON", L"Deactivate",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                contentW + pad - btnW * 2 - 10, y, btnW, btnH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_DEACTIVATE_BTN),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(data->actionButton, getDialogFont());
+
+            // Close button
+            HWND closeBtn = CreateWindowExW(0, L"BUTTON", L"Close",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                contentW + pad - btnW, y, btnW, btnH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_CLOSE_BTN),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(closeBtn, getDialogFont());
+            y += btnH + pad;
+
+        } else {
+            // Title
+            HWND title = createLabel(hWnd, L"Register License", pad, y, contentW, 28);
+            setFont(title, getDialogBoldFont());
+            y += 32;
+
+            // Description
+            createLabel(hWnd, L"Enter your license key to activate DearSQL:", pad, y, contentW, labelH);
+            y += labelH + 8;
+
+            // Key input
+            HWND keyEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                pad, y, contentW, editH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_KEY_EDIT),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(keyEdit, getDialogFont());
+            SendMessageW(keyEdit, EM_SETCUEBANNER, 0, reinterpret_cast<LPARAM>(L"XXXX-XXXX-XXXX-XXXX"));
+            y += editH + 6;
+
+            // Device ID
+            createLabel(hWnd, L"Device ID:", pad, y, 80, labelH);
+            std::string deviceId = lm.getInstanceId();
+            std::wstring wDeviceId(deviceId.begin(), deviceId.end());
+            createLabel(hWnd, wDeviceId.c_str(), pad + 85, y, contentW - 85, labelH);
+            y += labelH + 8;
+
+            // Status label
+            data->statusLabel = createLabel(hWnd, L"", pad, y, contentW, labelH,
+                                            0, IDC_LICENSE_STATUS_LABEL);
+            y += labelH + 8;
+
+            // Purchase link
+            createLabel(hWnd, L"Don't have a license?", pad, y, 150, labelH);
+            HWND link = CreateWindowExW(0, L"SysLink",
+                L"<a href=\"https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p\">Purchase one</a>",
+                WS_CHILD | WS_VISIBLE,
+                pad + 150, y, 150, labelH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_PURCHASE_LINK),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(link, getDialogFont());
+            y += labelH + 12;
+
+            // Cancel button
+            HWND cancelBtn = CreateWindowExW(0, L"BUTTON", L"Cancel",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                contentW + pad - btnW * 2 - 10, y, btnW, btnH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_CANCEL_BTN),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(cancelBtn, getDialogFont());
+
+            // Activate button
+            data->actionButton = CreateWindowExW(0, L"BUTTON", L"Activate",
+                WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                contentW + pad - btnW, y, btnW, btnH, hWnd,
+                reinterpret_cast<HMENU>(IDC_LICENSE_ACTIVATE_BTN),
+                GetModuleHandleW(nullptr), nullptr);
+            setFont(data->actionButton, getDialogFont());
+            y += btnH + pad;
         }
-        handled = false;
-        return 0;
 
-    case WM_NCHITTEST: {
-        LRESULT hitResult = 0;
-        if (DwmDefWindowProc(hWnd, msg, wParam, lParam, &hitResult)) {
-            return hitResult;
+        // Resize window to fit content
+        RECT rc = {0, 0, contentW + pad * 2, y};
+        AdjustWindowRectEx(&rc, GetWindowLongW(hWnd, GWL_STYLE), FALSE,
+                           GetWindowLongW(hWnd, GWL_EXSTYLE));
+        SetWindowPos(hWnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                     SWP_NOMOVE | SWP_NOZORDER);
+
+        // Center on parent
+        HWND parent = GetParent(hWnd);
+        if (parent) {
+            RECT parentRc;
+            GetWindowRect(parent, &parentRc);
+            RECT dlgRc;
+            GetWindowRect(hWnd, &dlgRc);
+            int cx = (parentRc.left + parentRc.right) / 2 - (dlgRc.right - dlgRc.left) / 2;
+            int cy = (parentRc.top + parentRc.bottom) / 2 - (dlgRc.bottom - dlgRc.top) / 2;
+            SetWindowPos(hWnd, nullptr, cx, cy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
         }
 
-        const POINT screenPt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        if (pointInControl(sidebarButton_, screenPt) || pointInControl(addButton_, screenPt) ||
-            pointInControl(menuButton_, screenPt) || pointInControl(workspaceDropdown_, screenPt)) {
-            return HTCLIENT;
-        }
-
-        RECT windowRect{};
-        GetWindowRect(hWnd, &windowRect);
-
-        if (!IsZoomed(hWnd)) {
-            const int dpi = getWindowDpi(hWnd);
-            const int frameX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
-                               GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            const int frameY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) +
-                               GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-
-            const bool left = screenPt.x < windowRect.left + frameX;
-            const bool right = screenPt.x >= windowRect.right - frameX;
-            const bool top = screenPt.y < windowRect.top + frameY;
-            const bool bottom = screenPt.y >= windowRect.bottom - frameY;
-
-            if (top && left) {
-                return HTTOPLEFT;
-            }
-            if (top && right) {
-                return HTTOPRIGHT;
-            }
-            if (bottom && left) {
-                return HTBOTTOMLEFT;
-            }
-            if (bottom && right) {
-                return HTBOTTOMRIGHT;
-            }
-            if (top) {
-                return HTTOP;
-            }
-            if (left) {
-                return HTLEFT;
-            }
-            if (right) {
-                return HTRIGHT;
-            }
-            if (bottom) {
-                return HTBOTTOM;
-            }
-        }
-
-        if (screenPt.y < windowRect.top + titlebarHeightPx_) {
-            return HTCAPTION;
-        }
-
-        handled = false;
         return 0;
     }
 
     case WM_COMMAND: {
-        const int controlId = LOWORD(wParam);
-        const int notification = HIWORD(wParam);
-
-        if (controlId == IDC_TITLEBAR_SIDEBAR_BUTTON && notification == BN_CLICKED) {
-            onSidebarToggleClicked();
+        int id = LOWORD(wParam);
+        if (id == IDC_LICENSE_CLOSE_BTN || id == IDC_LICENSE_CANCEL_BTN) {
+            DestroyWindow(hWnd);
             return 0;
         }
 
-        if (controlId == IDC_TITLEBAR_ADD_BUTTON && notification == BN_CLICKED) {
-            if (app_) {
-                if (!app_->canAddConnection()) {
-                    Alert::show(
-                        "Connection Limit Reached",
-                        "Free tier is limited to 3 connections. Activate a license to add more.");
-                } else {
-                    showConnectionDialog(app_);
-                }
-            }
-            return 0;
-        }
-
-        if (controlId == IDC_TITLEBAR_MENU_BUTTON && notification == BN_CLICKED) {
-            HMENU hMenu = CreatePopupMenu();
-            if (hMenu && app_) {
-                int pct = static_cast<int>(app_->getFontScale() * 100);
-                auto fontLabel = std::format(L"Font Size: {}%", pct);
-                AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, fontLabel.c_str());
-                AppendMenuW(hMenu, MF_STRING, IDM_FONT_DECREASE, L"Decrease (A-)");
-                AppendMenuW(hMenu, MF_STRING, IDM_FONT_INCREASE, L"Increase (A+)");
-                AppendMenuW(hMenu, MF_STRING, IDM_FONT_RESET, L"Reset (100%)");
-                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-                AppendMenuW(hMenu, MF_STRING | (app_->isDarkTheme() ? 0 : MF_CHECKED),
-                            IDM_THEME_LIGHT, L"Light Theme");
-                AppendMenuW(hMenu, MF_STRING | (app_->isDarkTheme() ? MF_CHECKED : 0),
-                            IDM_THEME_DARK, L"Dark Theme");
-
-                RECT btnRect{};
-                GetWindowRect(menuButton_, &btnRect);
-                TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_TOPALIGN, btnRect.right, btnRect.bottom,
-                               0, hWnd, nullptr);
-                DestroyMenu(hMenu);
-            }
-            return 0;
-        }
-
-        if (controlId == IDM_FONT_DECREASE && app_) {
-            app_->setFontScale(app_->getFontScale() - 0.1f);
-            return 0;
-        }
-        if (controlId == IDM_FONT_INCREASE && app_) {
-            app_->setFontScale(app_->getFontScale() + 0.1f);
-            return 0;
-        }
-        if (controlId == IDM_FONT_RESET && app_) {
-            app_->setFontScale(1.0f);
-            return 0;
-        }
-        if (controlId == IDM_THEME_LIGHT && app_) {
-            app_->setDarkTheme(false);
-            applyTitlebarTheme();
-            return 0;
-        }
-        if (controlId == IDM_THEME_DARK && app_) {
-            app_->setDarkTheme(true);
-            applyTitlebarTheme();
-            return 0;
-        }
-
-        if (controlId == IDC_TITLEBAR_WORKSPACE && notification == CBN_SELCHANGE &&
-            !updatingWorkspaceDropdown_ && workspaceDropdown_ && app_) {
-            const int selectedIndex =
-                static_cast<int>(SendMessageW(workspaceDropdown_, CB_GETCURSEL, 0, 0));
-            if (selectedIndex == CB_ERR) {
+        if (id == IDC_LICENSE_ACTIVATE_BTN && data) {
+            wchar_t keyBuf[256] = {};
+            HWND keyEdit = GetDlgItem(hWnd, IDC_LICENSE_KEY_EDIT);
+            GetWindowTextW(keyEdit, keyBuf, 256);
+            std::wstring wKey(keyBuf);
+            if (wKey.empty()) {
+                SetWindowTextW(data->statusLabel, L"Please enter a license key");
                 return 0;
             }
 
-            if (selectedIndex == newWorkspaceItemIndex_) {
-                updateWorkspaceDropdown();
-                if (!app_->canAddWorkspace()) {
-                    Alert::show(
-                        "Workspace Limit Reached",
-                        "Free tier is limited to 1 workspace. Activate a license to create more.");
-                } else {
-                    showCreateWorkspaceDialog();
-                }
-                return 0;
-            }
+            SetWindowTextW(data->statusLabel, L"Activating...");
+            EnableWindow(data->actionButton, FALSE);
 
-            if (selectedIndex >= 0 &&
-                selectedIndex < static_cast<int>(workspaceIdsByIndex_.size())) {
-                app_->setCurrentWorkspace(workspaceIdsByIndex_[selectedIndex]);
-                updateWorkspaceDropdown();
-            }
+            std::string key(wKey.begin(), wKey.end());
+            HWND dlg = hWnd;
+
+            LicenseManager::instance().activateLicense(key,
+                [dlg](const LicenseInfo& result) {
+                    bool valid = result.valid;
+                    std::string err = result.error;
+                    PostMessage(dlg, WM_APP + 1, valid ? 1 : 0, 0);
+                    // Store error for retrieval — use window property
+                    if (!valid) {
+                        auto* errStr = new std::wstring(err.begin(), err.end());
+                        if (errStr->empty()) *errStr = L"Activation failed";
+                        SetPropW(dlg, L"LicenseError", errStr);
+                    }
+                });
             return 0;
         }
 
-        handled = false;
-        return 0;
-    }
+        if (id == IDC_LICENSE_DEACTIVATE_BTN && data) {
+            SetWindowTextW(data->statusLabel, L"Deactivating...");
+            EnableWindow(data->actionButton, FALSE);
 
-    case WM_SIZE:
-        layoutTitlebarControls();
-        handled = false;
-        return 0;
-
-    case WM_DPICHANGED: {
-        if (const auto* suggested = reinterpret_cast<const RECT*>(lParam)) {
-            SetWindowPos(hWnd, nullptr, suggested->left, suggested->top,
-                         suggested->right - suggested->left, suggested->bottom - suggested->top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+            HWND dlg = hWnd;
+            LicenseManager::instance().deactivateLicense(
+                [dlg](const LicenseInfo& result) {
+                    std::string err = result.error;
+                    PostMessage(dlg, WM_APP + 2, err.empty() ? 1 : 0, 0);
+                    if (!err.empty()) {
+                        auto* errStr = new std::wstring(err.begin(), err.end());
+                        SetPropW(dlg, L"LicenseError", errStr);
+                    }
+                });
+            return 0;
         }
-        titlebarHeightPx_ = scaleForWindow(hWnd, 40);
-        layoutTitlebarControls();
-        applyTitlebarTheme();
+        break;
+    }
+
+    case WM_APP + 1: { // Activation result
+        if (!data) break;
+        if (wParam == 1) {
+            DestroyWindow(hWnd);
+        } else {
+            auto* errStr = static_cast<std::wstring*>(
+                RemovePropW(hWnd, L"LicenseError"));
+            if (errStr) {
+                SetWindowTextW(data->statusLabel, errStr->c_str());
+                delete errStr;
+            }
+            EnableWindow(data->actionButton, TRUE);
+        }
         return 0;
     }
 
-    case WM_THEMECHANGED:
-    case WM_SETTINGCHANGE:
-    case WM_ACTIVATE:
-        applyTitlebarTheme();
-        handled = false;
-        return 0;
-
-    case WM_DESTROY:
-        destroyTitlebarControls();
-        handled = false;
-        return 0;
-
-    default:
-        handled = false;
+    case WM_APP + 2: { // Deactivation result
+        if (!data) break;
+        if (wParam == 1) {
+            DestroyWindow(hWnd);
+        } else {
+            auto* errStr = static_cast<std::wstring*>(
+                RemovePropW(hWnd, L"LicenseError"));
+            if (errStr) {
+                SetWindowTextW(data->statusLabel, errStr->c_str());
+                delete errStr;
+            }
+            EnableWindow(data->actionButton, TRUE);
+        }
         return 0;
     }
+
+    case WM_NOTIFY: {
+        auto* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+        if (nmhdr->idFrom == IDC_LICENSE_PURCHASE_LINK && nmhdr->code == NM_CLICK) {
+            ShellExecuteW(nullptr, L"open",
+                L"https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p",
+                nullptr, nullptr, SW_SHOWNORMAL);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DESTROY: {
+        // Clean up any leftover error string
+        auto* errStr = static_cast<std::wstring*>(RemovePropW(hWnd, L"LicenseError"));
+        delete errStr;
+        auto* d = reinterpret_cast<LicenseDialogData*>(
+            GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+        delete d;
+        return 0;
+    }
+    }
+
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-LRESULT CALLBACK WindowsPlatform::TitlebarWindowProc(HWND hWnd, UINT msg, WPARAM wParam,
-                                                     LPARAM lParam) {
-    auto* platform = reinterpret_cast<WindowsPlatform*>(GetPropW(hWnd, kPlatformPropName));
-    auto* oldWndProc = reinterpret_cast<WNDPROC>(GetPropW(hWnd, kOldWndProcPropName));
+} // namespace
 
-    if (!platform || !oldWndProc) {
-        return DefWindowProcW(hWnd, msg, wParam, lParam);
+void WindowsPlatform::showLicenseDialog() {
+    static bool classRegistered = false;
+    if (!classRegistered) {
+        WNDCLASSEXW wc = {sizeof(wc)};
+        wc.lpfnWndProc = LicenseDialogProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"DearSQL_LicenseDialog";
+        RegisterClassExW(&wc);
+        classRegistered = true;
     }
 
-    bool handled = false;
-    const LRESULT result = platform->handleWindowMessage(hWnd, msg, wParam, lParam, handled);
-    if (handled) {
-        return result;
-    }
+    auto* data = new LicenseDialogData();
+    data->platform = this;
+    data->app = app_;
 
-    return CallWindowProcW(oldWndProc, hWnd, msg, wParam, lParam);
+    HWND parent = getHWND();
+    CreateWindowExW(WS_EX_DLGMODALFRAME, L"DearSQL_LicenseDialog",
+                    L"Manage License",
+                    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                    CW_USEDEFAULT, CW_USEDEFAULT, 450, 300,
+                    parent, nullptr, GetModuleHandleW(nullptr), data);
 }
+
+// ---------------------------------------------------------------------------
+// D3D11 device
+// ---------------------------------------------------------------------------
 
 bool WindowsPlatform::createD3DDevice(HWND hWnd) {
     DXGI_SWAP_CHAIN_DESC sd = {};
     sd.BufferCount = 2;
-    sd.BufferDesc.Width = 0;
-    sd.BufferDesc.Height = 0;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator = 60;
     sd.BufferDesc.RefreshRate.Denominator = 1;
@@ -836,11 +1052,9 @@ bool WindowsPlatform::createD3DDevice(HWND hWnd) {
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hWnd;
     sd.SampleDesc.Count = 1;
-    sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
-    constexpr UINT createDeviceFlags = 0;
     D3D_FEATURE_LEVEL featureLevel;
     constexpr D3D_FEATURE_LEVEL featureLevelArray[] = {
         D3D_FEATURE_LEVEL_11_0,
@@ -848,7 +1062,7 @@ bool WindowsPlatform::createD3DDevice(HWND hWnd) {
     };
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 2,
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, featureLevelArray, 2,
         D3D11_SDK_VERSION, &sd, &swapChain_, &d3dDevice_, &featureLevel, &d3dDeviceContext_);
 
     if (FAILED(hr)) {
@@ -863,18 +1077,9 @@ bool WindowsPlatform::createD3DDevice(HWND hWnd) {
 
 void WindowsPlatform::cleanupD3DDevice() {
     cleanupRenderTarget();
-    if (swapChain_) {
-        swapChain_->Release();
-        swapChain_ = nullptr;
-    }
-    if (d3dDeviceContext_) {
-        d3dDeviceContext_->Release();
-        d3dDeviceContext_ = nullptr;
-    }
-    if (d3dDevice_) {
-        d3dDevice_->Release();
-        d3dDevice_ = nullptr;
-    }
+    if (swapChain_) { swapChain_->Release(); swapChain_ = nullptr; }
+    if (d3dDeviceContext_) { d3dDeviceContext_->Release(); d3dDeviceContext_ = nullptr; }
+    if (d3dDevice_) { d3dDevice_->Release(); d3dDevice_ = nullptr; }
 }
 
 void WindowsPlatform::createRenderTarget() {
@@ -893,6 +1098,10 @@ void WindowsPlatform::cleanupRenderTarget() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Titlebar theme (DWM dark mode attribute)
+// ---------------------------------------------------------------------------
+
 void WindowsPlatform::applyTitlebarTheme() {
     HWND hWnd = getHWND();
     if (!hWnd || !app_) {
@@ -904,17 +1113,11 @@ void WindowsPlatform::applyTitlebarTheme() {
 
     const BOOL useDarkMode = isDark ? TRUE : FALSE;
     DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
-
-    const auto& colors = isDark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
-    const COLORREF captionColor =
-        RGB(static_cast<int>(colors.mantle.x * 255), static_cast<int>(colors.mantle.y * 255),
-            static_cast<int>(colors.mantle.z * 255));
-    DwmSetWindowAttribute(hWnd, DWMWA_CAPTION_COLOR, &captionColor, sizeof(captionColor));
-
-    const MARGINS margins = {0, 0, titlebarHeightPx_, 0};
-    DwmExtendFrameIntoClientArea(hWnd, &margins);
-    RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW);
 }
+
+// ---------------------------------------------------------------------------
+// Texture creation (D3D11)
+// ---------------------------------------------------------------------------
 
 ImTextureID WindowsPlatform::createTextureFromRGBA(const uint8_t* pixels, int width, int height) {
     if (!d3dDevice_ || !pixels) {
