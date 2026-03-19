@@ -19,6 +19,7 @@
 #include "ui/update_dialog.hpp"
 #elif defined(_WIN32)
 #include "platform/windows_platform.hpp"
+#include "platform/windows_updater.hpp"
 #else
 #include "platform/default_platform.hpp"
 #endif
@@ -219,6 +220,8 @@ bool Application::initialize() {
     initializeSparkleUpdater();
 #elif defined(__linux__)
     initializeLinuxUpdater();
+#elif defined(_WIN32)
+    initializeWinSparkleUpdater();
 #endif
 
     restorePreviousConnections();
@@ -362,6 +365,10 @@ void Application::cleanup() {
     // Cleanup NFD
     FileDialog::cleanup();
     std::cout << "File dialog cleaned up" << std::endl;
+
+#if defined(_WIN32)
+    cleanupWinSparkleUpdater();
+#endif
 
     if (platform_) {
         platform_->shutdownImGui();

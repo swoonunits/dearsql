@@ -123,6 +123,11 @@ if(APPLE)
     endif()
 endif()
 
+# WinSparkle auto-update (Windows only)
+if(WIN32)
+    include(cmake/WinSparkle.cmake)
+endif()
+
 # tree-sitter grammars (core library from vcpkg)
 add_library(tree-sitter-sql-grammar STATIC
     external/tree-sitter-sql/src/parser.c
@@ -282,6 +287,7 @@ elseif(WIN32)
     list(APPEND APP_SOURCES
         src/platform/windows_platform.cpp
         src/platform/windows_connection_dialog.cpp
+        src/platform/windows_updater.cpp
         src/platform/windows_alert.cpp
         src/platform/windows_input_dialog.cpp
         src/platform/windows_ssh_tunnel.cpp
@@ -398,6 +404,14 @@ elseif(WIN32)
         comctl32
         uxtheme
         ws2_32
+        WinSparkle
+    )
+    # Copy WinSparkle.dll next to the exe so it can be found at runtime
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WINSPARKLE_DLL}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+        COMMENT "Copying WinSparkle.dll to output directory"
     )
 else()
     target_link_libraries(${PROJECT_NAME} PRIVATE

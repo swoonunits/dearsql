@@ -26,6 +26,10 @@
           <File Id="DearSQL.exe" Source="$(ProjectDir)\dearsql.exe" KeyPath="yes" />
         </Component>
 
+        <Component Id="WinSparkleRuntime" Guid="f5e6d7c8-b9a0-1234-5678-9abcdef01234">
+          <File Id="WinSparkle.dll" Source="$(ProjectDir)\WinSparkle.dll" KeyPath="yes" />
+        </Component>
+
         <Component Id="StartMenuShortcut" Guid="b2c3d4e5-f6a7-8901-bcde-f12345678901">
           <Shortcut Id="StartMenuShortcut"
                     Name="DearSQL"
@@ -64,6 +68,7 @@
 
     <Feature Id="Main" Title="DearSQL" Level="1">
       <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="WinSparkleRuntime" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
       <ComponentRef Id="FileAssociations" />
