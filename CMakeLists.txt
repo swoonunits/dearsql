@@ -254,7 +254,6 @@ set(APP_SOURCES
 
     # License
     src/license/license_manager.cpp
-    src/ui/license_dialog.cpp
 )
 
 # application.cpp and platform-specific files

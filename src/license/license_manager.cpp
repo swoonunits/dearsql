@@ -34,10 +34,12 @@ LicenseManager& LicenseManager::instance() {
 }
 
 bool LicenseManager::hasValidLicense() const {
+    std::lock_guard lock(licenseMutex_);
     return currentLicense.valid && currentLicense.status == "active";
 }
 
-const LicenseInfo& LicenseManager::getLicenseInfo() const {
+LicenseInfo LicenseManager::getLicenseInfo() const {
+    std::lock_guard lock(licenseMutex_);
     return currentLicense;
 }
 
@@ -106,6 +108,7 @@ void LicenseManager::loadStoredLicense() {
     std::string storedActivatedAt = appState->getSetting(kSettingActivatedAt, "");
 
     if (!storedKey.empty() && storedStatus == "active") {
+        std::lock_guard lock(licenseMutex_);
         currentLicense.valid = true;
         currentLicense.licenseKey = storedKey;
         currentLicense.instanceId = storedInstanceId;
@@ -138,7 +141,10 @@ void LicenseManager::clearStoredLicense() {
     appState->setSetting(kSettingEmail, "");
     appState->setSetting(kSettingActivatedAt, "");
 
-    currentLicense = LicenseInfo{};
+    {
+        std::lock_guard lock(licenseMutex_);
+        currentLicense = LicenseInfo{};
+    }
     Logger::info("Cleared stored license");
 }
 
@@ -157,8 +163,6 @@ LicenseInfo LicenseManager::doActivation(const std::string& licenseKey,
     body["organization_id"] = POLAR_ORGANIZATION_ID;
     body["label"] = instanceLabel;
 
-    Logger::info("License activation: sending request body: " + body.dump());
-
     auto res =
         cli.Post("/v1/customer-portal/license-keys/activate", body.dump(), "application/json");
 
@@ -169,7 +173,6 @@ LicenseInfo LicenseManager::doActivation(const std::string& licenseKey,
     }
 
     Logger::info("License activation: HTTP status: " + std::to_string(res->status));
-    Logger::info("License activation: response body: " + res->body);
 
     if (res->status != 200) {
         try {
@@ -283,6 +286,7 @@ LicenseInfo LicenseManager::doValidation(const std::string& licenseKey,
 
     if (!res) {
         result.error = "Network error";
+        result.networkError = true;
         return result;
     }
 
@@ -317,40 +321,47 @@ LicenseInfo LicenseManager::doValidation(const std::string& licenseKey,
 }
 
 void LicenseManager::activateLicense(const std::string& licenseKey, ActivationCallback callback) {
-    if (activating) {
+    if (activating.load()) {
         LicenseInfo err;
         err.error = "Activation already in progress";
         callback(err);
         return;
     }
 
-    activating = true;
+    activating.store(true);
     std::string instanceId = getInstanceId();
 
     std::thread([this, licenseKey, instanceId, callback]() {
         auto result = doActivation(licenseKey, instanceId);
 
         if (result.valid) {
-            currentLicense = result;
+            {
+                std::lock_guard lock(licenseMutex_);
+                currentLicense = result;
+            }
             storeLicense(result);
         }
 
-        activating = false;
+        activating.store(false);
         callback(result);
     }).detach();
 }
 
 void LicenseManager::deactivateLicense(ActivationCallback callback) {
-    if (!currentLicense.valid || currentLicense.licenseKey.empty()) {
-        LicenseInfo err;
-        err.error = "No active license to deactivate";
-        callback(err);
-        return;
+    std::string key, instanceId;
+    {
+        std::lock_guard lock(licenseMutex_);
+        if (!currentLicense.valid || currentLicense.licenseKey.empty()) {
+            LicenseInfo err;
+            err.error = "No active license to deactivate";
+            callback(err);
+            return;
+        }
+        key = currentLicense.licenseKey;
+        instanceId = currentLicense.instanceId;
     }
 
-    activating = true;
-    std::string key = currentLicense.licenseKey;
-    std::string instanceId = currentLicense.instanceId;
+    activating.store(true);
 
     std::thread([this, key, instanceId, callback]() {
         auto result = doDeactivation(key, instanceId);
@@ -359,29 +370,57 @@ void LicenseManager::deactivateLicense(ActivationCallback callback) {
             clearStoredLicense();
         }
 
-        activating = false;
+        activating.store(false);
         callback(result);
     }).detach();
 }
 
 void LicenseManager::validateLicense(ActivationCallback callback) {
-    if (!currentLicense.valid || currentLicense.licenseKey.empty()) {
-        LicenseInfo err;
-        err.error = "No license to validate";
-        callback(err);
-        return;
+    std::string key, instanceId;
+    {
+        std::lock_guard lock(licenseMutex_);
+        if (!currentLicense.valid || currentLicense.licenseKey.empty()) {
+            LicenseInfo err;
+            err.error = "No license to validate";
+            callback(err);
+            return;
+        }
+        key = currentLicense.licenseKey;
+        instanceId = currentLicense.instanceId;
     }
-
-    std::string key = currentLicense.licenseKey;
-    std::string instanceId = currentLicense.instanceId;
 
     std::thread([this, key, instanceId, callback]() {
         auto result = doValidation(key, instanceId);
 
-        if (!result.valid) {
+        if (!result.valid && !result.networkError) {
             clearStoredLicense();
         }
 
         callback(result);
+    }).detach();
+}
+
+void LicenseManager::validateStoredLicense() {
+    std::string key, instanceId;
+    {
+        std::lock_guard lock(licenseMutex_);
+        if (!currentLicense.valid || currentLicense.licenseKey.empty()) {
+            return;
+        }
+        key = currentLicense.licenseKey;
+        instanceId = currentLicense.instanceId;
+    }
+
+    std::thread([this, key, instanceId]() {
+        auto result = doValidation(key, instanceId);
+
+        if (result.networkError) {
+            Logger::info("Startup license validation: network unavailable, keeping cached license");
+        } else if (!result.valid) {
+            Logger::info("Startup license validation: server rejected license, clearing");
+            clearStoredLicense();
+        } else {
+            Logger::info("Startup license validation: confirmed valid");
+        }
     }).detach();
 }

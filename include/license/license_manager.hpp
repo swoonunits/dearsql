@@ -1,10 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
 
 struct LicenseInfo {
     bool valid = false;
+    bool networkError =
+        false; // true when validation failed due to connectivity, not server rejection
     std::string licenseKey;
     std::string instanceId; // activation UUID returned by Polar on activation
     std::string customerEmail;
@@ -27,15 +31,17 @@ public:
     LicenseManager& operator=(const LicenseManager&) = delete;
 
     [[nodiscard]] bool hasValidLicense() const;
-    [[nodiscard]] const LicenseInfo& getLicenseInfo() const;
+    [[nodiscard]] LicenseInfo getLicenseInfo() const;
     void loadStoredLicense();
+    // background-validates the stored license; only clears it if the server explicitly rejects it
+    void validateStoredLicense();
 
     void activateLicense(const std::string& licenseKey, ActivationCallback callback);
     void deactivateLicense(ActivationCallback callback);
     void validateLicense(ActivationCallback callback);
 
     [[nodiscard]] bool isActivating() const {
-        return activating;
+        return activating.load();
     }
 
     // generate a unique instance ID for this machine
@@ -45,8 +51,9 @@ private:
     LicenseManager() = default;
     ~LicenseManager() = default;
 
+    mutable std::mutex licenseMutex_;
     LicenseInfo currentLicense;
-    bool activating = false;
+    std::atomic<bool> activating{false};
 
     void storeLicense(const LicenseInfo& license);
     void clearStoredLicense();

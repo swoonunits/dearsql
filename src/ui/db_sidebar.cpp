@@ -41,7 +41,13 @@ DatabaseHierarchy* DatabaseSidebarNew::getHierarchy(const std::shared_ptr<Databa
 }
 
 void DatabaseSidebarNew::showConnectionDialog() {
-    ::showConnectionDialog(&Application::getInstance());
+    auto& app = Application::getInstance();
+    if (!app.canAddConnection()) {
+        Alert::show("Connection Limit Reached",
+                    "Free tier is limited to 3 connections. Activate a license to add more.");
+        return;
+    }
+    ::showConnectionDialog(&app);
 }
 
 void DatabaseSidebarNew::renderEmpty() {
