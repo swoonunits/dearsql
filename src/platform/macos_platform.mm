@@ -864,8 +864,7 @@
 
 - (void)openPurchaseLink:(id)sender {
     NSURL* url = [NSURL
-        URLWithString:
-            @"https://dearsql.lemonsqueezy.com/checkout/buy/8d4644a9-dfcb-4a06-aeab-a8890d082673"];
+        URLWithString:@"https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p"];
     [[NSWorkspace sharedWorkspace] openURL:url];
 }
 

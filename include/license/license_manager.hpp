@@ -6,7 +6,7 @@
 struct LicenseInfo {
     bool valid = false;
     std::string licenseKey;
-    std::string instanceId;
+    std::string instanceId; // activation UUID returned by Polar on activation
     std::string customerEmail;
     std::string productName;
     std::string status; // "active", "inactive", "expired", "disabled"
@@ -38,7 +38,7 @@ public:
         return activating;
     }
 
-    // Generate a unique instance ID for this machine
+    // generate a unique instance ID for this machine
     [[nodiscard]] std::string getInstanceId() const;
 
 private:
@@ -48,14 +48,10 @@ private:
     LicenseInfo currentLicense;
     bool activating = false;
 
-    // Store license locally
     void storeLicense(const LicenseInfo& license);
-
-    // Clear stored license
     void clearStoredLicense();
 
-    // HTTP request to Lemon Squeezy API
-    LicenseInfo doActivation(const std::string& licenseKey, const std::string& instanceId);
-    LicenseInfo doDeactivation(const std::string& licenseKey, const std::string& instanceId);
-    LicenseInfo doValidation(const std::string& licenseKey, const std::string& instanceId);
+    LicenseInfo doActivation(const std::string& licenseKey, const std::string& instanceLabel);
+    LicenseInfo doDeactivation(const std::string& licenseKey, const std::string& activationId);
+    LicenseInfo doValidation(const std::string& licenseKey, const std::string& activationId);
 };

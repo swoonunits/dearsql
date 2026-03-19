@@ -1303,7 +1303,7 @@ void LinuxPlatform::showLicenseDialog() {
         GtkWidget* linkText = gtk_label_new("Don't have a license?");
         gtk_widget_add_css_class(linkText, "dim-label");
         GtkWidget* linkButton = gtk_link_button_new_with_label(
-            "https://dearsql.lemonsqueezy.com/checkout/buy/8d4644a9-dfcb-4a06-aeab-a8890d082673",
+            "https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p",
             "Purchase one");
         gtk_box_append(GTK_BOX(linkBox), linkText);
         gtk_box_append(GTK_BOX(linkBox), linkButton);
