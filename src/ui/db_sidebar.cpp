@@ -16,7 +16,6 @@
 #include "ui/database_node.hpp"
 #include "ui/input_dialog.hpp"
 #include "ui/query_history.hpp"
-#include "ui/table_dialog.hpp"
 #include "utils/file_dialog.hpp"
 #include "utils/logger.hpp"
 #include "utils/spinner.hpp"
@@ -449,11 +448,6 @@ void DatabaseSidebarNew::render() {
 
         const ImVec2 btnMin(contentMin.x, contentMax.y - buttonH);
         renderHistoryToggleButton(btnMin, buttonW, buttonH, true);
-    }
-
-    // dialogs
-    if (TableDialog::instance().isOpen()) {
-        TableDialog::instance().render();
     }
 
     ImGui::PopStyleColor(3);

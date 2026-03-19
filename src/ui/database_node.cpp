@@ -15,8 +15,8 @@
 #include "platform/alert.hpp"
 #include "ui/input_dialog.hpp"
 #include "ui/tab/sql_editor_tab.hpp"
+#include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
-#include "ui/table_dialog.hpp"
 #include "ui/text_editor.hpp"
 #include "utils/logger.hpp"
 #include "utils/spinner.hpp"
@@ -395,7 +395,8 @@ void DatabaseHierarchy::renderSQLiteNode() {
         return;
     }
 
-    const auto& colors = Application::getInstance().getCurrentColors();
+    const auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
 
     // Render Tables section
     {
@@ -409,7 +410,7 @@ void DatabaseHierarchy::renderSQLiteNode() {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                 ImVec2(Theme::Spacing::M, Theme::Spacing::M));
             if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                TableDialog::instance().showCreate(sqliteDb);
+                app.getTabManager()->createTableEditorTab(sqliteDb);
             }
             if (ImGui::MenuItem(REFRESH_LABEL)) {
                 sqliteDb->startTablesLoadAsync();
@@ -673,7 +674,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                    TableDialog::instance().showCreate(schemaData, schemaData->name);
+                    app.getTabManager()->createTableEditorTab(schemaData, schemaData->name);
                 }
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
                     schemaData->startTablesLoadAsync(true);
@@ -945,7 +946,7 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                    TableDialog::instance().showCreate(dbData);
+                    app.getTabManager()->createTableEditorTab(dbData);
                 }
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
                     dbData->startTablesLoadAsync(true);
@@ -1074,7 +1075,7 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
             app.getTabManager()->createTableViewerTab(schemaNode, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            TableDialog::instance().showEdit(schemaNode, table, schemaNode->name);
+            app.getTabManager()->createTableEditorTab(schemaNode, table, schemaNode->name);
         }
         if (ImGui::MenuItem(SHOW_STRUCTURE_LABEL)) {
             openStructureTab(schemaNode, table, schemaNode->name);
@@ -1386,7 +1387,7 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
             app.getTabManager()->createTableViewerTab(dbData, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            TableDialog::instance().showEdit(dbData, table);
+            app.getTabManager()->createTableEditorTab(dbData, table);
         }
         if (ImGui::MenuItem(SHOW_STRUCTURE_LABEL)) {
             openStructureTab(dbData, table);
@@ -1702,7 +1703,7 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                    TableDialog::instance().showCreate(dbData);
+                    app.getTabManager()->createTableEditorTab(dbData);
                 }
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
                     dbData->startTablesLoadAsync(true);
@@ -1825,7 +1826,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
             app.getTabManager()->createTableViewerTab(dbData, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            TableDialog::instance().showEdit(dbData, table);
+            app.getTabManager()->createTableEditorTab(dbData, table);
         }
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startTableRefreshAsync(table.name);
@@ -2106,7 +2107,7 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                    TableDialog::instance().showCreate(dbData);
+                    app.getTabManager()->createTableEditorTab(dbData);
                 }
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
                     dbData->startTablesLoadAsync(true);
@@ -2229,7 +2230,7 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
             app.getTabManager()->createTableViewerTab(dbData, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            TableDialog::instance().showEdit(dbData, table);
+            app.getTabManager()->createTableEditorTab(dbData, table);
         }
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startTableRefreshAsync(table.name);
@@ -2717,7 +2718,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
             app.getTabManager()->createTableViewerTab(sqliteDb, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            TableDialog::instance().showEdit(sqliteDb, table);
+            app.getTabManager()->createTableEditorTab(sqliteDb, table);
         }
         if (ImGui::MenuItem(SHOW_STRUCTURE_LABEL)) {
             openStructureTab(sqliteDb, table);
