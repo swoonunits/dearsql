@@ -13,12 +13,15 @@
 #include "ui/ai_chat_panel.hpp"
 #include "ui/ai_settings_dialog.hpp"
 #include "ui/table_renderer.hpp"
+#include "utils/logger.hpp"
 #include "utils/sentry_utils.hpp"
 #include "utils/spinner.hpp"
 #include "utils/splitter.hpp"
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <ranges>
 #include <string_view>
 
@@ -106,13 +109,16 @@ namespace {
 
 SQLEditorTab::SQLEditorTab(const std::string& name, IDatabaseNode* node,
                            const std::string& schemaName)
-    : Tab(name, TabType::SQL_EDITOR), node_(node), selectedSchemaName(schemaName) {
+    : Tab(name, TabType::SQL_EDITOR), node_(node), selectedSchemaName(schemaName),
+      scriptName_(name) {
     sqlEditor.SetShowLineNumbers(true);
     sqlEditor.SetSubmitCallback([this] {
         sqlQuery = sqlEditor.GetText();
         startQueryExecutionAsync(sqlQuery);
     });
     bindNode(node_);
+    // seed rename buffer with initial name
+    std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
 }
 
 SQLEditorTab::~SQLEditorTab() {
@@ -132,9 +138,15 @@ void SQLEditorTab::render() {
 
     checkQueryExecutionStatus();
 
+    // Cmd+S / Ctrl+S save shortcut — flag here, execute after editor text is synced below
+    const bool wantSave = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+                          (ImGui::GetIO().KeyMods & ImGuiMod_Shortcut) &&
+                          ImGui::IsKeyPressed(ImGuiKey_S, false);
+
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Theme::Spacing::S);
     renderConnectionInfo();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Theme::Spacing::S);
+    renderScriptHeader();
 
     // Render AI settings dialog (modal, always available)
     AISettingsDialog::instance().render();
@@ -161,9 +173,18 @@ void SQLEditorTab::render() {
                 pendingEditorFocusFrames_--;
             }
             sqlEditor.Render("##SQL", ImVec2(-1, -1), true);
-            sqlQuery = sqlEditor.GetText();
+            const std::string newText = sqlEditor.GetText();
+            if (newText != sqlQuery) {
+                sqlQuery = newText;
+                contentModified_ = true;
+            }
         }
         ImGui::EndChild();
+
+        // execute save now that sqlQuery is guaranteed up-to-date
+        if (wantSave) {
+            saveScript();
+        }
 
         renderToolbar();
         UIUtils::Splitter("##sql_splitter", &splitterPosition, totalContentHeight, 100.0f, 200.0f);
@@ -1058,6 +1079,205 @@ void SQLEditorTab::renderAIToggleStrip(float stripWidth, float availableHeight) 
     ImGui::EndChild();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
+}
+
+// ── Script file management ────────────────────────────────────────────────────
+
+std::string SQLEditorTab::getDefaultScriptsDir() {
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
+    const char* home = std::getenv("HOME");
+#endif
+    const std::filesystem::path dir = home ? std::filesystem::path(home) / ".dearsql" / "scripts"
+                                           : std::filesystem::path(".") / "scripts";
+    std::filesystem::create_directories(dir);
+    return dir.string();
+}
+
+void SQLEditorTab::saveScript() {
+    // build file path if not yet set
+    if (filePath_.empty()) {
+        const std::string dir = getDefaultScriptsDir();
+        // sanitize name for filesystem
+        std::string safeName = scriptName_;
+        for (char& c : safeName) {
+            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' ||
+                c == '>' || c == '|')
+                c = '_';
+        }
+        if (safeName.empty())
+            safeName = "untitled";
+        std::filesystem::path candidate = std::filesystem::path(dir) / (safeName + ".sql");
+        // avoid collision with existing files from other scripts
+        int n = 1;
+        while (std::filesystem::exists(candidate) && scriptId_ == 0) {
+            candidate =
+                std::filesystem::path(dir) / (safeName + "_" + std::to_string(n++) + ".sql");
+        }
+        filePath_ = candidate.string();
+    }
+
+    // write content to disk
+    std::ofstream out(filePath_, std::ios::out | std::ios::trunc);
+    if (!out) {
+        Logger::error(std::format("Failed to write script file: {}", filePath_));
+        return;
+    }
+    out << sqlQuery;
+    out.close();
+
+    contentModified_ = false;
+    persistScriptToAppState();
+
+    // sync tab display name
+    setName(scriptName_);
+    Logger::info(std::format("Saved script '{}' to {}", scriptName_, filePath_));
+}
+
+void SQLEditorTab::persistScriptToAppState() {
+    auto* appState = Application::getInstance().getAppState();
+    if (!appState)
+        return;
+
+    SqlScript s;
+    s.id = scriptId_;
+    s.name = scriptName_;
+    s.filePath = filePath_;
+
+    // resolve connection/database metadata from the current node
+    if (node_) {
+        if (auto* ownerDb = node_->ownerDatabase()) {
+            s.connectionId = ownerDb->getConnectionId();
+        }
+        s.databaseName = node_->getName();
+        // for postgres schema nodes, use the parent db name as database and schema name
+        if (auto* schemaNode = dynamic_cast<PostgresSchemaNode*>(node_)) {
+            if (schemaNode->parentDbNode)
+                s.databaseName = schemaNode->parentDbNode->name;
+            s.schemaName = schemaNode->name;
+        }
+    }
+
+    if (scriptId_ == 0) {
+        const int newId = appState->saveScript(s);
+        if (newId > 0)
+            scriptId_ = newId;
+    } else {
+        appState->updateScript(s);
+    }
+}
+
+void SQLEditorTab::loadFromScript(const SqlScript& script) {
+    scriptId_ = script.id;
+    scriptName_ = script.name;
+    filePath_ = script.filePath;
+    std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
+
+    std::ifstream in(filePath_);
+    if (in) {
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        setQuery(content);
+    }
+    contentModified_ = false;
+    setName(scriptName_);
+}
+
+void SQLEditorTab::renderScriptHeader() {
+    const auto& colors = Application::getInstance().getCurrentColors();
+
+    // file icon
+    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+    ImGui::TextUnformatted(ICON_FA_FILE_CODE);
+    ImGui::PopStyleColor();
+    ImGui::SameLine(0, Theme::Spacing::S);
+
+    if (renamingScript_) {
+        ImGui::SetNextItemWidth(200.0f);
+        if (ImGui::InputText("##script_rename", renameBuffer_, sizeof(renameBuffer_),
+                             ImGuiInputTextFlags_EnterReturnsTrue |
+                                 ImGuiInputTextFlags_AutoSelectAll)) {
+            if (renameBuffer_[0] != '\0') {
+                const std::string newName = renameBuffer_;
+                if (!filePath_.empty() && std::filesystem::exists(filePath_)) {
+                    // attempt the filesystem rename first; only commit on success
+                    const std::string dir = getDefaultScriptsDir();
+                    const std::filesystem::path newPath =
+                        std::filesystem::path(dir) / (newName + ".sql");
+                    std::error_code ec;
+                    if (std::filesystem::exists(newPath) &&
+                        !std::filesystem::equivalent(filePath_, newPath, ec)) {
+                        Logger::warn(
+                            std::format("Cannot rename: '{}' already exists", newPath.string()));
+                    } else {
+                        std::filesystem::rename(filePath_, newPath, ec);
+                        if (ec) {
+                            Logger::error(
+                                std::format("Failed to rename script file: {}", ec.message()));
+                        } else {
+                            filePath_ = newPath.string();
+                            scriptName_ = newName;
+                            setName(scriptName_);
+                            persistScriptToAppState();
+                        }
+                    }
+                } else {
+                    // never-saved tab: rename is purely in-memory
+                    scriptName_ = newName;
+                    setName(scriptName_);
+                    contentModified_ = true;
+                }
+            }
+            renamingScript_ = false;
+        }
+        if (!ImGui::IsItemActive() && !ImGui::IsItemFocused() &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            renamingScript_ = false;
+        }
+        // auto-focus the input on first frame
+        if (ImGui::IsItemVisible() && !ImGui::IsItemActive())
+            ImGui::SetKeyboardFocusHere(-1);
+    } else {
+        // display name (greyed out if not yet saved)
+        const bool saved = !filePath_.empty();
+        ImGui::PushStyleColor(ImGuiCol_Text, saved ? colors.text : colors.subtext0);
+        ImGui::TextUnformatted(scriptName_.c_str());
+        ImGui::PopStyleColor();
+
+        ImGui::SameLine(0, Theme::Spacing::S);
+
+        // edit icon button
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(colors.surface1.x, colors.surface1.y,
+                                                             colors.surface1.z, 0.6f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                            ImVec2(Theme::Spacing::XS, Theme::Spacing::XS));
+        if (ImGui::SmallButton(ICON_FA_PENCIL "##rename_script")) {
+            std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
+            renamingScript_ = true;
+        }
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
+
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Rename script");
+
+        // unsaved indicator
+        if (contentModified_) {
+            ImGui::SameLine(0, Theme::Spacing::S);
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+            ImGui::TextUnformatted(ICON_FA_CIRCLE "  unsaved");
+            ImGui::PopStyleColor();
+        } else if (!filePath_.empty()) {
+            ImGui::SameLine(0, Theme::Spacing::S);
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+            ImGui::TextUnformatted(filePath_.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Separator();
 }
 
 void SQLEditorTab::renderAIPanel(float panelWidth, float availableHeight) {

@@ -2,6 +2,7 @@
 #include "IconsFontAwesome6.h"
 #include "IconsForkAwesome.h"
 #include "application.hpp"
+#include "database/database_node.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -218,7 +219,14 @@ void DatabaseHierarchy::renderRootNode() {
                 }
             }
         }
-    } else if (dbType == DatabaseType::REDIS) {
+    }
+
+    // scripts node — shown for all non-Redis connection types
+    if (dbType != DatabaseType::REDIS) {
+        renderScriptsNode();
+    }
+
+    if (dbType == DatabaseType::REDIS) {
         const auto redisDb = std::dynamic_pointer_cast<RedisDatabase>(db);
         if (!redisDb) {
             return;
@@ -2890,6 +2898,174 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
             }
         }
 
+        ImGui::TreePop();
+    }
+}
+
+IDatabaseNode* DatabaseHierarchy::resolveNodeForScript(const SqlScript& script) const {
+    if (!db)
+        return nullptr;
+
+    const auto dbType = db->getConnectionInfo().type;
+
+    if (dbType == DatabaseType::SQLITE) {
+        return dynamic_cast<SQLiteDatabase*>(db.get());
+    }
+    if (dbType == DatabaseType::POSTGRESQL || dbType == DatabaseType::REDSHIFT) {
+        auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get());
+        if (!pgDb)
+            return nullptr;
+        if (auto* dbNode = pgDb->getDatabaseData(script.databaseName)) {
+            if (!script.schemaName.empty()) {
+                for (const auto& schema : dbNode->schemas) {
+                    if (schema && schema->name == script.schemaName)
+                        return schema.get();
+                }
+            }
+            return dbNode;
+        }
+        return nullptr;
+    }
+    if (dbType == DatabaseType::MYSQL || dbType == DatabaseType::MARIADB) {
+        auto* mysqlDb = dynamic_cast<MySQLDatabase*>(db.get());
+        if (!mysqlDb)
+            return nullptr;
+        return mysqlDb->getDatabaseData(script.databaseName);
+    }
+    if (dbType == DatabaseType::MSSQL) {
+        auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get());
+        if (!mssqlDb)
+            return nullptr;
+        return mssqlDb->getDatabaseData(script.databaseName);
+    }
+    if (dbType == DatabaseType::ORACLE) {
+        auto* oracleDb = dynamic_cast<OracleDatabase*>(db.get());
+        if (!oracleDb)
+            return nullptr;
+        return oracleDb->getDatabaseData(script.databaseName);
+    }
+    return nullptr;
+}
+
+void DatabaseHierarchy::renderScriptsNode() {
+    auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
+
+    const int connId = db->getConnectionId();
+    if (connId <= 0)
+        return;
+
+    auto* appState = app.getAppState();
+    if (!appState)
+        return;
+
+    const auto scripts = appState->getScriptsForConnection(connId);
+
+    const std::string scriptsNodeId = std::format("scripts_conn_{}", static_cast<void*>(db.get()));
+    const bool scriptsOpen = renderTreeNodeWithIcon("Scripts", scriptsNodeId, ICON_FA_FILE_CODE,
+                                                    ImGui::GetColorU32(colors.mauve));
+
+    // context menu on the Scripts header
+    if (ImGui::BeginPopupContextItem(nullptr)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem("New SQL Script")) {
+            // resolve the first available database node for this connection
+            IDatabaseNode* node = nullptr;
+            const auto dbType = db->getConnectionInfo().type;
+            if (auto* sqliteDb = dynamic_cast<SQLiteDatabase*>(db.get())) {
+                node = sqliteDb;
+            } else if (dbType == DatabaseType::POSTGRESQL || dbType == DatabaseType::REDSHIFT) {
+                if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
+                    for (const auto& entry : pgDb->getDatabaseDataMap()) {
+                        if (entry.second && !entry.second->schemas.empty() &&
+                            entry.second->schemas.front()) {
+                            node = entry.second->schemas.front().get();
+                            break;
+                        }
+                        if (entry.second) {
+                            node = entry.second.get();
+                            break;
+                        }
+                    }
+                }
+            } else if (dbType == DatabaseType::MYSQL || dbType == DatabaseType::MARIADB) {
+                if (auto* mysqlDb = dynamic_cast<MySQLDatabase*>(db.get())) {
+                    const auto& m = mysqlDb->getDatabaseDataMap();
+                    if (!m.empty() && m.begin()->second)
+                        node = m.begin()->second.get();
+                }
+            } else if (dbType == DatabaseType::MSSQL) {
+                if (auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get())) {
+                    const auto& m = mssqlDb->getDatabaseDataMap();
+                    if (!m.empty() && m.begin()->second)
+                        node = m.begin()->second.get();
+                }
+            } else if (dbType == DatabaseType::ORACLE) {
+                if (auto* oracleDb = dynamic_cast<OracleDatabase*>(db.get())) {
+                    const auto& m = oracleDb->getDatabaseDataMap();
+                    if (!m.empty() && m.begin()->second)
+                        node = m.begin()->second.get();
+                }
+            }
+            if (node) {
+                app.getTabManager()->createSQLEditorTab("", node);
+            } else {
+                Logger::warn("New SQL Script: no loaded database node found for this connection");
+            }
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+
+    if (scriptsOpen) {
+        if (scripts.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+            ImGui::Text("  No scripts");
+            ImGui::PopStyleColor();
+        } else {
+            constexpr ImGuiTreeNodeFlags scriptItemFlags = ImGuiTreeNodeFlags_Leaf |
+                                                           ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                           ImGuiTreeNodeFlags_FramePadding;
+            for (const auto& script : scripts) {
+                const std::string scriptItemId =
+                    std::format("script_{}_{}", script.id, static_cast<const void*>(&script));
+                renderTreeNodeWithIcon(script.name, scriptItemId, ICON_FA_FILE_CODE,
+                                       ImGui::GetColorU32(colors.mauve), scriptItemFlags);
+
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    IDatabaseNode* node = resolveNodeForScript(script);
+                    app.getTabManager()->createSQLEditorTabFromScript(node, script);
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", script.filePath.c_str());
+                }
+
+                if (ImGui::BeginPopupContextItem(scriptItemId.c_str())) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                        ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                    if (ImGui::MenuItem("Open")) {
+                        IDatabaseNode* node = resolveNodeForScript(script);
+                        app.getTabManager()->createSQLEditorTabFromScript(node, script);
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Delete")) {
+                        const int scriptId = script.id;
+                        Alert::show(
+                            "Delete Script",
+                            std::format("Remove '{}' from the list? The file won't be deleted.",
+                                        script.name),
+                            {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                             {"Remove",
+                              [appState, scriptId]() { appState->deleteScript(scriptId); },
+                              AlertButton::Style::Destructive}});
+                    }
+                    ImGui::PopStyleVar();
+                    ImGui::EndPopup();
+                }
+            }
+        }
         ImGui::TreePop();
     }
 }

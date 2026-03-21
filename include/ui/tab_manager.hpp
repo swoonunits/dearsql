@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_state.hpp"
 #include "ui/tab/tab.hpp"
 #include <cstdint>
 #include <memory>
@@ -43,6 +44,7 @@ public:
     // Tab creation helpers (unified interface)
     std::shared_ptr<Tab> createSQLEditorTab(const std::string& name, IDatabaseNode* node,
                                             const std::string& schemaName = "");
+    std::shared_ptr<Tab> createSQLEditorTabFromScript(IDatabaseNode* node, const SqlScript& script);
 
     std::shared_ptr<Tab> createTableViewerTab(IDatabaseNode* node, const std::string& tableName);
 

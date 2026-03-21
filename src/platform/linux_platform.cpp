@@ -1712,9 +1712,9 @@ void LinuxPlatform::runMainLoop() {
                 std::max<gint64>(0, g_get_monotonic_time() - lastInteractionTimeUs_)) /
             1000000.0;
         const bool idleBecauseUnfocused = !windowFocused && !hasAsyncWork && !asyncJustFinished;
-        const bool idleBecauseInactive =
-            windowFocused && (timeSinceInteraction >= kIdleActivationDelaySeconds) &&
-            !hasAsyncWork && !asyncJustFinished;
+        const bool idleBecauseInactive = windowFocused &&
+                                         (timeSinceInteraction >= kIdleActivationDelaySeconds) &&
+                                         !hasAsyncWork && !asyncJustFinished;
         const bool shouldRender =
             hasAsyncWork || asyncJustFinished || (windowFocused && !idleBecauseInactive);
 

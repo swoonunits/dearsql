@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_state.hpp"
 #include "database/async_helper.hpp"
 #include "database/db.hpp"
 #include "ui/tab/tab.hpp"
@@ -40,6 +41,18 @@ public:
     }
     [[nodiscard]] IDatabaseNode* getDatabaseNode() const {
         return node_;
+    }
+
+    // Script file association
+    void loadFromScript(const SqlScript& script);
+    [[nodiscard]] const std::string& getFilePath() const {
+        return filePath_;
+    }
+    [[nodiscard]] int getScriptId() const {
+        return scriptId_;
+    }
+    [[nodiscard]] bool hasUnsavedChanges() const override {
+        return contentModified_;
     }
 
 private:
@@ -111,4 +124,17 @@ private:
     void initAIPanel();
     void renderAIToggleStrip(float stripWidth, float availableHeight);
     void renderAIPanel(float panelWidth, float availableHeight);
+
+    // Script persistence
+    int scriptId_ = 0;
+    std::string filePath_;
+    std::string scriptName_;
+    bool contentModified_ = false;
+    bool renamingScript_ = false;
+    char renameBuffer_[256] = {};
+
+    void saveScript();
+    void renderScriptHeader();
+    [[nodiscard]] static std::string getDefaultScriptsDir();
+    void persistScriptToAppState();
 };

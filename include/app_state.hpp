@@ -5,6 +5,17 @@
 #include <string>
 #include <vector>
 
+struct SqlScript {
+    int id = 0;
+    std::string name;         // display name / filename without extension
+    std::string filePath;     // full path on disk
+    int connectionId = 0;     // linked connection (0 = unlinked)
+    std::string databaseName; // database within the connection
+    std::string schemaName;   // schema within the database (postgres)
+    std::string createdAt;
+    std::string updatedAt;
+};
+
 struct SavedConnection {
     int id = 0;
     DatabaseConnectionInfo connectionInfo;
@@ -50,6 +61,13 @@ public:
     [[nodiscard]] std::vector<SavedConnection> getConnectionsForWorkspace(int workspaceId) const;
     [[nodiscard]] bool moveConnectionToWorkspace(int connectionId, int workspaceId) const;
     bool ensureDefaultWorkspace() const;
+
+    // SQL script management
+    int saveScript(const SqlScript& script) const;
+    bool updateScript(const SqlScript& script) const;
+    bool deleteScript(int scriptId) const;
+    [[nodiscard]] std::vector<SqlScript> getScriptsForConnection(int connectionId) const;
+    [[nodiscard]] std::vector<SqlScript> getAllScripts() const;
 
 private:
     sqlite3* db_ = nullptr;

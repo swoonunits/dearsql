@@ -16,6 +16,7 @@
 #include <format>
 #include <iostream>
 #include <iterator>
+#include <memory>
 
 void TabManager::addTab(const std::shared_ptr<Tab>& tab) {
     tabs.push_back(tab);
@@ -525,6 +526,30 @@ std::shared_ptr<Tab> TabManager::createTableEditorTab(IDatabaseNode* node, const
     if (!node)
         return nullptr;
     auto tab = std::make_shared<TableEditorTab>(node, table, schema);
+    registerOpenedTab(tab);
+    return tab;
+}
+
+std::shared_ptr<Tab> TabManager::createSQLEditorTabFromScript(IDatabaseNode* node,
+                                                              const SqlScript& script) {
+    // focus existing tab if the same script is already open
+    for (auto& tab : tabs) {
+        if (tab->getType() == TabType::SQL_EDITOR) {
+            const auto sqlTab = std::dynamic_pointer_cast<SQLEditorTab>(tab);
+            if (sqlTab && sqlTab->getScriptId() == script.id && script.id != 0) {
+                requestTabFocus(tab->getId());
+                return tab;
+            }
+            if (sqlTab && !sqlTab->getFilePath().empty() &&
+                sqlTab->getFilePath() == script.filePath) {
+                requestTabFocus(tab->getId());
+                return tab;
+            }
+        }
+    }
+
+    auto tab = std::make_shared<SQLEditorTab>(script.name, node, script.schemaName);
+    tab->loadFromScript(script);
     registerOpenedTab(tab);
     return tab;
 }

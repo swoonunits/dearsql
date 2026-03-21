@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_state.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb/mongodb_database_node.hpp"
 #include "database/mssql/mssql_database_node.hpp"
@@ -62,6 +63,12 @@ private:
     void renderMongoDBCollectionNode(Table& collection, MongoDBDatabaseNode* dbData);
     void renderSQLiteTableNode(Table& table, SQLiteDatabase* sqliteDb);
     void renderSQLiteViewNode(Table& view, SQLiteDatabase* sqliteDb);
+
+    // Scripts associated with this connection
+    void renderScriptsNode();
+
+    // Helper to resolve an IDatabaseNode from a SqlScript's metadata
+    IDatabaseNode* resolveNodeForScript(const SqlScript& script) const;
 
     // Helper function to render a tree node with icon
     static bool

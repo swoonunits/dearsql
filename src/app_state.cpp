@@ -279,8 +279,21 @@ bool AppState::createTables() {
         );
     )";
 
+    const std::string createScriptsTable = R"(
+        CREATE TABLE IF NOT EXISTS sql_scripts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL UNIQUE,
+            connection_id INTEGER DEFAULT 0,
+            database_name TEXT DEFAULT '',
+            schema_name TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    )";
+
     const bool success = executeSQL(createConnectionsTable) && executeSQL(createSettingsTable) &&
-                         executeSQL(createWorkspacesTable);
+                         executeSQL(createWorkspacesTable) && executeSQL(createScriptsTable);
 
     auto ensureColumnExists = [this](const std::string& columnName, const std::string& alterSql) {
         try {
@@ -903,6 +916,117 @@ bool AppState::moveConnectionToWorkspace(const int connectionId, const int works
         return false;
     }
     return true;
+}
+
+int AppState::saveScript(const SqlScript& script) const {
+    const std::string sql = R"(
+        INSERT OR REPLACE INTO sql_scripts
+        (name, file_path, connection_id, database_name, schema_name, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP);
+    )";
+    sqlite3_stmt* raw = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to save script: " << sqlite3_errmsg(db_) << std::endl;
+        return -1;
+    }
+    StmtPtr stmt(raw);
+    sqlite3_bind_text(stmt.get(), 1, script.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, script.filePath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 3, script.connectionId);
+    sqlite3_bind_text(stmt.get(), 4, script.databaseName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 5, script.schemaName.c_str(), -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_DONE) {
+        std::cerr << "Failed to save script: " << sqlite3_errmsg(db_) << std::endl;
+        return -1;
+    }
+    return static_cast<int>(sqlite3_last_insert_rowid(db_));
+}
+
+bool AppState::updateScript(const SqlScript& script) const {
+    const std::string sql = R"(
+        UPDATE sql_scripts
+        SET name = ?, file_path = ?, connection_id = ?, database_name = ?, schema_name = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?;
+    )";
+    sqlite3_stmt* raw = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to update script: " << sqlite3_errmsg(db_) << std::endl;
+        return false;
+    }
+    StmtPtr stmt(raw);
+    sqlite3_bind_text(stmt.get(), 1, script.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, script.filePath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 3, script.connectionId);
+    sqlite3_bind_text(stmt.get(), 4, script.databaseName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 5, script.schemaName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 6, script.id);
+    rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_DONE) {
+        std::cerr << "Failed to update script: " << sqlite3_errmsg(db_) << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool AppState::deleteScript(const int scriptId) const {
+    const std::string sql = "DELETE FROM sql_scripts WHERE id = ?";
+    sqlite3_stmt* raw = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to delete script: " << sqlite3_errmsg(db_) << std::endl;
+        return false;
+    }
+    StmtPtr stmt(raw);
+    sqlite3_bind_int(stmt.get(), 1, scriptId);
+    rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_DONE) {
+        std::cerr << "Failed to delete script: " << sqlite3_errmsg(db_) << std::endl;
+        return false;
+    }
+    return true;
+}
+
+namespace {
+    SqlScript parseScriptRow(sqlite3_stmt* stmt) {
+        SqlScript s;
+        s.id = sqlite3_column_int(stmt, 0);
+        s.name = columnText(stmt, 1);
+        s.filePath = columnText(stmt, 2);
+        s.connectionId = sqlite3_column_int(stmt, 3);
+        s.databaseName = columnText(stmt, 4);
+        if (s.databaseName == "NULL")
+            s.databaseName = "";
+        s.schemaName = columnText(stmt, 5);
+        if (s.schemaName == "NULL")
+            s.schemaName = "";
+        s.createdAt = columnText(stmt, 6);
+        if (s.createdAt == "NULL")
+            s.createdAt = "";
+        s.updatedAt = columnText(stmt, 7);
+        if (s.updatedAt == "NULL")
+            s.updatedAt = "";
+        return s;
+    }
+} // namespace
+
+std::vector<SqlScript> AppState::getScriptsForConnection(const int connectionId) const {
+    std::vector<SqlScript> scripts;
+    const std::string sql = R"(
+        SELECT id, name, file_path, connection_id, database_name, schema_name, created_at, updated_at
+        FROM sql_scripts WHERE connection_id = ? ORDER BY updated_at DESC;
+    )";
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr) != SQLITE_OK)
+        return scripts;
+    StmtPtr stmt(raw);
+    sqlite3_bind_int(stmt.get(), 1, connectionId);
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+        scripts.push_back(parseScriptRow(stmt.get()));
+    return scripts;
 }
 
 bool AppState::ensureDefaultWorkspace() const {

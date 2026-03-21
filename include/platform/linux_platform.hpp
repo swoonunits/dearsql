@@ -111,6 +111,7 @@ private:
     ImGuiKey gtkKeyToImGuiKey(guint keyval);
 
     gint64 lastInteractionTimeUs_ = 0;
+    bool lastHadAsyncWork_ = false;
 };
 
 #endif // defined(__linux__)

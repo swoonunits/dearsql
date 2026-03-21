@@ -22,12 +22,12 @@
 #endif
 #include <atomic>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <dwmapi.h>
 #include <iostream>
 #include <thread>
 #include <uxtheme.h>
 #include <windows.h>
-#include <commdlg.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -591,12 +591,14 @@ static void resizeToFitContent(HWND hwnd, HWND parentHwnd, int contentWidth) {
     int maxBottom = 0;
     HWND child = GetWindow(hwnd, GW_CHILD);
     while (child) {
-        if (IsWindowVisible(child) && child != statusLabel && child != cancelBtn && child != connectBtn) {
+        if (IsWindowVisible(child) && child != statusLabel && child != cancelBtn &&
+            child != connectBtn) {
             RECT rc;
             GetWindowRect(child, &rc);
             POINT pt = {0, rc.bottom};
             ScreenToClient(hwnd, &pt);
-            if (pt.y > maxBottom) maxBottom = pt.y;
+            if (pt.y > maxBottom)
+                maxBottom = pt.y;
         }
         child = GetWindow(child, GW_HWNDNEXT);
     }
@@ -605,9 +607,12 @@ static void resizeToFitContent(HWND hwnd, HWND parentHwnd, int contentWidth) {
     constexpr int FX = 110, FW = 350;
     int btnY = maxBottom + 12;
     constexpr int btnH = 32;
-    if (statusLabel) SetWindowPos(statusLabel, nullptr, 16, btnY + 8, FX + FW - 200, 22, SWP_NOZORDER);
-    if (cancelBtn)   SetWindowPos(cancelBtn, nullptr, FX + FW - 180, btnY, 84, btnH, SWP_NOZORDER);
-    if (connectBtn)  SetWindowPos(connectBtn, nullptr, FX + FW - 90, btnY, 90, btnH, SWP_NOZORDER);
+    if (statusLabel)
+        SetWindowPos(statusLabel, nullptr, 16, btnY + 8, FX + FW - 200, 22, SWP_NOZORDER);
+    if (cancelBtn)
+        SetWindowPos(cancelBtn, nullptr, FX + FW - 180, btnY, 84, btnH, SWP_NOZORDER);
+    if (connectBtn)
+        SetWindowPos(connectBtn, nullptr, FX + FW - 90, btnY, 90, btnH, SWP_NOZORDER);
 
     // Resize the dialog
     RECT rcWin, rcClient;
@@ -631,7 +636,7 @@ static void resizeToFitContent(HWND hwnd, HWND parentHwnd, int contentWidth) {
 // Subclass proc for radio buttons and checkboxes to fix text color in dark mode.
 // Calls the original paint, then redraws just the text in the correct color.
 static LRESULT CALLBACK DarkButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                                UINT_PTR subclassId, DWORD_PTR refData) {
+                                               UINT_PTR subclassId, DWORD_PTR refData) {
     auto* data = reinterpret_cast<ConnectionDialogData*>(refData);
 
     if (msg == WM_PAINT && data && data->isDark) {
@@ -641,7 +646,8 @@ static LRESULT CALLBACK DarkButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wPara
         // Now overdraw the text in the correct color
         char text[256] = "";
         GetWindowTextA(hwnd, text, sizeof(text));
-        if (text[0] == '\0') return result;
+        if (text[0] == '\0')
+            return result;
 
         HDC hdc = GetDC(hwnd);
         RECT rc;
@@ -662,7 +668,8 @@ static LRESULT CALLBACK DarkButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wPara
         ExtTextOutA(hdc, 0, 0, ETO_OPAQUE, &textRect, nullptr, 0, nullptr);
         DrawTextA(hdc, text, -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-        if (oldFont) SelectObject(hdc, oldFont);
+        if (oldFont)
+            SelectObject(hdc, oldFont);
         ReleaseDC(hwnd, hdc);
         return result;
     }
@@ -675,7 +682,8 @@ static LRESULT CALLBACK DarkButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wPara
 }
 
 static void applyDialogTheme(ConnectionDialogData* data, HWND hwnd) {
-    if (!data || !data->app) return;
+    if (!data || !data->app)
+        return;
 
     data->isDark = data->app->isDarkTheme();
 
@@ -691,8 +699,10 @@ static void applyDialogTheme(ConnectionDialogData* data, HWND hwnd) {
         data->dimTextColor = RGB(100, 100, 100);
     }
 
-    if (data->bgBrush) DeleteObject(data->bgBrush);
-    if (data->editBrush) DeleteObject(data->editBrush);
+    if (data->bgBrush)
+        DeleteObject(data->bgBrush);
+    if (data->editBrush)
+        DeleteObject(data->editBrush);
     data->bgBrush = CreateSolidBrush(data->bgColor);
     data->editBrush = CreateSolidBrush(data->editBgColor);
 
@@ -743,12 +753,11 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         data->dialog = hwnd;
 
         // Create a Segoe UI font at 15px (matches the app's UI feel)
-        data->hFont = CreateFontA(
-            -15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, "Segoe UI");
-        HFONT hFont = data->hFont ? data->hFont
-                                  : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        data->hFont = CreateFontA(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                  DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+        HFONT hFont =
+            data->hFont ? data->hFont : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
         auto makeCtrl = [&](const char* cls, const char* text, int id, DWORD style, int x, int y,
                             int w, int h) -> HWND {
@@ -1133,9 +1142,12 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (data) {
             data->oracleInstaller.cancel();
             data->editingDb.reset();
-            if (data->bgBrush) DeleteObject(data->bgBrush);
-            if (data->editBrush) DeleteObject(data->editBrush);
-            if (data->hFont) DeleteObject(data->hFont);
+            if (data->bgBrush)
+                DeleteObject(data->bgBrush);
+            if (data->editBrush)
+                DeleteObject(data->editBrush);
+            if (data->hFont)
+                DeleteObject(data->hFont);
             delete data;
         }
         SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
@@ -1296,11 +1308,11 @@ static LRESULT CALLBACK CreateDatabaseDialogProc(HWND hwnd, UINT msg, WPARAM wPa
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         data->dialog = hwnd;
 
-        HFONT hFont = CreateFontA(
-            -15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, "Segoe UI");
-        if (!hFont) hFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        HFONT hFont = CreateFontA(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                  DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+        if (!hFont)
+            hFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
         auto makeCtrl = [&](const char* cls, const char* text, int id, DWORD style, int x, int y,
                             int w, int h) -> HWND {
@@ -1406,8 +1418,10 @@ static LRESULT CALLBACK CreateDatabaseDialogProc(HWND hwnd, UINT msg, WPARAM wPa
         sActiveCreateDatabaseDialog = nullptr;
         if (data) {
             data->db.reset();
-            if (data->bgBrush) DeleteObject(data->bgBrush);
-            if (data->editBrush) DeleteObject(data->editBrush);
+            if (data->bgBrush)
+                DeleteObject(data->bgBrush);
+            if (data->editBrush)
+                DeleteObject(data->editBrush);
             delete data;
         }
         SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
@@ -1444,9 +1458,8 @@ void showCreateDatabaseDialog(Application* app, std::shared_ptr<DatabaseInterfac
     }
 
     HWND hwnd = CreateWindowExA(WS_EX_DLGMODALFRAME, kCreateDbDialogClass, "Create New Database",
-                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, cx, cy,
-                                dlgW, dlgH, data->parentHwnd, nullptr,
-                                GetModuleHandle(nullptr), data);
+                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, cx, cy, dlgW,
+                                dlgH, data->parentHwnd, nullptr, GetModuleHandle(nullptr), data);
 
     sActiveCreateDatabaseDialog = hwnd;
 }
