@@ -168,7 +168,7 @@ void SQLEditorTab::render() {
 
         if (ImGui::BeginChild("SQLEditor", ImVec2(-1, editorHeight), true,
                               ImGuiWindowFlags_NoScrollbar)) {
-            if (pendingEditorFocusFrames_ > 0) {
+            if (pendingEditorFocusFrames_ > 0 && !renamingScript_) {
                 sqlEditor.SetFocus();
                 pendingEditorFocusFrames_--;
             }
@@ -1193,10 +1193,21 @@ void SQLEditorTab::renderScriptHeader() {
     ImGui::SameLine(0, Theme::Spacing::S);
 
     if (renamingScript_) {
+        // grab focus immediately on the opening frame so the SQL editor loses it at once
+        if (renamingFocusNeeded_) {
+            ImGui::SetKeyboardFocusHere(0);
+            renamingFocusNeeded_ = false;
+        }
+
         ImGui::SetNextItemWidth(200.0f);
-        if (ImGui::InputText("##script_rename", renameBuffer_, sizeof(renameBuffer_),
-                             ImGuiInputTextFlags_EnterReturnsTrue |
-                                 ImGuiInputTextFlags_AutoSelectAll)) {
+        const bool committed = ImGui::InputText(
+            "##script_rename", renameBuffer_, sizeof(renameBuffer_),
+            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+
+        // Esc cancels without committing
+        if (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            renamingScript_ = false;
+        } else if (committed) {
             if (renameBuffer_[0] != '\0') {
                 const std::string newName = renameBuffer_;
                 if (!filePath_.empty() && std::filesystem::exists(filePath_)) {
@@ -1230,13 +1241,12 @@ void SQLEditorTab::renderScriptHeader() {
             }
             renamingScript_ = false;
         }
-        if (!ImGui::IsItemActive() && !ImGui::IsItemFocused() &&
-            ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            renamingScript_ = false;
-        }
-        // auto-focus the input on first frame
-        if (ImGui::IsItemVisible() && !ImGui::IsItemActive())
-            ImGui::SetKeyboardFocusHere(-1);
+
+        // show the immutable ".sql" extension alongside the input
+        ImGui::SameLine(0, 0);
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+        ImGui::TextUnformatted(".sql");
+        ImGui::PopStyleColor();
     } else {
         // display name (greyed out if not yet saved)
         const bool saved = !filePath_.empty();
@@ -1257,6 +1267,7 @@ void SQLEditorTab::renderScriptHeader() {
         if (ImGui::SmallButton(ICON_FA_PENCIL "##rename_script")) {
             std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
             renamingScript_ = true;
+            renamingFocusNeeded_ = true;
         }
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(4);

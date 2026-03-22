@@ -131,6 +131,7 @@ private:
     std::string scriptName_;
     bool contentModified_ = false;
     bool renamingScript_ = false;
+    bool renamingFocusNeeded_ = false; // request focus on the first rename frame
     char renameBuffer_[256] = {};
 
     void saveScript();
