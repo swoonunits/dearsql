@@ -1,4 +1,5 @@
 #include "ui/tab/sql_editor_tab.hpp"
+#include <cstring>
 #include "IconsFontAwesome6.h"
 #include "ai/ai_chat.hpp"
 #include "application.hpp"
