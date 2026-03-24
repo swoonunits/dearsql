@@ -3,6 +3,7 @@
 #include "application.hpp"
 #include "config.hpp"
 #include "license/license_manager.hpp"
+#include "platform/alert.hpp"
 #include "platform/titlebar.hpp"
 #include "platform/windows_updater.hpp"
 #include "themes.hpp"
@@ -386,7 +387,12 @@ void WindowsTitlebar::renderPopups() {
         }
         ImGui::Separator();
         if (ImGui::Selectable("New Workspace...")) {
-            app_->createWorkspace("New Workspace", "");
+            if (!app_->canAddWorkspace()) {
+                Alert::show("Workspace Limit Reached",
+                            "Free tier is limited to 1 workspace. Activate a license to create more.");
+            } else {
+                app_->createWorkspace("New Workspace", "");
+            }
         }
         ImGui::EndPopup();
     }
