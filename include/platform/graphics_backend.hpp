@@ -83,13 +83,13 @@ public:
     ImTextureID createTextureFromRGBA(const uint8_t* pixels, int width, int height) override;
 
 #ifdef __OBJC__
-    id metalDevice_ = nil;
-    id metalCommandQueue_ = nil;
-    id metalLayer_ = nil;
+    id metalDevice_ = nullptr;
+    id metalCommandQueue_ = nullptr;
+    id metalLayer_ = nullptr;
     // per-frame objects — valid between beginFrame() and present()
-    id currentDrawable_ = nil;
-    id currentCommandBuffer_ = nil;
-    id currentRenderEncoder_ = nil;
+    id currentDrawable_ = nullptr;
+    id currentCommandBuffer_ = nullptr;
+    id currentRenderEncoder_ = nullptr;
 #else
     void* metalDevice_ = nullptr;
     void* metalCommandQueue_ = nullptr;
