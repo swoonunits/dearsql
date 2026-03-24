@@ -50,6 +50,7 @@ bool MacOSPlatform::initializePlatform(GLFWwindow* window) {
 }
 
 bool MacOSPlatform::initializeImGuiBackend() {
+    ImGui_ImplGlfw_InitForOther(window_, true);
     bool ok = backend_->initializeImGui();
     std::cout << "ImGui Metal backend initialized" << std::endl;
     return ok;

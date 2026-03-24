@@ -137,6 +137,7 @@ void WindowsPlatform::subclassWindow() {
 }
 
 bool WindowsPlatform::initializeImGuiBackend() {
+    ImGui_ImplGlfw_InitForOther(window_, true);
     return backend_->initializeImGui();
 }
 
