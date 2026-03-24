@@ -373,10 +373,6 @@ void Application::cleanup() {
         platform_.reset();
     }
 
-#if defined(__APPLE__) || defined(_WIN32)
-    ImGui_ImplGlfw_Shutdown();
-    std::cout << "ImGui GLFW backend shutdown" << std::endl;
-#endif
 
     ImGui::DestroyContext();
     std::cout << "ImGui context destroyed" << std::endl;
@@ -591,8 +587,6 @@ void Application::setupImGuiContext() const {
 #if defined(__APPLE__) || defined(_WIN32)
 bool Application::initializeImGui() const {
     setupImGuiContext();
-
-    ImGui_ImplGlfw_InitForOther(window, true);
 
     if (!platform_->initializeImGuiBackend()) {
         std::cerr << "Failed to initialize ImGui backend" << std::endl;
