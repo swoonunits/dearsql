@@ -319,26 +319,60 @@ void LinuxPlatform::setupTitlebar() {
     GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_append(GTK_BOX(menuBox), separator);
 
+    // Action buttons grouped with no gap
+    GtkWidget* actionBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
     // License button
-    licenseButton_ = gtk_button_new_with_label("Manage License");
+    licenseButton_ = gtk_button_new();
+    gtk_widget_add_css_class(licenseButton_, "flat");
     gtk_widget_set_halign(licenseButton_, GTK_ALIGN_FILL);
+    {
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("dialog-password-symbolic"));
+        GtkWidget* lbl = gtk_label_new("Manage License");
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(lbl, TRUE);
+        gtk_box_append(GTK_BOX(box), lbl);
+        gtk_button_set_child(GTK_BUTTON(licenseButton_), box);
+    }
     g_signal_connect(licenseButton_, "clicked", G_CALLBACK(onLicenseClicked), this);
-    gtk_box_append(GTK_BOX(menuBox), licenseButton_);
+    gtk_box_append(GTK_BOX(actionBox), licenseButton_);
 
     // Check for Updates button
-    GtkWidget* checkUpdatesButton = gtk_button_new_with_label("Check for Updates...");
+    GtkWidget* checkUpdatesButton = gtk_button_new();
+    gtk_widget_add_css_class(checkUpdatesButton, "flat");
     gtk_widget_set_halign(checkUpdatesButton, GTK_ALIGN_FILL);
+    {
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(box),
+                       gtk_image_new_from_icon_name("software-update-available-symbolic"));
+        GtkWidget* lbl = gtk_label_new("Check for Updates...");
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(lbl, TRUE);
+        gtk_box_append(GTK_BOX(box), lbl);
+        gtk_button_set_child(GTK_BUTTON(checkUpdatesButton), box);
+    }
     g_signal_connect(checkUpdatesButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
                          auto* platform = static_cast<LinuxPlatform*>(userData);
                          gtk_popover_popdown(GTK_POPOVER(platform->menuPopover_));
                          checkForUpdatesLinux();
                      }),
                      this);
-    gtk_box_append(GTK_BOX(menuBox), checkUpdatesButton);
+    gtk_box_append(GTK_BOX(actionBox), checkUpdatesButton);
 
     // Report Bug button
-    GtkWidget* reportBugButton = gtk_button_new_with_label("Report Bug...");
+    GtkWidget* reportBugButton = gtk_button_new();
+    gtk_widget_add_css_class(reportBugButton, "flat");
     gtk_widget_set_halign(reportBugButton, GTK_ALIGN_FILL);
+    {
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("dialog-warning-symbolic"));
+        GtkWidget* lbl = gtk_label_new("Report Bug...");
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(lbl, TRUE);
+        gtk_box_append(GTK_BOX(box), lbl);
+        gtk_button_set_child(GTK_BUTTON(reportBugButton), box);
+    }
     g_signal_connect(reportBugButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
                          auto* platform = static_cast<LinuxPlatform*>(userData);
                          gtk_popover_popdown(GTK_POPOVER(platform->menuPopover_));
@@ -355,7 +389,9 @@ void LinuxPlatform::setupTitlebar() {
                          g_object_unref(launcher);
                      }),
                      this);
-    gtk_box_append(GTK_BOX(menuBox), reportBugButton);
+    gtk_box_append(GTK_BOX(actionBox), reportBugButton);
+
+    gtk_box_append(GTK_BOX(menuBox), actionBox);
 
     gtk_popover_set_child(GTK_POPOVER(menuPopover_), menuBox);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(menuButton_), menuPopover_);
@@ -1000,6 +1036,7 @@ void LinuxPlatform::updateGtkTheme() {
     std::string text = toHex(colors.text);
     std::string surface0 = toHex(colors.surface0);
     std::string surface1 = toHex(colors.surface1);
+    std::string surface2 = toHex(colors.surface2);
     std::string overlay0 = toHex(colors.overlay0);
 
     std::string css = "window.dearsql-main { background: " + base +
@@ -1093,9 +1130,26 @@ void LinuxPlatform::updateGtkTheme() {
                       overlay0 +
                       ";"
                       "}\n"
-                      "popover button:hover { background: " +
+                      "popover button:not(.flat):hover { background: " +
                       surface1 +
                       "; }\n"
+                      "popover button.flat {"
+                      "  border: none;"
+                      "  border-radius: 6px;"
+                      "  padding: 6px 8px;"
+                      "  margin: 0;"
+                      "  transition: none;"
+                      "}\n"
+                      "popover button.flat:hover {"
+                      "  background: " +
+                      surface1 +
+                      ";"
+                      "}\n"
+                      "popover button.flat:active {"
+                      "  background: " +
+                      surface2 +
+                      ";"
+                      "}\n"
                       "popover button.suggested-action {"
                       "  background: " +
                       toHex(colors.blue) +

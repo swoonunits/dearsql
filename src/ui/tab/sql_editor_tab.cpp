@@ -1,5 +1,4 @@
 #include "ui/tab/sql_editor_tab.hpp"
-#include <cstring>
 #include "IconsFontAwesome6.h"
 #include "ai/ai_chat.hpp"
 #include "application.hpp"
@@ -20,6 +19,7 @@
 #include "utils/splitter.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
