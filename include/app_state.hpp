@@ -67,7 +67,6 @@ public:
     bool updateScript(const SqlScript& script) const;
     bool deleteScript(int scriptId) const;
     [[nodiscard]] std::vector<SqlScript> getScriptsForConnection(int connectionId) const;
-    [[nodiscard]] std::vector<SqlScript> getAllScripts() const;
 
 private:
     sqlite3* db_ = nullptr;

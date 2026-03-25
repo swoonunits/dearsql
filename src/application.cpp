@@ -32,13 +32,8 @@
 #include <filesystem>
 #include <format>
 #include <imgui_internal.h>
-#include <iostream>
 #include <limits>
 #include <spdlog/spdlog.h>
-
-#if defined(__APPLE__) || defined(_WIN32)
-#include "imgui_impl_glfw.h"
-#endif
 
 #if defined(_WIN32)
 #include "imgui_impl_dx11.h"
@@ -116,8 +111,8 @@ namespace {
 } // namespace
 
 bool Application::initialize() {
-    std::cout << "ImGui version: " << IMGUI_VERSION << std::endl;
-    std::cout << "Starting " << APP_NAME << "..." << std::endl;
+    spdlog::info("ImGui version: {}", IMGUI_VERSION);
+    spdlog::info("Starting {}...", APP_NAME);
 
     // Initialize platform-specific components
 #ifdef __APPLE__
@@ -126,7 +121,7 @@ bool Application::initialize() {
         return false;
     }
     if (!platform_->initializePlatform(window)) {
-        std::cerr << "Failed to initialize platform" << std::endl;
+        spdlog::error("Failed to initialize platform");
         return false;
     }
     if (!initializeImGui()) {
@@ -147,7 +142,7 @@ bool Application::initialize() {
         return false;
     }
     if (!platform_->initializePlatform(window)) {
-        std::cerr << "Failed to initialize platform" << std::endl;
+        spdlog::error("Failed to initialize platform");
         return false;
     }
     if (!initializeImGui()) {
@@ -159,7 +154,7 @@ bool Application::initialize() {
         return false;
     }
     if (!platform_->initializePlatform(window)) {
-        std::cerr << "Failed to initialize platform" << std::endl;
+        spdlog::error("Failed to initialize platform");
         return false;
     }
     if (!initializeImGui()) {
@@ -169,7 +164,7 @@ bool Application::initialize() {
 
     // Initialize NFD
     if (!FileDialog::initialize()) {
-        std::cerr << "Failed to initialize Native File Dialog" << std::endl;
+        spdlog::error("Failed to initialize Native File Dialog");
         return false;
     }
 
@@ -230,13 +225,13 @@ bool Application::initialize() {
     platform_->updateWorkspaceDropdown();
 
 #ifdef __APPLE__
-    std::cout << "Application initialized successfully (with Metal backend)" << std::endl;
+    spdlog::info("Application initialized successfully (with Metal backend)");
 #elif defined(__linux__)
-    std::cout << "Application initialized successfully (with GTK4 + OpenGL backend)" << std::endl;
+    spdlog::info("Application initialized successfully (with GTK4 + OpenGL backend)");
 #elif defined(_WIN32)
-    std::cout << "Application initialized successfully (with DirectX 11 backend)" << std::endl;
+    spdlog::info("Application initialized successfully (with DirectX 11 backend)");
 #else
-    std::cout << "Application initialized successfully (with OpenGL backend)" << std::endl;
+    spdlog::info("Application initialized successfully (with OpenGL backend)");
 #endif
 
     SentryUtils::addBreadcrumb("app", "Application initialized");
@@ -308,7 +303,7 @@ void Application::run() {
 }
 
 void Application::cleanup() {
-    std::cout << "Cleaning up " << APP_NAME << "..." << std::endl;
+    spdlog::info("Cleaning up {}...", APP_NAME);
     const bool signalShutdownRequested = isShutdownRequested();
     const bool pendingAsyncWork = hasPendingAsyncWork();
     const bool fastShutdown = signalShutdownRequested || pendingAsyncWork;
@@ -335,13 +330,12 @@ void Application::cleanup() {
             }
         }
         workspaceDatabaseCache.clear();
-        std::cout << "Databases disconnected" << std::endl;
+        spdlog::debug("Databases disconnected");
     } else {
         if (signalShutdownRequested) {
-            std::cout << "Skipping database teardown during signal shutdown" << std::endl;
+            spdlog::info("Skipping database teardown during signal shutdown");
         } else if (pendingAsyncWork) {
-            std::cout << "Skipping database teardown during shutdown (async work still running)"
-                      << std::endl;
+            spdlog::info("Skipping database teardown during shutdown (async work still running)");
         }
     }
 
@@ -349,11 +343,11 @@ void Application::cleanup() {
     tabManager.reset();
     databaseSidebar.reset();
     fileDialog.reset();
-    std::cout << "Components cleaned up" << std::endl;
+    spdlog::debug("Components cleaned up");
 
     // Cleanup NFD
     FileDialog::cleanup();
-    std::cout << "File dialog cleaned up" << std::endl;
+    spdlog::debug("File dialog cleaned up");
 
     cleanupUpdater();
 
@@ -364,7 +358,7 @@ void Application::cleanup() {
     }
 
     ImGui::DestroyContext();
-    std::cout << "ImGui context destroyed" << std::endl;
+    spdlog::debug("ImGui context destroyed");
 
 #if defined(__APPLE__) || defined(_WIN32)
     if (window) {
@@ -373,7 +367,7 @@ void Application::cleanup() {
     glfwTerminate();
 #endif
 
-    std::cout << "Application cleanup completed" << std::endl;
+    spdlog::debug("Application cleanup completed");
 }
 
 void Application::setDarkTheme(const bool dark) {
@@ -530,15 +524,12 @@ void Application::restorePreviousConnections() {
 #if defined(__APPLE__) || defined(_WIN32)
 bool Application::initializeGLFW() {
     if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
+        spdlog::error("Failed to initialize GLFW");
         return false;
     }
 
-#ifdef __APPLE__
-    // Metal backend doesn't need OpenGL context hints
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-#elif defined(_WIN32)
-    // D3D11 backend — no OpenGL context needed
+#if defined(__APPLE__) || defined(_WIN32)
+    // Metal and D3D11 backend doesn't need OpenGL context hints
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 #endif
 
@@ -549,14 +540,12 @@ bool Application::initializeGLFW() {
 #endif
     window = glfwCreateWindow(1280, 720, title, nullptr, nullptr);
     if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
+        spdlog::error("Failed to create GLFW window");
         glfwTerminate();
         return false;
     }
 
-    // note: no glfwMakeContextCurrent on Windows (D3D11 — no OpenGL context)
-
-    std::cout << "GLFW window created successfully" << std::endl;
+    spdlog::info("GLFW window created successfully");
     return true;
 }
 #endif
@@ -576,14 +565,14 @@ bool Application::initializeImGui() const {
     setupImGuiContext();
 
     if (!platform_->initializeImGuiBackend()) {
-        std::cerr << "Failed to initialize ImGui backend" << std::endl;
+        spdlog::error("Failed to initialize ImGui backend");
         return false;
     }
 
 #ifdef __APPLE__
-    std::cout << "ImGui initialized with Metal backend" << std::endl;
+    spdlog::info("ImGui initialized with Metal backend");
 #elif defined(_WIN32)
-    std::cout << "ImGui initialized with DirectX 11 backend" << std::endl;
+    spdlog::info("ImGui initialized with DirectX 11 backend");
 #endif
 
     return true;
