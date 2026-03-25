@@ -17,12 +17,12 @@
 #include "ui/input_dialog.hpp"
 #include "ui/query_history.hpp"
 #include "utils/file_dialog.hpp"
-#include "utils/logger.hpp"
 #include "utils/spinner.hpp"
 #include "utils/texture_manager.hpp"
 #include <chrono>
 #include <format>
 #include <memory>
+#include <spdlog/spdlog.h>
 
 DatabaseHierarchy* DatabaseSidebarNew::getHierarchy(const std::shared_ptr<DatabaseInterface>& db) {
     if (!db) {
@@ -68,7 +68,7 @@ void DatabaseSidebarNew::renderEmpty() {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem("Add Database Connection")) {
-            Logger::info("Opening database connection dialog");
+            spdlog::debug("Opening database connection dialog");
             showConnectionDialog();
         }
         ImGui::Separator();
@@ -547,7 +547,7 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
 
     if (dbOpen) {
         if (!db->isConnected() && !db->hasAttemptedConnection() && !db->isConnecting()) {
-            Logger::info(std::format("Starting connection to database: {}", connectionInfo.name));
+            spdlog::debug("Starting connection to database: {}", connectionInfo.name);
             db->startConnectionAsync();
         }
 
@@ -684,18 +684,16 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
                   [db, connectionInfo]() {
                       auto& app = Application::getInstance();
                       if (app.getAppState()->deleteConnection(db->getConnectionId())) {
-                          Logger::info(
-                              std::format("Removed saved connection: {}", connectionInfo.name));
+                          spdlog::debug("Removed saved connection: {}", connectionInfo.name);
                       }
-                      Logger::info(std::format("Database removed: {}", connectionInfo.name));
+                      spdlog::debug("Database removed: {}", connectionInfo.name);
                       app.removeDatabase(db);
                   },
                   AlertButton::Style::Destructive}});
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Refresh")) {
-            Logger::info(std::format("Refreshing connection for database: {}",
-                                     db->getConnectionInfo().name));
+            spdlog::debug("Refreshing connection for database: {}", db->getConnectionInfo().name);
             db->refreshConnection();
         }
         ImGui::PopStyleVar();

@@ -398,8 +398,7 @@ TEST_F(OracleDatabaseNodeTest, TruncateTableRemovesAllRows) {
         std::format("CREATE TABLE \"{}\" (id NUMBER PRIMARY KEY, val VARCHAR2(255))", tableName));
     ASSERT_TRUE(r.success()) << r.errorMessage();
 
-    for (const auto& [id, value] :
-         {std::pair{1, "a"}, std::pair{2, "b"}, std::pair{3, "c"}}) {
+    for (const auto& [id, value] : {std::pair{1, "a"}, std::pair{2, "b"}, std::pair{3, "c"}}) {
         auto ins = dbNode->executeQuery(
             std::format("INSERT INTO \"{}\" (id, val) VALUES ({}, '{}')", tableName, id, value));
         ASSERT_TRUE(ins.success()) << ins.errorMessage();

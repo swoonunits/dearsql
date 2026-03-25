@@ -18,12 +18,12 @@
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
 #include "ui/text_editor.hpp"
-#include "utils/logger.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"
 #include <format>
 #include <ranges>
+#include <spdlog/spdlog.h>
 
 namespace {
     constexpr const char* CREATE_TABLE_LABEL = "Create Table";
@@ -546,12 +546,12 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
                   [this, dbName]() {
                       auto [success, error] = db->dropDatabase(dbName);
                       if (success) {
-                          Logger::info(std::format("Database '{}' deleted successfully", dbName));
+                          spdlog::debug("Database '{}' deleted successfully", dbName);
                           if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
                               pgDb->refreshDatabaseNames();
                           }
                       } else {
-                          Logger::error(std::format("Failed to delete database: {}", error));
+                          spdlog::error("Failed to delete database: {}", error);
                           Alert::show("Error", std::format("Failed to delete database: {}", error));
                       }
                   },
@@ -908,12 +908,12 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                   [this, dbName]() {
                       auto [success, error] = db->dropDatabase(dbName);
                       if (success) {
-                          Logger::info(std::format("Database '{}' deleted successfully", dbName));
+                          spdlog::debug("Database '{}' deleted successfully", dbName);
                           if (auto* mysqlDb = dynamic_cast<MySQLDatabase*>(db.get())) {
                               mysqlDb->refreshDatabaseNames();
                           }
                       } else {
-                          Logger::error(std::format("Failed to delete database: {}", error));
+                          spdlog::error("Failed to delete database: {}", error);
                           Alert::show("Error", std::format("Failed to delete database: {}", error));
                       }
                   },
@@ -1687,12 +1687,12 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
                   [this, dbName]() {
                       auto [success, error] = db->dropDatabase(dbName);
                       if (success) {
-                          Logger::info(std::format("Database '{}' deleted successfully", dbName));
+                          spdlog::debug("Database '{}' deleted successfully", dbName);
                           if (auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get())) {
                               mssqlDb->refreshDatabaseNames();
                           }
                       } else {
-                          Logger::error(std::format("Failed to delete database: {}", error));
+                          spdlog::error("Failed to delete database: {}", error);
                           Alert::show("Error", std::format("Failed to delete database: {}", error));
                       }
                   },
@@ -2107,12 +2107,12 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                   [this, dbName]() {
                       auto [success, error] = db->dropDatabase(dbName);
                       if (success) {
-                          Logger::info(std::format("Database '{}' deleted successfully", dbName));
+                          spdlog::debug("Database '{}' deleted successfully", dbName);
                           if (auto* oracleDb = dynamic_cast<OracleDatabase*>(db.get())) {
                               oracleDb->refreshDatabaseNames();
                           }
                       } else {
-                          Logger::error(std::format("Failed to delete database: {}", error));
+                          spdlog::error("Failed to delete database: {}", error);
                           Alert::show("Error", std::format("Failed to delete database: {}", error));
                       }
                   },
@@ -2523,12 +2523,12 @@ void DatabaseHierarchy::renderMongoDBDatabaseNode(MongoDBDatabaseNode* dbData) {
                   [this, dbName]() {
                       auto [success, error] = db->dropDatabase(dbName);
                       if (success) {
-                          Logger::info(std::format("Database '{}' deleted successfully", dbName));
+                          spdlog::debug("Database '{}' deleted successfully", dbName);
                           if (auto* mongoDb = dynamic_cast<MongoDBDatabase*>(db.get())) {
                               mongoDb->refreshDatabaseNames();
                           }
                       } else {
-                          Logger::error(std::format("Failed to delete database: {}", error));
+                          spdlog::error("Failed to delete database: {}", error);
                           Alert::show("Error", std::format("Failed to delete database: {}", error));
                       }
                   },
@@ -3073,7 +3073,7 @@ void DatabaseHierarchy::renderScriptsNode() {
             if (node) {
                 app.getTabManager()->createSQLEditorTab("", node);
             } else {
-                Logger::warn("New SQL Script: no loaded database node found for this connection");
+                spdlog::warn("New SQL Script: no loaded database node found for this connection");
             }
         }
         ImGui::PopStyleVar();

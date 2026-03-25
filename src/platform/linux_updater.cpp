@@ -6,7 +6,7 @@
 #include "platform/alert.hpp"
 #include "platform/linux_platform.hpp"
 #include "platform/updater.hpp"
-#include "utils/logger.hpp"
+#include <spdlog/spdlog.h>
 
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <httplib.h>
@@ -75,19 +75,19 @@ static std::optional<std::string> computeFileSha256Hex(const std::filesystem::pa
                                                        std::stop_token stopToken) {
     std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
-        Logger::error("Failed to open file for SHA-256: " + path.string());
+        spdlog::error("Failed to open file for SHA-256: {}", path.string());
         return std::nullopt;
     }
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     if (!ctx) {
-        Logger::error("Failed to create OpenSSL digest context");
+        spdlog::error("Failed to create OpenSSL digest context");
         return std::nullopt;
     }
 
     auto freeCtx = [&]() { EVP_MD_CTX_free(ctx); };
     if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
-        Logger::error("Failed to initialize SHA-256 digest");
+        spdlog::error("Failed to initialize SHA-256 digest");
         freeCtx();
         return std::nullopt;
     }
@@ -102,14 +102,14 @@ static std::optional<std::string> computeFileSha256Hex(const std::filesystem::pa
         const auto bytesRead = in.gcount();
         if (bytesRead > 0 &&
             EVP_DigestUpdate(ctx, buffer.data(), static_cast<size_t>(bytesRead)) != 1) {
-            Logger::error("Failed to update SHA-256 digest");
+            spdlog::error("Failed to update SHA-256 digest");
             freeCtx();
             return std::nullopt;
         }
     }
 
     if (!in.eof()) {
-        Logger::error("Failed while reading file for SHA-256: " + path.string());
+        spdlog::error("Failed while reading file for SHA-256: {}", path.string());
         freeCtx();
         return std::nullopt;
     }
@@ -117,7 +117,7 @@ static std::optional<std::string> computeFileSha256Hex(const std::filesystem::pa
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digestLen = 0;
     if (EVP_DigestFinal_ex(ctx, digest, &digestLen) != 1) {
-        Logger::error("Failed to finalize SHA-256 digest");
+        spdlog::error("Failed to finalize SHA-256 digest");
         freeCtx();
         return std::nullopt;
     }
@@ -178,8 +178,7 @@ static bool checkForUpdate(std::stop_token stopToken) {
         return false;
 
     if (!res || res->status != 200) {
-        Logger::error("Update check failed: " +
-                      (res ? std::to_string(res->status) : "no response"));
+        spdlog::error("Update check failed: {}", res ? std::to_string(res->status) : "no response");
         return false;
     }
 
@@ -199,11 +198,11 @@ static bool checkForUpdate(std::stop_token stopToken) {
         downloadSha256 = normalizeSha256(downloadSha256);
 
         if (version.empty() || downloadUrl.empty()) {
-            Logger::error("Update info missing required AppImage fields");
+            spdlog::error("Update info missing required AppImage fields");
             return false;
         }
         if (!isValidSha256Hex(downloadSha256)) {
-            Logger::error("Update info missing valid AppImage SHA-256");
+            spdlog::error("Update info missing valid AppImage SHA-256");
             return false;
         }
 
@@ -214,7 +213,7 @@ static bool checkForUpdate(std::stop_token stopToken) {
         sReleaseNotes = std::move(releaseNotes);
         return true;
     } catch (const std::exception& e) {
-        Logger::error(std::string("Failed to parse update info: ") + e.what());
+        spdlog::error("Failed to parse update info: {}", e.what());
         return false;
     }
 }
@@ -250,7 +249,7 @@ static bool downloadUpdate(std::stop_token stopToken) {
         host = url.substr(0, slashPos);
         path = url.substr(slashPos);
     } else {
-        Logger::error("Invalid download URL");
+        spdlog::error("Invalid download URL");
         return false;
     }
 
@@ -262,7 +261,7 @@ static bool downloadUpdate(std::stop_token stopToken) {
     std::string tempPath = snapshot.appImagePath + ".update";
     std::ofstream outFile(tempPath, std::ios::binary);
     if (!outFile.is_open()) {
-        Logger::error("Failed to open temp file for download: " + tempPath);
+        spdlog::error("Failed to open temp file for download: {}", tempPath);
         return false;
     }
 
@@ -301,12 +300,12 @@ static bool downloadUpdate(std::stop_token stopToken) {
     }
 
     if (!res || res->status != 200) {
-        Logger::error("Download failed: " + (res ? std::to_string(res->status) : "no response"));
+        spdlog::error("Download failed: {}", res ? std::to_string(res->status) : "no response");
         std::filesystem::remove(tempPath);
         return false;
     }
     if (writeFailed || !streamOkBeforeClose) {
-        Logger::error("Download failed while writing AppImage to disk");
+        spdlog::error("Download failed while writing AppImage to disk");
         std::filesystem::remove(tempPath);
         return false;
     }
@@ -321,7 +320,7 @@ static bool downloadUpdate(std::stop_token stopToken) {
         return false;
     }
     if (*actualSha256 != snapshot.sha256) {
-        Logger::error("Downloaded AppImage SHA-256 mismatch");
+        spdlog::error("Downloaded AppImage SHA-256 mismatch");
         std::filesystem::remove(tempPath);
         return false;
     }
@@ -330,7 +329,7 @@ static bool downloadUpdate(std::stop_token stopToken) {
     std::error_code ec;
     std::filesystem::rename(tempPath, snapshot.appImagePath, ec);
     if (ec) {
-        Logger::error("Failed to replace AppImage: " + ec.message());
+        spdlog::error("Failed to replace AppImage: {}", ec.message());
         std::filesystem::remove(tempPath);
         return false;
     }
@@ -342,11 +341,11 @@ static bool downloadUpdate(std::stop_token stopToken) {
                                      std::filesystem::perms::others_exec,
                                  std::filesystem::perm_options::add, ec);
     if (ec) {
-        Logger::error("Updated AppImage is not executable: " + ec.message());
+        spdlog::error("Updated AppImage is not executable: {}", ec.message());
         return false;
     }
 
-    Logger::info("AppImage updated successfully");
+    spdlog::info("AppImage updated successfully");
     return true;
 }
 
@@ -433,9 +432,9 @@ void initializeUpdater() {
     if (appImageEnv && !std::string(appImageEnv).empty()) {
         std::lock_guard<std::mutex> lock(sUpdaterStateMutex);
         sAppImagePath = appImageEnv;
-        Logger::info(std::string("AppImage updater initialized: ") + appImageEnv);
+        spdlog::info("AppImage updater initialized: {}", appImageEnv);
     } else {
-        Logger::debug("Not running as AppImage, download/restart disabled");
+        spdlog::debug("Not running as AppImage, download/restart disabled");
     }
 
     sManualCheck = false;
@@ -519,9 +518,9 @@ void pollUpdater() {
                                   std::lock_guard<std::mutex> lock(sUpdaterStateMutex);
                                   appImagePath = sAppImagePath;
                               }
-                              Logger::info("Restarting AppImage: " + appImagePath);
+                              spdlog::info("Restarting AppImage: {}", appImagePath);
                               execl(appImagePath.c_str(), appImagePath.c_str(), nullptr);
-                              Logger::error("Failed to restart AppImage");
+                              spdlog::error("Failed to restart AppImage");
                               Alert::show("Restart Failed",
                                           "Failed to restart. Please relaunch manually.");
                           },

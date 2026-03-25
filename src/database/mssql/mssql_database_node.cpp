@@ -3,12 +3,12 @@
 #include "database/ddl_builder.hpp"
 #include "database/mssql.hpp"
 #include "mssql_utils.hpp"
-#include "utils/logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <format>
 #include <map>
 #include <ranges>
+#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -158,8 +158,8 @@ void MSSQLDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& i
     if (!parentDb)
         return;
 
-    Logger::debug(std::format("initializeConnectionPool (MSSQL) {}:{} db={}", info.host, info.port,
-                              info.database));
+    spdlog::debug("initializeConnectionPool (MSSQL) {}:{} db={}", info.host, info.port,
+                  info.database);
     if (connectionPool)
         return;
 
@@ -186,14 +186,14 @@ void MSSQLDatabaseNode::checkTablesStatusAsync() {
     tablesLoader.check([this](const std::vector<Table>& result) {
         tables = result;
         populateIncomingForeignKeys(tables);
-        Logger::info(std::format("Async table loading completed for database {}. Found {} tables",
-                                 name, tables.size()));
+        spdlog::debug("Async table loading completed for database {}. Found {} tables", name,
+                      tables.size());
         tablesLoaded = true;
     });
 }
 
 void MSSQLDatabaseNode::startTablesLoadAsync(bool forceRefresh) {
-    Logger::debug("startTablesLoadAsync for db: " + name +
+    spdlog::debug("startTablesLoadAsync for db: {}{}", name,
                   (forceRefresh ? " (force refresh)" : ""));
     if (!parentDb)
         return;
@@ -245,7 +245,7 @@ std::vector<Table> MSSQLDatabaseNode::getTablesAsync() {
             drainResults(dbproc);
         }
 
-        Logger::debug(std::format("Found {} tables in database {}", tableInfos.size(), name));
+        spdlog::debug("Found {} tables in database {}", tableInfos.size(), name);
 
         if (tableInfos.empty() || !tablesLoader.isRunning())
             return result;
@@ -261,7 +261,7 @@ std::vector<Table> MSSQLDatabaseNode::getTablesAsync() {
             result.push_back(loadTableMetadata(dbproc, ti.schema, ti.name, displayName, fullName));
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting tables for database {}: {}", name, e.what()));
+        spdlog::error("Error getting tables for database {}: {}", name, e.what());
         lastTablesError = e.what();
     }
 
@@ -271,14 +271,14 @@ std::vector<Table> MSSQLDatabaseNode::getTablesAsync() {
 void MSSQLDatabaseNode::checkViewsStatusAsync() {
     viewsLoader.check([this](const std::vector<Table>& result) {
         views = result;
-        Logger::info(std::format("Async view loading completed for database {}. Found {} views",
-                                 name, views.size()));
+        spdlog::debug("Async view loading completed for database {}. Found {} views", name,
+                      views.size());
         viewsLoaded = true;
     });
 }
 
 void MSSQLDatabaseNode::startViewsLoadAsync(bool forceRefresh) {
-    Logger::debug("startViewsLoadAsync for database: " + name);
+    spdlog::debug("startViewsLoadAsync for database: {}", name);
     if (!parentDb)
         return;
 
@@ -330,7 +330,7 @@ std::vector<Table> MSSQLDatabaseNode::getViewsForDatabaseAsync() {
             drainResults(dbproc);
         }
 
-        Logger::debug(std::format("Found {} views in database {}", viewInfos.size(), name));
+        spdlog::debug("Found {} views in database {}", viewInfos.size(), name);
 
         const auto connName = parentDb->getConnectionInfo().name;
         for (const auto& vi : viewInfos) {
@@ -348,7 +348,7 @@ std::vector<Table> MSSQLDatabaseNode::getViewsForDatabaseAsync() {
             result.push_back(view);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting views for database {}: {}", name, e.what()));
+        spdlog::error("Error getting views for database {}: {}", name, e.what());
         lastViewsError = e.what();
     }
 
@@ -356,7 +356,7 @@ std::vector<Table> MSSQLDatabaseNode::getViewsForDatabaseAsync() {
 }
 
 void MSSQLDatabaseNode::startTableRefreshAsync(const std::string& tableName) {
-    Logger::debug(std::format("Starting async refresh for table: {}", tableName));
+    spdlog::debug("Starting async refresh for table: {}", tableName);
 
     if (tableRefreshLoaders.contains(tableName) && tableRefreshLoaders[tableName].isRunning())
         return;
@@ -376,7 +376,7 @@ void MSSQLDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNam
 
         if (tableIt != tables.end()) {
             *tableIt = refreshedTable;
-            Logger::info(std::format("Table {} refreshed successfully", tableName));
+            spdlog::debug("Table {} refreshed successfully", tableName);
         }
 
         tableRefreshLoaders.erase(tableName);
@@ -384,7 +384,7 @@ void MSSQLDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNam
 }
 
 Table MSSQLDatabaseNode::refreshTableAsync(const std::string& tableName) {
-    Logger::debug(std::format("Refreshing table: {}", tableName));
+    spdlog::debug("Refreshing table: {}", tableName);
 
     auto [schema, tblName] = splitSchemaTable(tableName);
     std::string fullName = parentDb->getConnectionInfo().name + "." + name + "." + tableName;
@@ -394,7 +394,7 @@ Table MSSQLDatabaseNode::refreshTableAsync(const std::string& tableName) {
         DBPROCESS* dbproc = session.get();
         return loadTableMetadata(dbproc, schema, tblName, tableName, fullName);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error refreshing table {}: {}", tableName, e.what()));
+        spdlog::error("Error refreshing table {}: {}", tableName, e.what());
         throw;
     }
 }
@@ -438,12 +438,11 @@ MSSQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
                 result.push_back(std::move(rowData));
             }
         } else {
-            Logger::error(
-                std::format("Error getting table data for {}: {}", tableName, getLastError()));
+            spdlog::error("Error getting table data for {}: {}", tableName, getLastError());
         }
         drainResults(dbproc);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting table data for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting table data for {}: {}", tableName, e.what());
     }
 
     return result;
@@ -469,7 +468,7 @@ std::vector<std::string> MSSQLDatabaseNode::getColumnNames(const std::string& ta
         }
         drainResults(dbproc);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting column names for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting column names for {}: {}", tableName, e.what());
     }
 
     return columnNames;
@@ -494,7 +493,7 @@ int MSSQLDatabaseNode::getRowCount(const std::string& tableName, const std::stri
         }
         drainResults(dbproc);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting row count for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting row count for {}: {}", tableName, e.what());
     }
 
     return count;

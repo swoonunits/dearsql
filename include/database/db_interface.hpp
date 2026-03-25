@@ -3,8 +3,8 @@
 #include "async_helper.hpp"
 #include "db.hpp"
 #include "ssh_tunnel.hpp"
-#include "utils/logger.hpp"
 #include <memory>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
 
@@ -225,7 +225,7 @@ public:
 
     // Refresh connection and all child data
     virtual void refreshConnection() {
-        Logger::info("DatabaseInterface: refreshConnection");
+        spdlog::debug("DatabaseInterface: refreshConnection");
         disconnect();
         setAttemptedConnection(false);
         setLastConnectionError("");

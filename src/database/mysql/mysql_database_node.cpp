@@ -2,13 +2,13 @@
 #include "database/db.hpp"
 #include "database/ddl_builder.hpp"
 #include "database/mysql.hpp"
-#include "utils/logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <format>
 #include <map>
 #include <mysql/mysql.h>
 #include <ranges>
+#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -17,7 +17,8 @@ namespace {
         std::string out = "`";
         out.reserve(id.size() + 2);
         for (char c : id) {
-            if (c == '`') out += '`';
+            if (c == '`')
+                out += '`';
             out += c;
         }
         out += '`';
@@ -118,14 +119,14 @@ void MySQLDatabaseNode::checkTablesStatusAsync() {
     tablesLoader.check([this](const std::vector<Table>& result) {
         tables = result;
         populateIncomingForeignKeys(tables);
-        Logger::info(std::format("Async table loading completed for database {}. Found {} tables",
-                                 name, tables.size()));
+        spdlog::debug("Async table loading completed for database {}. Found {} tables", name,
+                      tables.size());
         tablesLoaded = true;
     });
 }
 
 void MySQLDatabaseNode::startTablesLoadAsync(bool forceRefresh) {
-    Logger::debug("startTablesLoadAsync for db: " + name +
+    spdlog::debug("startTablesLoadAsync for db: {}{}", name,
                   (forceRefresh ? " (force refresh)" : ""));
     if (!parentDb) {
         return;
@@ -181,7 +182,7 @@ std::vector<Table> MySQLDatabaseNode::getTablesAsync() {
             }
         }
 
-        Logger::debug("Found " + std::to_string(tableNames.size()) + " tables in database " + name);
+        spdlog::debug("Found {} tables in database {}", tableNames.size(), name);
 
         if (tableNames.empty() || !tablesLoader.isRunning()) {
             return result;
@@ -257,7 +258,7 @@ std::vector<Table> MySQLDatabaseNode::getTablesAsync() {
             result.push_back(table);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting tables for database {}: {}", name, e.what()));
+        spdlog::error("Error getting tables for database {}: {}", name, e.what());
         lastTablesError = e.what();
     }
 
@@ -267,14 +268,14 @@ std::vector<Table> MySQLDatabaseNode::getTablesAsync() {
 void MySQLDatabaseNode::checkViewsStatusAsync() {
     viewsLoader.check([this](const std::vector<Table>& result) {
         views = result;
-        Logger::info(std::format("Async view loading completed for database {}. Found {} views",
-                                 name, views.size()));
+        spdlog::debug("Async view loading completed for database {}. Found {} views", name,
+                      views.size());
         viewsLoaded = true;
     });
 }
 
 void MySQLDatabaseNode::startViewsLoadAsync(bool forceRefresh) {
-    Logger::debug("startViewsLoadAsync for database: " + name);
+    spdlog::debug("startViewsLoadAsync for database: {}", name);
     if (!parentDb) {
         return;
     }
@@ -329,7 +330,7 @@ std::vector<Table> MySQLDatabaseNode::getViewsForDatabaseAsync() {
             }
         }
 
-        Logger::debug("Found " + std::to_string(viewNames.size()) + " views in database " + name);
+        spdlog::debug("Found {} views in database {}", viewNames.size(), name);
 
         if (viewNames.empty() || !viewsLoader.isRunning()) {
             return result;
@@ -371,7 +372,7 @@ std::vector<Table> MySQLDatabaseNode::getViewsForDatabaseAsync() {
             result.push_back(view);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting views for database {}: {}", name, e.what()));
+        spdlog::error("Error getting views for database {}: {}", name, e.what());
         lastViewsError = e.what();
     }
 
@@ -379,7 +380,7 @@ std::vector<Table> MySQLDatabaseNode::getViewsForDatabaseAsync() {
 }
 
 void MySQLDatabaseNode::startTableRefreshAsync(const std::string& tableName) {
-    Logger::debug(std::format("Starting async refresh for table: {}", tableName));
+    spdlog::debug("Starting async refresh for table: {}", tableName);
 
     if (tableRefreshLoaders.contains(tableName) && tableRefreshLoaders[tableName].isRunning()) {
         return;
@@ -401,7 +402,7 @@ void MySQLDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNam
 
         if (tableIt != tables.end()) {
             *tableIt = refreshedTable;
-            Logger::info(std::format("Table {} refreshed successfully", tableName));
+            spdlog::debug("Table {} refreshed successfully", tableName);
         }
 
         tableRefreshLoaders.erase(tableName);
@@ -409,7 +410,7 @@ void MySQLDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNam
 }
 
 Table MySQLDatabaseNode::refreshTableAsync(const std::string& tableName) {
-    Logger::debug(std::format("Refreshing table: {}", tableName));
+    spdlog::debug("Refreshing table: {}", tableName);
 
     Table refreshedTable;
     refreshedTable.name = tableName;
@@ -499,7 +500,7 @@ Table MySQLDatabaseNode::refreshTableAsync(const std::string& tableName) {
                 mysql_free_result(extra);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error refreshing table {}: {}", tableName, e.what()));
+        spdlog::error("Error refreshing table {}: {}", tableName, e.what());
         throw;
     }
 
@@ -524,7 +525,7 @@ void MySQLDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& i
         return;
     }
 
-    Logger::debug(std::format("initializeConnectionPool {}", info.buildConnectionString()));
+    spdlog::debug("initializeConnectionPool {}", info.buildConnectionString());
     if (connectionPool) {
         return;
     }
@@ -558,8 +559,7 @@ MySQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
         query += std::format(" LIMIT {} OFFSET {}", limit, offset);
 
         if (mysql_query(conn, query.c_str()) != 0) {
-            Logger::error(
-                std::format("Error getting table data for {}: {}", tableName, mysql_error(conn)));
+            spdlog::error("Error getting table data for {}: {}", tableName, mysql_error(conn));
             return result;
         }
 
@@ -583,7 +583,7 @@ MySQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
             result.push_back(std::move(rowData));
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting table data for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting table data for {}: {}", tableName, e.what());
     }
 
     return result;
@@ -613,7 +613,7 @@ std::vector<std::string> MySQLDatabaseNode::getColumnNames(const std::string& ta
                 mysql_free_result(extra);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting column names for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting column names for {}: {}", tableName, e.what());
     }
 
     return columnNames;
@@ -646,7 +646,7 @@ int MySQLDatabaseNode::getRowCount(const std::string& tableName, const std::stri
                 mysql_free_result(extra);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting row count for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting row count for {}: {}", tableName, e.what());
     }
 
     return count;

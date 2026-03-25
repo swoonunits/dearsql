@@ -94,6 +94,7 @@ find_package(httplib CONFIG REQUIRED)
 find_package(unofficial-tree-sitter CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
 find_package(sentry CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 include(cmake/FreeTDS.cmake)
 include(cmake/OracleOCI.cmake)
 
@@ -252,7 +253,6 @@ set(APP_SOURCES
     src/utils/toggle_button.cpp
     src/utils/spinner.cpp
     src/utils/crypto.cpp
-    src/utils/logger.cpp
     src/utils/sentry_init.cpp
     src/utils/texture_manager.cpp
 
@@ -381,6 +381,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     unofficial::tree-sitter::tree-sitter
     tree-sitter-sql-grammar
     tree-sitter-json-grammar
+    spdlog::spdlog
 )
 
 # platform-specific linking
@@ -508,7 +509,6 @@ add_executable(database_tests
     src/database/sql_builder.cpp
     src/database/ddl_builder.cpp
     src/database/ssh_config_parser.cpp
-    src/utils/logger.cpp
 )
 
 # platform-specific ssh tunnel for tests
@@ -538,6 +538,7 @@ target_link_libraries(database_tests PRIVATE
     ${SYBDB_LIBRARY}
     ${SYBDB_DEPS}
     odpi
+    spdlog::spdlog
 )
 
 add_test(NAME database_tests COMMAND database_tests)

@@ -3,12 +3,12 @@
 #include "database/ddl_builder.hpp"
 #include "database/oracle.hpp"
 #include "oracle_utils.hpp"
-#include "utils/logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <format>
 #include <map>
 #include <ranges>
+#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -476,8 +476,7 @@ void OracleDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& 
     if (!parentDb)
         return;
 
-    Logger::debug(std::format("initializeConnectionPool (Oracle) {}:{} schema={}", info.host,
-                              info.port, name));
+    spdlog::debug("initializeConnectionPool (Oracle) {}:{} schema={}", info.host, info.port, name);
     if (connectionPool)
         return;
 
@@ -505,14 +504,14 @@ void OracleDatabaseNode::checkTablesStatusAsync() {
     tablesLoader.check([this](const std::vector<Table>& result) {
         tables = result;
         populateIncomingForeignKeys(tables);
-        Logger::info(std::format("Async table loading completed for schema {}. Found {} tables",
-                                 name, tables.size()));
+        spdlog::debug("Async table loading completed for schema {}. Found {} tables", name,
+                      tables.size());
         tablesLoaded = true;
     });
 }
 
 void OracleDatabaseNode::startTablesLoadAsync(bool forceRefresh) {
-    Logger::debug("startTablesLoadAsync for schema: " + name +
+    spdlog::debug("startTablesLoadAsync for schema: {}{}", name,
                   (forceRefresh ? " (force refresh)" : ""));
     if (!parentDb)
         return;
@@ -547,7 +546,7 @@ std::vector<Table> OracleDatabaseNode::getTablesAsync() {
                                                  "WHERE OWNER = '{}' ORDER BY TABLE_NAME",
                                                  name));
 
-        Logger::debug(std::format("Found {} tables in schema {}", tableNames.size(), name));
+        spdlog::debug("Found {} tables in schema {}", tableNames.size(), name);
 
         if (tableNames.empty() || !tablesLoader.isRunning())
             return result;
@@ -603,7 +602,7 @@ std::vector<Table> OracleDatabaseNode::getTablesAsync() {
             result.push_back(std::move(table));
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting tables for schema {}: {}", name, e.what()));
+        spdlog::error("Error getting tables for schema {}: {}", name, e.what());
         lastTablesError = e.what();
     }
 
@@ -613,14 +612,14 @@ std::vector<Table> OracleDatabaseNode::getTablesAsync() {
 void OracleDatabaseNode::checkViewsStatusAsync() {
     viewsLoader.check([this](const std::vector<Table>& result) {
         views = result;
-        Logger::info(std::format("Async view loading completed for schema {}. Found {} views", name,
-                                 views.size()));
+        spdlog::debug("Async view loading completed for schema {}. Found {} views", name,
+                      views.size());
         viewsLoaded = true;
     });
 }
 
 void OracleDatabaseNode::startViewsLoadAsync(bool forceRefresh) {
-    Logger::debug("startViewsLoadAsync for schema: " + name);
+    spdlog::debug("startViewsLoadAsync for schema: {}", name);
     if (!parentDb)
         return;
 
@@ -656,7 +655,7 @@ std::vector<Table> OracleDatabaseNode::getViewsForSchemaAsync() {
                                                  "WHERE OWNER = '{}' ORDER BY VIEW_NAME",
                                                  name));
 
-        Logger::debug(std::format("Found {} views in schema {}", viewNames.size(), name));
+        spdlog::debug("Found {} views in schema {}", viewNames.size(), name);
 
         if (viewNames.empty() || !viewsLoader.isRunning())
             return result;
@@ -680,7 +679,7 @@ std::vector<Table> OracleDatabaseNode::getViewsForSchemaAsync() {
             result.push_back(std::move(view));
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting views for schema {}: {}", name, e.what()));
+        spdlog::error("Error getting views for schema {}: {}", name, e.what());
         lastViewsError = e.what();
     }
 
@@ -688,7 +687,7 @@ std::vector<Table> OracleDatabaseNode::getViewsForSchemaAsync() {
 }
 
 void OracleDatabaseNode::startTableRefreshAsync(const std::string& tableName) {
-    Logger::debug(std::format("Starting async refresh for table: {}", tableName));
+    spdlog::debug("Starting async refresh for table: {}", tableName);
 
     if (tableRefreshLoaders.contains(tableName) && tableRefreshLoaders[tableName].isRunning())
         return;
@@ -708,7 +707,7 @@ void OracleDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNa
 
         if (tableIt != tables.end()) {
             *tableIt = refreshedTable;
-            Logger::info(std::format("Table {} refreshed successfully", tableName));
+            spdlog::debug("Table {} refreshed successfully", tableName);
         }
 
         tableRefreshLoaders.erase(tableName);
@@ -716,7 +715,7 @@ void OracleDatabaseNode::checkTableRefreshStatusAsync(const std::string& tableNa
 }
 
 Table OracleDatabaseNode::refreshTableAsync(const std::string& tableName) {
-    Logger::debug(std::format("Refreshing table: {}", tableName));
+    spdlog::debug("Refreshing table: {}", tableName);
 
     std::string fullName = parentDb->getConnectionInfo().name + "." + name + "." + tableName;
 
@@ -726,7 +725,7 @@ Table OracleDatabaseNode::refreshTableAsync(const std::string& tableName) {
         dpiConn* conn = session.get();
         return loadTableMetadata(conn, name, tableName, fullName);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error refreshing table {}: {}", tableName, e.what()));
+        spdlog::error("Error refreshing table {}: {}", tableName, e.what());
         throw;
     }
 }
@@ -765,7 +764,7 @@ OracleDatabaseNode::getTableData(const std::string& tableName, const int limit, 
             result = std::move(qr.statements[0].tableData);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting table data for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting table data for {}: {}", tableName, e.what());
     }
 
     return result;
@@ -786,7 +785,7 @@ std::vector<std::string> OracleDatabaseNode::getColumnNames(const std::string& t
 
         columnNames = dpiQueryStringList(conn, query);
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting column names for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting column names for {}: {}", tableName, e.what());
     }
 
     return columnNames;
@@ -810,7 +809,7 @@ int OracleDatabaseNode::getRowCount(const std::string& tableName, const std::str
             count = std::stoi(result);
         }
     } catch (const std::exception& e) {
-        Logger::error(std::format("Error getting row count for {}: {}", tableName, e.what()));
+        spdlog::error("Error getting row count for {}: {}", tableName, e.what());
     }
 
     return count;

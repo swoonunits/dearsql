@@ -1,9 +1,9 @@
 #include "utils/table_exporter.hpp"
-#include "utils/logger.hpp"
 #include <format>
 #include <fstream>
 #include <nfd.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -29,13 +29,13 @@ namespace {
                    const std::string& path) {
         std::ofstream file(path);
         if (!file.is_open()) {
-            Logger::error(std::format("Failed to open file for writing: {}", path));
+            spdlog::error("Failed to open file for writing: {}", path);
             return false;
         }
 
         auto columns = provider->getColumnNames(tableName);
         if (columns.empty()) {
-            Logger::error("Cannot export: table has no columns");
+            spdlog::error("Cannot export: table has no columns");
             return false;
         }
 
@@ -61,7 +61,7 @@ namespace {
             }
         }
 
-        Logger::info(std::format("Exported {} rows to CSV: {}", totalRows, path));
+        spdlog::info("Exported {} rows to CSV: {}", totalRows, path);
         return true;
     }
 
@@ -69,13 +69,13 @@ namespace {
                     const std::string& path) {
         std::ofstream file(path);
         if (!file.is_open()) {
-            Logger::error(std::format("Failed to open file for writing: {}", path));
+            spdlog::error("Failed to open file for writing: {}", path);
             return false;
         }
 
         auto columns = provider->getColumnNames(tableName);
         if (columns.empty()) {
-            Logger::error("Cannot export: table has no columns");
+            spdlog::error("Cannot export: table has no columns");
             return false;
         }
         int totalRows = provider->getRowCount(tableName);
@@ -103,7 +103,7 @@ namespace {
         }
         file << "\n]\n";
 
-        Logger::info(std::format("Exported {} rows to JSON: {}", totalRows, path));
+        spdlog::info("Exported {} rows to JSON: {}", totalRows, path);
         return true;
     }
 
@@ -122,7 +122,7 @@ namespace {
             return path;
         }
         if (result == NFD_ERROR) {
-            Logger::error(std::format("File dialog error: {}", NFD_GetError()));
+            spdlog::error("File dialog error: {}", NFD_GetError());
         }
         return "";
     }

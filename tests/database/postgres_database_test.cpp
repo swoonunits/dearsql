@@ -313,8 +313,8 @@ TEST_F(PostgresSchemaNodeDDLTest, TruncateTableRemovesAllRows) {
         std::format(R"(INSERT INTO public."{}" (val) VALUES ('a'), ('b'), ('c'))", tableName));
     ASSERT_TRUE(ins.success()) << ins.errorMessage();
 
-    auto pre = database->executeQuery(
-        std::format(R"(SELECT COUNT(*) FROM public."{}")", tableName));
+    auto pre =
+        database->executeQuery(std::format(R"(SELECT COUNT(*) FROM public."{}")", tableName));
     ASSERT_TRUE(pre.success());
     ASSERT_FALSE(pre.empty());
     EXPECT_EQ(pre[0].tableData[0][0], "3");

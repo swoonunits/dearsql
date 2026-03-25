@@ -1,9 +1,9 @@
 #include "app_state.hpp"
 #include "utils/crypto.hpp"
-#include "utils/logger.hpp"
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <spdlog/spdlog.h>
 #include <sqlite3.h>
 
 namespace fs = std::filesystem;
@@ -53,8 +53,8 @@ namespace {
         } else if (typeStr == "redshift") {
             conn.connectionInfo.type = DatabaseType::REDSHIFT;
         } else {
-            Logger::warn(std::format("Unknown database type '{}' for connection '{}', skipping",
-                                     typeStr, conn.connectionInfo.name));
+            spdlog::warn("Unknown database type '{}' for connection '{}', skipping", typeStr,
+                         conn.connectionInfo.name);
             return false;
         }
 
@@ -590,7 +590,7 @@ bool AppState::updateConnection(const SavedConnection& connection) const {
 }
 
 std::vector<SavedConnection> AppState::getSavedConnections() const {
-    Logger::info("AppState::getSavedConnections() - Loading saved connections...");
+    spdlog::debug("AppState::getSavedConnections() - Loading saved connections...");
     std::vector<SavedConnection> connections;
 
     const std::string sql = R"(
@@ -610,7 +610,7 @@ std::vector<SavedConnection> AppState::getSavedConnections() const {
     sqlite3_stmt* raw = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
     if (rc != SQLITE_OK) {
-        Logger::error(std::format("Failed to fetch connections: {}", sqlite3_errmsg(db_)));
+        spdlog::error("Failed to fetch connections: {}", sqlite3_errmsg(db_));
         return connections;
     }
     StmtPtr stmt(raw);
@@ -620,15 +620,13 @@ std::vector<SavedConnection> AppState::getSavedConnections() const {
         if (!parseConnectionRow(stmt.get(), conn))
             continue;
 
-        Logger::info(std::format("Loaded connection: id={}, name='{}', type={}, host='{}', port={}",
-                                 conn.id, conn.connectionInfo.name,
-                                 static_cast<int>(conn.connectionInfo.type),
-                                 conn.connectionInfo.host, conn.connectionInfo.port));
+        spdlog::debug("Loaded connection: id={}, name='{}', type={}, host='{}', port={}", conn.id,
+                      conn.connectionInfo.name, static_cast<int>(conn.connectionInfo.type),
+                      conn.connectionInfo.host, conn.connectionInfo.port);
         connections.push_back(conn);
     }
 
-    Logger::info(
-        std::format("AppState::getSavedConnections() - Loaded {} connections", connections.size()));
+    spdlog::debug("AppState::getSavedConnections() - Loaded {} connections", connections.size());
     return connections;
 }
 

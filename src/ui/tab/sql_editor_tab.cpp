@@ -13,7 +13,6 @@
 #include "ui/ai_chat_panel.hpp"
 #include "ui/ai_settings_dialog.hpp"
 #include "ui/table_renderer.hpp"
-#include "utils/logger.hpp"
 #include "utils/sentry_utils.hpp"
 #include "utils/spinner.hpp"
 #include "utils/splitter.hpp"
@@ -24,6 +23,7 @@
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <spdlog/spdlog.h>
 #include <string_view>
 
 namespace {
@@ -1122,7 +1122,7 @@ void SQLEditorTab::saveScript() {
     // write content to disk
     std::ofstream out(filePath_, std::ios::out | std::ios::trunc);
     if (!out) {
-        Logger::error(std::format("Failed to write script file: {}", filePath_));
+        spdlog::error("Failed to write script file: {}", filePath_);
         return;
     }
     out << sqlQuery;
@@ -1133,7 +1133,7 @@ void SQLEditorTab::saveScript() {
 
     // sync tab display name
     setName(scriptName_);
-    Logger::info(std::format("Saved script '{}' to {}", scriptName_, filePath_));
+    spdlog::debug("Saved script '{}' to {}", scriptName_, filePath_);
 }
 
 void SQLEditorTab::persistScriptToAppState() {
@@ -1219,13 +1219,11 @@ void SQLEditorTab::renderScriptHeader() {
                     std::error_code ec;
                     if (std::filesystem::exists(newPath) &&
                         !std::filesystem::equivalent(filePath_, newPath, ec)) {
-                        Logger::warn(
-                            std::format("Cannot rename: '{}' already exists", newPath.string()));
+                        spdlog::warn("Cannot rename: '{}' already exists", newPath.string());
                     } else {
                         std::filesystem::rename(filePath_, newPath, ec);
                         if (ec) {
-                            Logger::error(
-                                std::format("Failed to rename script file: {}", ec.message()));
+                            spdlog::error("Failed to rename script file: {}", ec.message());
                         } else {
                             filePath_ = newPath.string();
                             scriptName_ = newName;

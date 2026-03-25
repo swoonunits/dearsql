@@ -128,7 +128,8 @@ inline std::string quoteMssqlId(const std::string& id) {
     std::string out = "[";
     out.reserve(id.size() + 2);
     for (char c : id) {
-        if (c == ']') out += ']';
+        if (c == ']')
+            out += ']';
         out += c;
     }
     out += ']';

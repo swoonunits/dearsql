@@ -24,7 +24,6 @@
 
 #include "themes.hpp"
 #include "utils/file_dialog.hpp"
-#include "utils/logger.hpp"
 #include "utils/sentry_utils.hpp"
 #include <algorithm>
 #include <chrono>
@@ -35,6 +34,7 @@
 #include <imgui_internal.h>
 #include <iostream>
 #include <limits>
+#include <spdlog/spdlog.h>
 
 #if defined(__APPLE__) || defined(_WIN32)
 #include "imgui_impl_glfw.h"
@@ -437,7 +437,7 @@ bool Application::canAddWorkspace() const {
 
 int Application::saveConnection(const SavedConnection& conn) {
     if (!canAddConnection()) {
-        Logger::warn("Connection limit reached (free tier: 3). Upgrade to add more.");
+        spdlog::warn("Connection limit reached (free tier: 3). Upgrade to add more.");
         return -2;
     }
     return appState->saveConnection(conn);
@@ -482,8 +482,7 @@ void Application::restorePreviousConnections() {
 
     const auto restoreStart = std::chrono::steady_clock::now();
     const auto savedConnections = appState->getConnectionsForWorkspace(currentWorkspaceId);
-    Logger::info(
-        std::format("Restoring {} connections for current workspace", savedConnections.size()));
+    spdlog::debug("Restoring {} connections for current workspace", savedConnections.size());
     std::size_t restoredCount = 0;
 
     for (const auto& conn : savedConnections) {
@@ -506,17 +505,16 @@ void Application::restorePreviousConnections() {
         } else if (conn.connectionInfo.type == DatabaseType::ORACLE) {
             db = std::make_shared<OracleDatabase>(conn.connectionInfo);
         } else {
-            Logger::warn(std::format("Unknown database type {} for connection '{}', skipping",
-                                     static_cast<int>(conn.connectionInfo.type),
-                                     conn.connectionInfo.name));
+            spdlog::warn("Unknown database type {} for connection '{}', skipping",
+                         static_cast<int>(conn.connectionInfo.type), conn.connectionInfo.name);
             continue;
         }
 
         if (db) {
             // Store the saved connection ID in the database instance
             db->setConnectionId(conn.id);
-            Logger::debug(std::format("Added connection: {} {}", conn.connectionInfo.name,
-                                      conn.connectionInfo.database));
+            spdlog::debug("Added connection: {} {}", conn.connectionInfo.name,
+                          conn.connectionInfo.database);
             databases.push_back(db);
             ++restoredCount;
         }
@@ -525,8 +523,8 @@ void Application::restorePreviousConnections() {
     const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now() - restoreStart)
                                .count();
-    Logger::info(std::format("Restored {} connections for workspace {} in {} ms", restoredCount,
-                             currentWorkspaceId, elapsedMs));
+    spdlog::debug("Restored {} connections for workspace {} in {} ms", restoredCount,
+                  currentWorkspaceId, elapsedMs);
 }
 
 #if defined(__APPLE__) || defined(_WIN32)
@@ -643,16 +641,15 @@ void Application::setupFonts() {
         }
 
         if (loadedFont) {
-            Logger::info(std::format("loaded embedded font: {}", fontName));
+            spdlog::debug("loaded embedded font: {}", fontName);
         }
     }
 }
 
 void Application::setCurrentWorkspace(const int workspaceId) {
-    Logger::info(
-        std::format("setCurrentWorkspace({}) current={}", workspaceId, currentWorkspaceId));
+    spdlog::debug("setCurrentWorkspace({}) current={}", workspaceId, currentWorkspaceId);
     if (currentWorkspaceId == workspaceId) {
-        Logger::info("setCurrentWorkspace: early return (same id)");
+        spdlog::debug("setCurrentWorkspace: early return (same id)");
         return;
     }
 
@@ -702,7 +699,7 @@ int Application::createWorkspace(const std::string& name, const std::string& des
     }
 
     if (!canAddWorkspace()) {
-        Logger::warn("Workspace limit reached (free tier: 1). Upgrade to create more.");
+        spdlog::warn("Workspace limit reached (free tier: 1). Upgrade to create more.");
         return -2;
     }
 
@@ -711,15 +708,15 @@ int Application::createWorkspace(const std::string& name, const std::string& des
     workspace.description = description;
 
     const int newWorkspaceId = appState->saveWorkspace(workspace);
-    Logger::info(std::format("createWorkspace: saved with id={}", newWorkspaceId));
+    spdlog::debug("createWorkspace: saved with id={}", newWorkspaceId);
 
     if (newWorkspaceId > 0) {
         setCurrentWorkspace(newWorkspaceId);
-        Logger::info(std::format("createWorkspace: after setCurrentWorkspace, currentId={}",
-                                 currentWorkspaceId));
+        spdlog::debug("createWorkspace: after setCurrentWorkspace, currentId={}",
+                      currentWorkspaceId);
         platform_->updateWorkspaceDropdown();
-        Logger::info(std::format("createWorkspace: after updateWorkspaceDropdown, currentId={}",
-                                 currentWorkspaceId));
+        spdlog::debug("createWorkspace: after updateWorkspaceDropdown, currentId={}",
+                      currentWorkspaceId);
     }
 
     return newWorkspaceId;
@@ -1000,7 +997,7 @@ void Application::openFile(const std::string& rawPath) {
             if (!sqliteDb->isConnected()) {
                 auto [ok, err] = sqliteDb->connect();
                 if (!ok) {
-                    Logger::error(std::format("Failed to reconnect SQLite file: {}", err));
+                    spdlog::error("Failed to reconnect SQLite file: {}", err);
                     return;
                 }
             }
@@ -1010,7 +1007,7 @@ void Application::openFile(const std::string& rawPath) {
     }
 
     if (!canAddConnection()) {
-        Logger::warn("Cannot open file: connection limit reached (free tier: 3).");
+        spdlog::warn("Cannot open file: connection limit reached (free tier: 3).");
         return;
     }
 
@@ -1022,7 +1019,7 @@ void Application::openFile(const std::string& rawPath) {
     auto db = std::make_shared<SQLiteDatabase>(info);
     auto [success, error] = db->connect();
     if (!success) {
-        Logger::error(std::format("Failed to open file: {}", error));
+        spdlog::error("Failed to open file: {}", error);
         return;
     }
 

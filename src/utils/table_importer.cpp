@@ -1,8 +1,8 @@
 #include "utils/table_importer.hpp"
-#include "utils/logger.hpp"
 #include <format>
 #include <fstream>
 #include <nfd.h>
+#include <spdlog/spdlog.h>
 #include <sstream>
 
 namespace {
@@ -85,7 +85,7 @@ namespace TableImporter {
         nfdresult_t result = NFD_OpenDialog(&outPath, &filter, 1, nullptr);
         if (result != NFD_OKAY) {
             if (result == NFD_ERROR)
-                Logger::error(std::format("File dialog error: {}", NFD_GetError()));
+                spdlog::error("File dialog error: {}", NFD_GetError());
             return false;
         }
 
@@ -94,13 +94,13 @@ namespace TableImporter {
 
         std::ifstream file(path);
         if (!file.is_open()) {
-            Logger::error(std::format("Failed to open file: {}", path));
+            spdlog::error("Failed to open file: {}", path);
             return false;
         }
 
         std::string headerLine;
         if (!std::getline(file, headerLine)) {
-            Logger::error("CSV file is empty");
+            spdlog::error("CSV file is empty");
             return false;
         }
         // strip \r if present
@@ -109,7 +109,7 @@ namespace TableImporter {
 
         const auto columns = parseLine(headerLine);
         if (columns.empty()) {
-            Logger::error("CSV header row has no columns");
+            spdlog::error("CSV header row has no columns");
             return false;
         }
 
@@ -147,13 +147,12 @@ namespace TableImporter {
                 ++inserted;
             } else {
                 ++failed;
-                Logger::error(std::format("Row {} insert failed: {}", inserted + failed,
-                                          queryResult.errorMessage()));
+                spdlog::error("Row {} insert failed: {}", inserted + failed,
+                              queryResult.errorMessage());
             }
         }
 
-        Logger::info(std::format("CSV import complete: {} inserted, {} failed — {}", inserted,
-                                 failed, path));
+        spdlog::info("CSV import complete: {} inserted, {} failed — {}", inserted, failed, path);
         return failed == 0;
     }
 
