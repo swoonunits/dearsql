@@ -35,10 +35,6 @@
 #include <limits>
 #include <spdlog/spdlog.h>
 
-#if defined(_WIN32)
-#include "imgui_impl_dx11.h"
-#endif
-
 #include "IconsFontAwesome6.h"
 #include "IconsForkAwesome.h"
 #include "embedded_fonts.hpp"
