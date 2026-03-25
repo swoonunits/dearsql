@@ -893,6 +893,14 @@ std::pair<bool, std::string> OracleDatabaseNode::dropTable(const std::string& ta
     return {false, r.errorMessage()};
 }
 
+std::pair<bool, std::string> OracleDatabaseNode::truncateTable(const std::string& tableName) {
+    auto sql = "TRUNCATE TABLE " + quoteOracleTable(name, tableName);
+    auto r = executeQuery(sql);
+    if (r.success())
+        return {true, ""};
+    return {false, r.errorMessage()};
+}
+
 std::pair<bool, std::string> OracleDatabaseNode::dropColumn(const std::string& tableName,
                                                             const std::string& columnName) {
     auto sql =

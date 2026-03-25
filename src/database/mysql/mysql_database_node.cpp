@@ -12,6 +12,18 @@
 
 namespace {
 
+    // escape a MySQL identifier: double any embedded backticks
+    std::string quoteMysqlId(const std::string& id) {
+        std::string out = "`";
+        out.reserve(id.size() + 2);
+        for (char c : id) {
+            if (c == '`') out += '`';
+            out += c;
+        }
+        out += '`';
+        return out;
+    }
+
     struct MysqlResDeleter {
         void operator()(MYSQL_RES* r) const {
             if (r)
@@ -727,6 +739,14 @@ std::pair<bool, std::string> MySQLDatabaseNode::dropTable(const std::string& tab
         startTablesLoadAsync(true);
         return {true, ""};
     }
+    return {false, r.errorMessage()};
+}
+
+std::pair<bool, std::string> MySQLDatabaseNode::truncateTable(const std::string& tableName) {
+    auto sql = std::format("TRUNCATE TABLE {}", quoteMysqlId(tableName));
+    auto r = executeQuery(sql);
+    if (r.success())
+        return {true, ""};
     return {false, r.errorMessage()};
 }
 

@@ -575,6 +575,14 @@ std::pair<bool, std::string> MSSQLDatabaseNode::dropTable(const std::string& tab
     return {false, r.errorMessage()};
 }
 
+std::pair<bool, std::string> MSSQLDatabaseNode::truncateTable(const std::string& tableName) {
+    auto sql = std::format("TRUNCATE TABLE {}", quoteTableName(tableName));
+    auto r = executeQuery(sql);
+    if (r.success())
+        return {true, ""};
+    return {false, r.errorMessage()};
+}
+
 std::pair<bool, std::string> MSSQLDatabaseNode::dropColumn(const std::string& tableName,
                                                            const std::string& columnName) {
     auto sql =

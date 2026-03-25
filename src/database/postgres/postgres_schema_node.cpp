@@ -14,6 +14,18 @@
 
 namespace {
 
+    // escape a PostgreSQL identifier: double any embedded quotes
+    std::string quotePgId(const std::string& id) {
+        std::string out = "\"";
+        out.reserve(id.size() + 2);
+        for (char c : id) {
+            if (c == '"') out += '"';
+            out += c;
+        }
+        out += '"';
+        return out;
+    }
+
     struct PgResultDeleter {
         void operator()(PGresult* r) const {
             if (r)
@@ -926,6 +938,14 @@ std::pair<bool, std::string> PostgresSchemaNode::dropTable(const std::string& ta
         startTablesLoadAsync(true);
         return {true, ""};
     }
+    return {false, r.errorMessage()};
+}
+
+std::pair<bool, std::string> PostgresSchemaNode::truncateTable(const std::string& tableName) {
+    auto sql = std::format("TRUNCATE TABLE ONLY {}.{}", quotePgId(name), quotePgId(tableName));
+    auto r = executeQuery(sql);
+    if (r.success())
+        return {true, ""};
     return {false, r.errorMessage()};
 }
 

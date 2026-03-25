@@ -123,13 +123,26 @@ inline std::pair<std::string, std::string> splitSchemaTable(const std::string& t
     return {"dbo", tableName};
 }
 
+// escape a MSSQL identifier: double any embedded ]
+inline std::string quoteMssqlId(const std::string& id) {
+    std::string out = "[";
+    out.reserve(id.size() + 2);
+    for (char c : id) {
+        if (c == ']') out += ']';
+        out += c;
+    }
+    out += ']';
+    return out;
+}
+
 // bracket-quote a possibly schema-qualified table name: "schema.table" -> "[schema].[table]"
 inline std::string quoteTableName(const std::string& tableName) {
     auto dotPos = tableName.find('.');
     if (dotPos != std::string::npos) {
-        return std::format("[{}].[{}]", tableName.substr(0, dotPos), tableName.substr(dotPos + 1));
+        return quoteMssqlId(tableName.substr(0, dotPos)) + "." +
+               quoteMssqlId(tableName.substr(dotPos + 1));
     }
-    return std::format("[{}]", tableName);
+    return quoteMssqlId(tableName);
 }
 
 // open a DBPROCESS connection using the given connection info

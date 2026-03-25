@@ -32,6 +32,7 @@ namespace {
     constexpr const char* RENAME_LABEL = "Rename";
     constexpr const char* VIEW_DATA_LABEL = "View Data";
     constexpr const char* EDIT_TABLE_LABEL = "Edit Table";
+    constexpr const char* TRUNCATE_LABEL = "Truncate";
     constexpr const char* NEW_SQL_EDITOR_LABEL = "New SQL Editor";
     constexpr const char* NEW_QUERY_EDITOR_LABEL = "New Query Editor";
     constexpr const char* SHOW_DIAGRAM_LABEL = "Show Diagram";
@@ -1087,6 +1088,22 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
                     return "";
                 });
         }
+        if (ImGui::MenuItem(TRUNCATE_LABEL)) {
+            const std::string tableName = table.name;
+            Alert::show("Truncate Table",
+                        std::format("Remove all rows from '{}.{}'? This is irreversible.",
+                                    schemaNode->name, tableName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Truncate",
+                          [schemaNode, tableName]() {
+                              auto [success, error] = schemaNode->truncateTable(tableName);
+                              if (!success) {
+                                  Alert::show("Error",
+                                              std::format("Failed to truncate table: {}", error));
+                              }
+                          },
+                          AlertButton::Style::Destructive}});
+        }
         if (ImGui::MenuItem(DELETE_LABEL)) {
             const std::string tableName = table.name;
             Alert::show("Delete Table",
@@ -1393,6 +1410,21 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
                         return "New name must be different";
                     return "";
                 });
+        }
+        if (ImGui::MenuItem(TRUNCATE_LABEL)) {
+            const std::string tableName = table.name;
+            Alert::show("Truncate Table",
+                        std::format("Remove all rows from '{}'? This is irreversible.", tableName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Truncate",
+                          [dbData, tableName]() {
+                              auto [success, error] = dbData->truncateTable(tableName);
+                              if (!success) {
+                                  Alert::show("Error",
+                                              std::format("Failed to truncate table: {}", error));
+                              }
+                          },
+                          AlertButton::Style::Destructive}});
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
             const std::string tableName = table.name;
@@ -1828,6 +1860,21 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
                     return "";
                 });
         }
+        if (ImGui::MenuItem(TRUNCATE_LABEL)) {
+            const std::string tableName = table.name;
+            Alert::show("Truncate Table",
+                        std::format("Remove all rows from '{}'? This is irreversible.", tableName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Truncate",
+                          [dbData, tableName]() {
+                              auto [success, error] = dbData->truncateTable(tableName);
+                              if (!success) {
+                                  Alert::show("Error",
+                                              std::format("Failed to truncate table: {}", error));
+                              }
+                          },
+                          AlertButton::Style::Destructive}});
+        }
         if (ImGui::MenuItem(DELETE_LABEL)) {
             const std::string tableName = table.name;
             Alert::show(
@@ -2232,6 +2279,21 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
                         return "New name must be different";
                     return "";
                 });
+        }
+        if (ImGui::MenuItem(TRUNCATE_LABEL)) {
+            const std::string tableName = table.name;
+            Alert::show("Truncate Table",
+                        std::format("Remove all rows from '{}'? This is irreversible.", tableName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Truncate",
+                          [dbData, tableName]() {
+                              auto [success, error] = dbData->truncateTable(tableName);
+                              if (!success) {
+                                  Alert::show("Error",
+                                              std::format("Failed to truncate table: {}", error));
+                              }
+                          },
+                          AlertButton::Style::Destructive}});
         }
         if (ImGui::MenuItem(DELETE_LABEL)) {
             const std::string tableName = table.name;
