@@ -242,12 +242,11 @@ namespace {
                     style |= BS_PUSHBUTTON;
                 }
 
-                HWND button = CreateWindowExW(0, L"BUTTON",
-                                              state->wideLabels[layout.buttonIndex].c_str(), style,
-                                              layout.x, layout.y, layout.width, layout.height, hwnd,
-                                              reinterpret_cast<HMENU>(
-                                                  static_cast<INT_PTR>(layout.controlId)),
-                                              GetModuleHandleW(nullptr), nullptr);
+                HWND button =
+                    CreateWindowExW(0, L"BUTTON", state->wideLabels[layout.buttonIndex].c_str(),
+                                    style, layout.x, layout.y, layout.width, layout.height, hwnd,
+                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(layout.controlId)),
+                                    GetModuleHandleW(nullptr), nullptr);
                 SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(state->bodyFont), TRUE);
             }
             return 0;
@@ -288,10 +287,10 @@ namespace {
             SelectObject(dc, state->bodyFont);
             HPEN separatorPen = CreatePen(PS_SOLID, 1, toColorRef(state->colors.overlay0));
             HGDIOBJ oldPen = SelectObject(dc, separatorPen);
-            const int separatorY = state->layoutButtons.empty()
-                                       ? state->clientHeight - kDialogPadding - kButtonHeight -
-                                             kMessageBottomGap / 2
-                                       : state->layoutButtons.front().y - (kMessageBottomGap / 2);
+            const int separatorY =
+                state->layoutButtons.empty()
+                    ? state->clientHeight - kDialogPadding - kButtonHeight - kMessageBottomGap / 2
+                    : state->layoutButtons.front().y - (kMessageBottomGap / 2);
             MoveToEx(dc, kDialogPadding, separatorY, nullptr);
             LineTo(dc, state->clientWidth - kDialogPadding, separatorY);
             SelectObject(dc, oldPen);
@@ -317,11 +316,10 @@ namespace {
             }
 
             const int controlId = LOWORD(wParam);
-            const auto it =
-                std::find_if(state->layoutButtons.begin(), state->layoutButtons.end(),
-                             [controlId](const AlertButtonLayout& layout) {
-                                 return layout.controlId == controlId;
-                             });
+            const auto it = std::find_if(state->layoutButtons.begin(), state->layoutButtons.end(),
+                                         [controlId](const AlertButtonLayout& layout) {
+                                             return layout.controlId == controlId;
+                                         });
             if (it != state->layoutButtons.end()) {
                 state->chosenIndex = it->buttonIndex;
                 DestroyWindow(hwnd);
@@ -418,17 +416,15 @@ void Alert::show(const std::string& title, const std::string& message,
         measureDc = GetDC(nullptr);
     }
 
-    const int contentWidth = std::clamp(kDialogPreferredWidth - kDialogPadding * 2,
-                                        kDialogMinWidth - kDialogPadding * 2,
-                                        kDialogMaxWidth - kDialogPadding * 2);
-    const RECT titleBounds =
-        measureWrappedText(measureDc, state->titleFont, state->title, contentWidth,
-                           DT_LEFT | DT_TOP | DT_WORDBREAK);
+    const int contentWidth =
+        std::clamp(kDialogPreferredWidth - kDialogPadding * 2, kDialogMinWidth - kDialogPadding * 2,
+                   kDialogMaxWidth - kDialogPadding * 2);
+    const RECT titleBounds = measureWrappedText(measureDc, state->titleFont, state->title,
+                                                contentWidth, DT_LEFT | DT_TOP | DT_WORDBREAK);
     const RECT messageBounds =
-        state->message.empty()
-            ? RECT{0, 0, contentWidth, 0}
-            : measureWrappedText(measureDc, state->bodyFont, state->message, contentWidth,
-                                 DT_LEFT | DT_TOP | DT_WORDBREAK);
+        state->message.empty() ? RECT{0, 0, contentWidth, 0}
+                               : measureWrappedText(measureDc, state->bodyFont, state->message,
+                                                    contentWidth, DT_LEFT | DT_TOP | DT_WORDBREAK);
 
     std::vector<int> buttonWidths;
     buttonWidths.reserve(state->buttons.size());
@@ -451,8 +447,7 @@ void Alert::show(const std::string& title, const std::string& message,
         std::clamp(std::max(kDialogPreferredWidth, buttonRowWidth + kDialogPadding * 2),
                    kDialogMinWidth, kDialogMaxWidth);
 
-    const int titleHeight =
-        std::max(28, static_cast<int>(titleBounds.bottom - titleBounds.top));
+    const int titleHeight = std::max(28, static_cast<int>(titleBounds.bottom - titleBounds.top));
     const int messageHeight =
         state->message.empty() ? 0 : static_cast<int>(messageBounds.bottom - messageBounds.top);
 
@@ -511,10 +506,9 @@ void Alert::show(const std::string& title, const std::string& message,
     if (!hwnd) {
         const int result = MessageBoxW(parent, state->message.c_str(), state->title.c_str(),
                                        state->cancelIndex >= 0 ? MB_OKCANCEL : MB_OK);
-        const int fallbackIndex =
-            (result == IDCANCEL && state->cancelIndex >= 0)
-                ? state->cancelIndex
-                : chooseCloseIndex(*state);
+        const int fallbackIndex = (result == IDCANCEL && state->cancelIndex >= 0)
+                                      ? state->cancelIndex
+                                      : chooseCloseIndex(*state);
         if (fallbackIndex >= 0 && fallbackIndex < static_cast<int>(state->buttons.size()) &&
             state->buttons[fallbackIndex].onPress) {
             state->buttons[fallbackIndex].onPress();
