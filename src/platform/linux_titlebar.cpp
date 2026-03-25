@@ -5,8 +5,8 @@
 #include "license/license_manager.hpp"
 #include "platform/alert.hpp"
 #include "platform/connection_dialog.hpp"
-#include "platform/linux_updater.hpp"
 #include "platform/titlebar.hpp"
+#include "platform/updater.hpp"
 #include "themes.hpp"
 #include <format>
 #include <gtk/gtk.h>
@@ -174,7 +174,7 @@ void LinuxTitlebar::setup() {
     g_signal_connect(checkUpdatesButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
                          auto* self = static_cast<LinuxTitlebar*>(userData);
                          gtk_popover_popdown(GTK_POPOVER(self->menuPopover_));
-                         checkForUpdatesLinux();
+                         checkForUpdates();
                      }),
                      this);
     gtk_box_append(GTK_BOX(actionBox), checkUpdatesButton);
@@ -231,7 +231,7 @@ void LinuxTitlebar::setup() {
     updateButton_ = gtk_button_new_from_icon_name("dialog-warning-symbolic");
     gtk_widget_set_visible(updateButton_, FALSE);
     g_signal_connect(updateButton_, "clicked",
-                     G_CALLBACK(+[](GtkButton*, gpointer) { checkForUpdatesLinux(); }), nullptr);
+                     G_CALLBACK(+[](GtkButton*, gpointer) { checkForUpdates(); }), nullptr);
 
     gtk_header_bar_pack_end(GTK_HEADER_BAR(headerBar_), menuButton_);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(headerBar_), workspaceDropdown_);

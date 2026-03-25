@@ -4,7 +4,7 @@
 #include "application.hpp"
 #include "config.hpp"
 #include "database/async_helper.hpp"
-#include "platform/linux_updater.hpp"
+#include "platform/updater.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -738,11 +738,11 @@ gboolean LinuxPlatform::onTickCallback(GtkWidget* widget, GdkFrameClock*, gpoint
     if (platform->titlebar_) {
         GtkWidget* updateButton = platform->titlebar_->getUpdateButton();
         if (updateButton) {
-            bool available = isLinuxUpdateAvailable();
+            bool available = isUpdateAvailable();
             if (available != static_cast<bool>(gtk_widget_get_visible(updateButton))) {
                 gtk_widget_set_visible(updateButton, available);
                 if (available) {
-                    auto version = getLinuxLatestVersion();
+                    auto version = getLatestVersion();
                     auto tooltip = "Update available: v" + version;
                     gtk_widget_set_tooltip_text(updateButton, tooltip.c_str());
                 }

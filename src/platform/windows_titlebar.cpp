@@ -5,7 +5,7 @@
 #include "license/license_manager.hpp"
 #include "platform/alert.hpp"
 #include "platform/titlebar.hpp"
-#include "platform/windows_updater.hpp"
+#include "platform/updater.hpp"
 #include "themes.hpp"
 
 #include "IconsFontAwesome6.h"
@@ -388,8 +388,9 @@ void WindowsTitlebar::renderPopups() {
         ImGui::Separator();
         if (ImGui::Selectable("New Workspace...")) {
             if (!app_->canAddWorkspace()) {
-                Alert::show("Workspace Limit Reached",
-                            "Free tier is limited to 1 workspace. Activate a license to create more.");
+                Alert::show(
+                    "Workspace Limit Reached",
+                    "Free tier is limited to 1 workspace. Activate a license to create more.");
             } else {
                 app_->createWorkspace("New Workspace", "");
             }
@@ -467,7 +468,7 @@ void WindowsTitlebar::renderPopups() {
             showLicenseDialog();
         }
         if (ImGui::Selectable("Check for Updates...")) {
-            checkForUpdatesWindows();
+            checkForUpdates();
         }
         if (ImGui::Selectable("Report Bug...")) {
             ShellExecuteW(nullptr, L"open",

@@ -7,8 +7,8 @@
 #include "config.hpp"
 #include "license/license_manager.hpp"
 #include "platform/alert.hpp"
-#include "platform/macos_updater.hpp"
 #include "platform/titlebar.hpp"
+#include "platform/updater.hpp"
 #include "themes.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>

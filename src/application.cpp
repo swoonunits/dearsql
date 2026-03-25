@@ -10,16 +10,14 @@
 #include "database/sqlite.hpp"
 #include "license/license_manager.hpp"
 
+#include "platform/updater.hpp"
+
 #if defined(__APPLE__)
 #include "platform/macos_platform.hpp"
-#include "platform/macos_updater.hpp"
 #elif defined(__linux__)
 #include "platform/linux_platform.hpp"
-#include "platform/linux_updater.hpp"
-#include "ui/update_dialog.hpp"
 #elif defined(_WIN32)
 #include "platform/windows_platform.hpp"
-#include "platform/windows_updater.hpp"
 #else
 #include "platform/default_platform.hpp"
 #endif
@@ -216,13 +214,7 @@ bool Application::initialize() {
     LicenseManager::instance().loadStoredLicense();
     LicenseManager::instance().validateStoredLicense();
 
-#ifdef __APPLE__
-    initializeSparkleUpdater();
-#elif defined(__linux__)
-    initializeLinuxUpdater();
-#elif defined(_WIN32)
-    initializeWinSparkleUpdater();
-#endif
+    initializeUpdater();
 
     restorePreviousConnections();
 
@@ -363,16 +355,13 @@ void Application::cleanup() {
     FileDialog::cleanup();
     std::cout << "File dialog cleaned up" << std::endl;
 
-#if defined(_WIN32)
-    cleanupWinSparkleUpdater();
-#endif
+    cleanupUpdater();
 
     if (platform_) {
         platform_->shutdownImGui();
         platform_->cleanup();
         platform_.reset();
     }
-
 
     ImGui::DestroyContext();
     std::cout << "ImGui context destroyed" << std::endl;
@@ -972,10 +961,7 @@ void Application::renderMainUI() {
         ImGui::PopStyleVar(1);
     }
 
-#if defined(__linux__)
-    UpdateDialog::instance().render();
-    pollLinuxUpdater();
-#endif
+    pollUpdater();
 
     ImGui::End();
 }
