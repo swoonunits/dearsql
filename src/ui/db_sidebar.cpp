@@ -332,6 +332,8 @@ void DatabaseSidebarNew::render() {
                           ImVec4(colors.surface1.x, colors.surface1.y, colors.surface1.z, 0.8f));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive,
                           ImVec4(colors.blue.x, colors.blue.y, colors.blue.z, 0.3f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
+    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
 
@@ -456,7 +458,7 @@ void DatabaseSidebarNew::render() {
         renderHistoryToggleButton(btnMin, buttonW, buttonH, true);
     }
 
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(5);
     ImGui::End();
 
     ImGui::PopStyleVar(); // PopupRounding

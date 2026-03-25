@@ -126,6 +126,14 @@ LRESULT WindowsTitlebar::hitTest(HWND hWnd, LPARAM lParam) const {
 
 // Icon draw helpers
 namespace {
+    bool isWindowsAppsUseDarkTheme() {
+        DWORD value = 1;
+        DWORD valueSize = sizeof(value);
+        const LSTATUS status = RegGetValueW(
+            HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &valueSize);
+        return status == ERROR_SUCCESS ? value == 0 : false;
+    }
 
     void DrawMinimizeIcon(ImDrawList* dl, ImVec2 center, ImU32 col) {
         dl->AddLine({center.x - 5, center.y}, {center.x + 5, center.y}, col, 1.0f);
@@ -162,6 +170,9 @@ void WindowsTitlebar::render() {
     HWND hWnd = glfwGetWin32Window(window_);
 
     const bool isDark = app_->isDarkTheme();
+    if (isDark != lastAppliedDarkTheme_) {
+        applyTheme(isDark);
+    }
     const auto& colors = isDark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
     const bool maximized = IsZoomed(hWnd);
 
@@ -406,7 +417,7 @@ void WindowsTitlebar::renderPopups() {
         openMenuPopup_ = false;
     }
     // anchor popup so its RIGHT edge aligns with the menu button's right edge
-    const float popupW = 220.0f;
+    const float popupW = 300.0f;
     const float iconBtnSz = static_cast<float>(getTitlebarHeightPixels()) - 4.0f;
     ImGui::SetNextWindowPos({menuPopupPos_.x + iconBtnSz - popupW, menuPopupPos_.y});
     ImGui::SetNextWindowSize({popupW, 0});
@@ -419,21 +430,26 @@ void WindowsTitlebar::renderPopups() {
         // theme section
         ImGui::TextColored(colors.subtext0, "Theme");
         {
-            float btnW = (contentW - 8.0f) / 2.0f; // 2 buttons with 8px gap
+            constexpr float themeGap = 8.0f;
+            float btnW = (contentW - themeGap * 2.0f) / 3.0f;
             auto themeBtn = [&](const char* label, bool selected, auto action) {
                 if (selected) {
                     ImGui::PushStyleColor(ImGuiCol_Button, colors.blue);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.blue);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.sky);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.sapphire);
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
                 }
                 if (ImGui::Button(label, {btnW, 0}))
                     action();
                 if (selected)
-                    ImGui::PopStyleColor(3);
+                    ImGui::PopStyleColor(4);
             };
             themeBtn(ICON_FA_SUN "  Light", !isDark, [&] { app_->setDarkTheme(false); });
             ImGui::SameLine();
             themeBtn(ICON_FA_MOON "  Dark", isDark, [&] { app_->setDarkTheme(true); });
+            ImGui::SameLine();
+            themeBtn(ICON_FA_CIRCLE_HALF_STROKE "  System", false,
+                     [&] { app_->setDarkTheme(isWindowsAppsUseDarkTheme()); });
         }
 
         ImGui::Spacing();
