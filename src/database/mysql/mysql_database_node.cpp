@@ -530,9 +530,8 @@ void MySQLDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& i
         return;
     }
 
-    constexpr size_t poolSize = 2;
     connectionPool = std::make_unique<ConnectionPool<MYSQL*>>(
-        poolSize, makeMysqlFactory(info),
+        makeMysqlFactory(info),
         // closer
         [](MYSQL* conn) { mysql_close(conn); },
         // validator

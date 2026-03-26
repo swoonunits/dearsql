@@ -163,9 +163,7 @@ void MSSQLDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& i
     if (connectionPool)
         return;
 
-    constexpr size_t poolSize = 2;
     connectionPool = std::make_unique<ConnectionPool<DBPROCESS*>>(
-        poolSize,
         [info]() -> DBPROCESS* {
             MSSQLDatabase::initDbLib();
             return openDbLibConnection(info, info.database);

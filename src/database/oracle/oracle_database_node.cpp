@@ -480,10 +480,8 @@ void OracleDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo& 
     if (connectionPool)
         return;
 
-    constexpr size_t poolSize = 2;
     std::string schema = name;
     connectionPool = std::make_unique<ConnectionPool<dpiConn*>>(
-        poolSize,
         [info, schema]() -> dpiConn* {
             OracleDatabase::initContext();
             return openDpiConnection(info, schema);

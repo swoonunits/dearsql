@@ -341,9 +341,8 @@ void MSSQLDatabase::ensureConnectionPoolForDatabase(const DatabaseConnectionInfo
         }
     }
 
-    constexpr size_t poolSize = 3;
     auto newPool = std::make_unique<ConnectionPool<DBPROCESS*>>(
-        poolSize, [info]() -> DBPROCESS* { return openDbLibConnection(info, info.database); },
+        [info]() -> DBPROCESS* { return openDbLibConnection(info, info.database); },
         [](DBPROCESS* dbproc) { dbclose(dbproc); },
         [](DBPROCESS* dbproc) -> bool { return !dbdead(dbproc); });
 

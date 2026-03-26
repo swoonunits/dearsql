@@ -415,9 +415,8 @@ void OracleDatabase::ensureConnectionPoolForSchema(const DatabaseConnectionInfo&
         }
     }
 
-    constexpr size_t poolSize = 3;
     auto newPool = std::make_unique<ConnectionPool<dpiConn*>>(
-        poolSize, [info]() -> dpiConn* { return openDpiConnection(info); },
+        [info]() -> dpiConn* { return openDpiConnection(info); },
         [](dpiConn* conn) { closeDpiConnection(conn); },
         [](dpiConn* conn) -> bool { return dpiConnectionAlive(conn); });
 

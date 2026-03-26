@@ -239,11 +239,9 @@ void PostgresDatabaseNode::initializeConnectionPool(const DatabaseConnectionInfo
         return;
     }
 
-    constexpr size_t poolSize = 3;
     std::string connStr = buildPqConnStr(info);
 
     connectionPool = std::make_unique<ConnectionPool<PGconn*>>(
-        poolSize,
         // factory
         [connStr]() -> PGconn* {
             PGconn* conn = PQconnectdb(connStr.c_str());
