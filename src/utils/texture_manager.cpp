@@ -24,7 +24,7 @@ void TextureManager::loadDatabaseIcons(PlatformInterface* platform) {
     };
 
     static constexpr IconMapping mappings[] = {
-        {DatabaseType::SQLITE, "sqlite"},     {DatabaseType::POSTGRESQL, "postgres"},
+        {DatabaseType::SQLITE, "sqlite"},     {DatabaseType::POSTGRESQL, "postgresql"},
         {DatabaseType::MYSQL, "mysql"},       {DatabaseType::MARIADB, "mariadb"},
         {DatabaseType::MONGODB, "mongodb"},   {DatabaseType::REDIS, "redis"},
         {DatabaseType::MSSQL, "mssql"},       {DatabaseType::ORACLE, "oracle"},
