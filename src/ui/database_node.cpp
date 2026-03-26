@@ -17,7 +17,6 @@
 #include "ui/tab/sql_editor_tab.hpp"
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
-#include "ui/text_editor.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"
@@ -1070,7 +1069,7 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             schemaNode->startTableRefreshAsync(table.name);
         }
-        TableExporter::renderExportMenu(schemaNode, table.name);
+        TableExporter::renderExportMenu(schemaNode, table);
         TableImporter::renderImportMenu(schemaNode, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
@@ -1393,7 +1392,7 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startTableRefreshAsync(table.name);
         }
-        TableExporter::renderExportMenu(dbData, table.name);
+        TableExporter::renderExportMenu(dbData, table);
         TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
@@ -1842,7 +1841,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startTableRefreshAsync(table.name);
         }
-        TableExporter::renderExportMenu(dbData, table.name);
+        TableExporter::renderExportMenu(dbData, table);
         TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
@@ -2262,7 +2261,7 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startTableRefreshAsync(table.name);
         }
-        TableExporter::renderExportMenu(dbData, table.name);
+        TableExporter::renderExportMenu(dbData, table);
         TableImporter::renderImportMenu(dbData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
@@ -2763,7 +2762,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
             app.getTabManager()->createTableEditorTab(sqliteDb, table);
         }
-        TableExporter::renderExportMenu(sqliteDb, table.name);
+        TableExporter::renderExportMenu(sqliteDb, table);
         TableImporter::renderImportMenu(sqliteDb, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {

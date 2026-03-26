@@ -1,24 +1,11 @@
 #include "utils/table_importer.hpp"
+#include "database/ddl_utils.hpp"
 #include <format>
 #include <fstream>
 #include <nfd.h>
 #include <spdlog/spdlog.h>
-#include <sstream>
 
 namespace {
-
-    std::string escapeSQL(const std::string& value) {
-        std::string out;
-        out.reserve(value.size() + 2);
-        out += '\'';
-        for (const char c : value) {
-            if (c == '\'')
-                out += '\'';
-            out += c;
-        }
-        out += '\'';
-        return out;
-    }
 
     // parse a single CSV field starting at pos, advance pos past the field and trailing comma
     std::string parseField(const std::string& line, size_t& pos) {
@@ -136,7 +123,8 @@ namespace TableImporter {
                 if (i > 0)
                     valueList += ", ";
                 const std::string& val = i < values.size() ? values[i] : "";
-                valueList += val.empty() ? "NULL" : escapeSQL(val);
+                valueList +=
+                    val.empty() ? "NULL" : ("'" + ddl_utils::escapeSingleQuotes(val) + "'");
             }
 
             const std::string sql =

@@ -1,7 +1,7 @@
 #include "database/oracle/oracle_database_node.hpp"
 #include "database/db.hpp"
-#include "database/ddl_builder.hpp"
 #include "database/oracle.hpp"
+#include "database/sql_builder.hpp"
 #include "oracle_utils.hpp"
 #include <algorithm>
 #include <chrono>
@@ -838,8 +838,8 @@ QueryResult OracleDatabaseNode::executeQuery(const std::string& query, int rowLi
 
 std::pair<bool, std::string> OracleDatabaseNode::createTable(const Table& table) {
     try {
-        DDLBuilder builder(getDatabaseType());
-        std::string sql = builder.createTable(table);
+        const auto builder = createSQLBuilder(getDatabaseType());
+        std::string sql = builder->createTable(table);
 
         auto result = executeQuery(sql);
         if (!result.success()) {

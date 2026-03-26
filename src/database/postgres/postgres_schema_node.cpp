@@ -1,8 +1,8 @@
 #include "database/postgres/postgres_schema_node.hpp"
 #include "database/db.hpp"
-#include "database/ddl_builder.hpp"
 #include "database/postgres/postgres_database_node.hpp"
 #include "database/postgresql.hpp"
+#include "database/sql_builder.hpp"
 #include <algorithm>
 #include <format>
 #include <iostream>
@@ -853,8 +853,8 @@ std::pair<bool, std::string> PostgresSchemaNode::createTable(const Table& table)
     }
 
     try {
-        DDLBuilder builder(DatabaseType::POSTGRESQL);
-        std::string sql = builder.createTable(table, name);
+        const auto builder = createSQLBuilder(DatabaseType::POSTGRESQL);
+        std::string sql = builder->createTable(table, name);
 
         auto result = parentDbNode->executeQuery(sql);
         bool success = result.success();

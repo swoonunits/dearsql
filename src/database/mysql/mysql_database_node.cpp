@@ -1,7 +1,7 @@
 #include "database/mysql/mysql_database_node.hpp"
 #include "database/db.hpp"
-#include "database/ddl_builder.hpp"
 #include "database/mysql.hpp"
+#include "database/sql_builder.hpp"
 #include <algorithm>
 #include <chrono>
 #include <format>
@@ -688,8 +688,8 @@ QueryResult MySQLDatabaseNode::executeQuery(const std::string& query, int rowLim
 
 std::pair<bool, std::string> MySQLDatabaseNode::createTable(const Table& table) {
     try {
-        DDLBuilder builder(getDatabaseType());
-        std::string sql = builder.createTable(table);
+        const auto builder = createSQLBuilder(getDatabaseType());
+        std::string sql = builder->createTable(table);
 
         auto result = executeQuery(sql);
         if (!result.success()) {

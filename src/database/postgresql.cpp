@@ -1,6 +1,7 @@
 #include "database/postgresql.hpp"
 #include "database/db.hpp"
 #include "database/ddl_utils.hpp"
+#include "database/sql_builder.hpp"
 #include <format>
 #include <memory>
 #include <ranges>
@@ -66,33 +67,6 @@ namespace {
         }
         return result;
     }
-
-    std::string quotePgIdentifier(const std::string& input) {
-        std::string quoted = "\"";
-        quoted.reserve(input.size() + 2);
-        for (char ch : input) {
-            quoted.push_back(ch);
-            if (ch == '"') {
-                quoted.push_back('"');
-            }
-        }
-        quoted.push_back('"');
-        return quoted;
-    }
-
-    bool isSafeSqlToken(const std::string& input) {
-        if (input.empty()) {
-            return false;
-        }
-        for (char ch : input) {
-            const unsigned char uch = static_cast<unsigned char>(ch);
-            if (!std::isalnum(uch) && ch != '_') {
-                return false;
-            }
-        }
-        return true;
-    }
-
 } // namespace
 
 PostgresDatabase::PostgresDatabase(const DatabaseConnectionInfo& connInfo) {
@@ -634,23 +608,24 @@ PostgresDatabase::createDatabaseWithOptions(const CreateDatabaseOptions& opts) {
     if (opts.name.empty()) {
         return {false, "Database name cannot be empty"};
     }
-    if (!opts.encoding.empty() && !isSafeSqlToken(opts.encoding)) {
+    if (!opts.encoding.empty() && !ddl_utils::isSafeSqlToken(opts.encoding)) {
         return {false, "Invalid encoding value"};
     }
 
     try {
         auto session = getSession();
         PGconn* conn = session.get();
+        const auto builder = createSQLBuilder(DatabaseType::POSTGRESQL);
 
-        std::string sql = std::format("CREATE DATABASE {}", quotePgIdentifier(opts.name));
+        std::string sql = std::format("CREATE DATABASE {}", builder->quoteIdentifier(opts.name));
         if (!opts.owner.empty())
-            sql += std::format(" OWNER {}", quotePgIdentifier(opts.owner));
+            sql += std::format(" OWNER {}", builder->quoteIdentifier(opts.owner));
         if (!opts.templateDb.empty())
-            sql += std::format(" TEMPLATE {}", quotePgIdentifier(opts.templateDb));
+            sql += std::format(" TEMPLATE {}", builder->quoteIdentifier(opts.templateDb));
         if (!opts.encoding.empty())
             sql += std::format(" ENCODING '{}'", opts.encoding);
         if (!opts.tablespace.empty())
-            sql += std::format(" TABLESPACE {}", quotePgIdentifier(opts.tablespace));
+            sql += std::format(" TABLESPACE {}", builder->quoteIdentifier(opts.tablespace));
 
         PgResultPtr createRes(PQexec(conn, sql.c_str()));
         if (!createRes || PQresultStatus(createRes.get()) != PGRES_COMMAND_OK) {
@@ -662,7 +637,7 @@ PostgresDatabase::createDatabaseWithOptions(const CreateDatabaseOptions& opts) {
 
         if (!opts.comment.empty()) {
             const std::string commentSql =
-                std::format("COMMENT ON DATABASE {} IS '{}'", quotePgIdentifier(opts.name),
+                std::format("COMMENT ON DATABASE {} IS '{}'", builder->quoteIdentifier(opts.name),
                             ddl_utils::escapeSingleQuotes(opts.comment));
             PgResultPtr commentRes(PQexec(conn, commentSql.c_str()));
             if (!commentRes || PQresultStatus(commentRes.get()) != PGRES_COMMAND_OK) {

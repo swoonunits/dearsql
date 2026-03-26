@@ -216,7 +216,7 @@ set(APP_SOURCES
     src/database/db_factory.cpp
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
-    src/database/ddl_builder.cpp
+
     src/database/ssh_config_parser.cpp
 
     # UI
@@ -507,7 +507,7 @@ add_executable(database_tests
     src/database/oracle/oracle_client_installer.cpp
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
-    src/database/ddl_builder.cpp
+
     src/database/ssh_config_parser.cpp
 )
 

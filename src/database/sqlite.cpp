@@ -1,5 +1,5 @@
 #include "database/sqlite.hpp"
-#include "database/ddl_builder.hpp"
+#include "database/sql_builder.hpp"
 #include <algorithm>
 #include <chrono>
 #include <format>
@@ -527,8 +527,8 @@ std::pair<bool, std::string> SQLiteDatabase::createTable(const Table& table) {
     }
 
     try {
-        DDLBuilder builder(DatabaseType::SQLITE);
-        std::string sql = builder.createTable(table);
+        const auto builder = createSQLBuilder(DatabaseType::SQLITE);
+        std::string sql = builder->createTable(table);
         auto result = executeQuery(sql);
         if (!result.success()) {
             return {false, result.errorMessage()};

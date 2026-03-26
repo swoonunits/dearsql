@@ -47,7 +47,9 @@ public:
     }
     [[nodiscard]] DatabaseInterface* ownerDatabase() const override;
     [[nodiscard]] std::string getFullPath() const override;
-    [[nodiscard]] DatabaseType getDatabaseType() const override;
+    [[nodiscard]] DatabaseType getDatabaseType() const override {
+        return DatabaseType::MSSQL;
+    }
 
     QueryResult executeQuery(const std::string& sql, int limit = 1000) override;
     std::pair<bool, std::string> createTable(const Table& table) override;

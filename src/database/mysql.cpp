@@ -1,4 +1,6 @@
 #include "database/mysql.hpp"
+#include "database/ddl_utils.hpp"
+#include "database/sql_builder.hpp"
 #include <cctype>
 #include <format>
 #include <iostream>
@@ -135,32 +137,6 @@ namespace {
         }
 
         return result;
-    }
-
-    std::string quoteMysqlIdentifier(const std::string& input) {
-        std::string quoted = "`";
-        quoted.reserve(input.size() + 2);
-        for (char ch : input) {
-            quoted.push_back(ch);
-            if (ch == '`') {
-                quoted.push_back('`');
-            }
-        }
-        quoted.push_back('`');
-        return quoted;
-    }
-
-    bool isSafeSqlToken(const std::string& input) {
-        if (input.empty()) {
-            return false;
-        }
-        for (char ch : input) {
-            const unsigned char uch = static_cast<unsigned char>(ch);
-            if (!std::isalnum(uch) && ch != '_') {
-                return false;
-            }
-        }
-        return true;
     }
 
 } // namespace
@@ -599,15 +575,16 @@ MySQLDatabase::createDatabaseWithOptions(const CreateDatabaseOptions& opts) {
     if (opts.name.empty()) {
         return {false, "Database name cannot be empty"};
     }
-    if (!opts.charset.empty() && !isSafeSqlToken(opts.charset)) {
+    if (!opts.charset.empty() && !ddl_utils::isSafeSqlToken(opts.charset)) {
         return {false, "Invalid charset value"};
     }
-    if (!opts.collation.empty() && !isSafeSqlToken(opts.collation)) {
+    if (!opts.collation.empty() && !ddl_utils::isSafeSqlToken(opts.collation)) {
         return {false, "Invalid collation value"};
     }
 
     try {
-        std::string sql = std::format("CREATE DATABASE {}", quoteMysqlIdentifier(opts.name));
+        const auto builder = createSQLBuilder(DatabaseType::MYSQL);
+        std::string sql = std::format("CREATE DATABASE {}", builder->quoteIdentifier(opts.name));
         if (!opts.charset.empty())
             sql += std::format(" CHARACTER SET {}", opts.charset);
         if (!opts.collation.empty())

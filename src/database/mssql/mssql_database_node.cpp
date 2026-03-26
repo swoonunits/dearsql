@@ -1,7 +1,7 @@
 #include "database/mssql/mssql_database_node.hpp"
 #include "database/db.hpp"
-#include "database/ddl_builder.hpp"
 #include "database/mssql.hpp"
+#include "database/sql_builder.hpp"
 #include "mssql_utils.hpp"
 #include <algorithm>
 #include <chrono>
@@ -520,8 +520,8 @@ QueryResult MSSQLDatabaseNode::executeQuery(const std::string& query, int rowLim
 
 std::pair<bool, std::string> MSSQLDatabaseNode::createTable(const Table& table) {
     try {
-        DDLBuilder builder(getDatabaseType());
-        std::string sql = builder.createTable(table);
+        const auto builder = createSQLBuilder(getDatabaseType());
+        std::string sql = builder->createTable(table);
 
         auto result = executeQuery(sql);
         if (!result.success()) {
@@ -539,13 +539,6 @@ DatabaseInterface* MSSQLDatabaseNode::ownerDatabase() const {
 
 std::string MSSQLDatabaseNode::getFullPath() const {
     return name;
-}
-
-DatabaseType MSSQLDatabaseNode::getDatabaseType() const {
-    if (parentDb) {
-        return parentDb->getConnectionInfo().type;
-    }
-    return DatabaseType::MSSQL;
 }
 
 void MSSQLDatabaseNode::checkLoadingStatus() {
