@@ -1,7 +1,6 @@
 #include "app_state.hpp"
 #include "utils/crypto.hpp"
 #include <filesystem>
-#include <format>
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <sqlite3.h>

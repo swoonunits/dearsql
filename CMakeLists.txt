@@ -210,6 +210,7 @@ set(APP_SOURCES
     src/database/mongodb/mongodb_database_node.cpp
     src/database/mssql.cpp
     src/database/mssql/mssql_database_node.cpp
+    src/database/mssql/mssql_schema_node.cpp
     src/database/oracle.cpp
     src/database/oracle/oracle_database_node.cpp
     src/database/oracle/oracle_client_installer.cpp
@@ -502,6 +503,7 @@ add_executable(database_tests
     src/database/mongodb/mongodb_database_node.cpp
     src/database/mssql.cpp
     src/database/mssql/mssql_database_node.cpp
+    src/database/mssql/mssql_schema_node.cpp
     src/database/oracle.cpp
     src/database/oracle/oracle_database_node.cpp
     src/database/oracle/oracle_client_installer.cpp

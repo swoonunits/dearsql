@@ -61,8 +61,13 @@ MSSQLDatabase::~MSSQLDatabase() {
 
     for (auto& dbDataPtr : databaseDataCache | std::views::values) {
         if (dbDataPtr) {
-            dbDataPtr->tablesLoader.cancel();
-            dbDataPtr->viewsLoader.cancel();
+            dbDataPtr->schemasLoader.cancel();
+            for (auto& schema : dbDataPtr->schemas) {
+                if (schema) {
+                    schema->tablesLoader.cancel();
+                    schema->viewsLoader.cancel();
+                }
+            }
         }
     }
 
@@ -243,7 +248,8 @@ bool MSSQLDatabase::hasPendingAsyncWork() const {
     for (const auto& [_, dbNode] : databaseDataCache) {
         if (!dbNode)
             continue;
-        if (dbNode->tablesLoader.isRunning() || dbNode->viewsLoader.isRunning()) {
+        if (dbNode->schemasLoader.isRunning() || dbNode->isLoadingTables() ||
+            dbNode->isLoadingViews()) {
             return true;
         }
     }

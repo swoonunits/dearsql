@@ -221,9 +221,9 @@ void DatabaseHierarchy::renderRootNode() {
         }
     }
 
-    // scripts node — shown for all non-Redis connection types
+    // queries node — shown for all non-Redis connection types
     if (dbType != DatabaseType::REDIS) {
-        renderScriptsNode();
+        renderQueriesNode();
     }
 
     if (dbType == DatabaseType::REDIS) {
@@ -1702,10 +1702,64 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
     }
 
     if (isOpen) {
+        // load schemas if not loaded
+        if (!dbData->schemasLoaded && !dbData->schemasLoader.isRunning()) {
+            dbData->startSchemasLoadAsync();
+        }
+
+        if (dbData->schemasLoader.isRunning()) {
+            dbData->checkSchemasStatusAsync();
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+            ImGui::Text("  Loading schemas...");
+            ImGui::SameLine(0, Theme::Spacing::S);
+            UIUtils::Spinner("##loading_schemas", 6.0f, 2, ImGui::GetColorU32(colors.peach));
+            ImGui::PopStyleColor();
+        } else if (dbData->schemasLoaded) {
+            for (auto& schema : dbData->schemas) {
+                renderMSSQLSchemaNode(dbData, schema.get());
+            }
+        }
+
+        ImGui::TreePop();
+    }
+}
+
+void DatabaseHierarchy::renderMSSQLSchemaNode(const MSSQLDatabaseNode* dbData,
+                                              MSSQLSchemaNode* schemaData) {
+    if (!dbData || !schemaData)
+        return;
+
+    const auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
+
+    const std::string nodeId =
+        std::format("mssql_schema_{}_{:p}", schemaData->name, static_cast<void*>(schemaData));
+    const bool isOpen = renderTreeNodeWithIcon(schemaData->name, nodeId, ICON_FK_FOLDER,
+                                               ImGui::GetColorU32(colors.yellow));
+
+    // context menu
+    if (ImGui::BeginPopupContextItem(nullptr)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem(NEW_SQL_EDITOR_LABEL)) {
+            app.getTabManager()->createSQLEditorTab("", schemaData);
+        }
+        if (ImGui::MenuItem(SHOW_DIAGRAM_LABEL)) {
+            app.getTabManager()->createDiagramTab(schemaData);
+        }
+        if (ImGui::MenuItem(REFRESH_LABEL)) {
+            schemaData->startTablesLoadAsync(true);
+            schemaData->startViewsLoadAsync(true);
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+
+    if (isOpen) {
         // tables
         {
-            const std::string tablesNodeId =
-                std::format("tables_{}_{:p}", dbData->name, static_cast<void*>(&dbData->tables));
+            const std::string tablesNodeId = std::format("mssql_tables_{}_{:p}", schemaData->name,
+                                                         static_cast<void*>(&schemaData->tables));
             const bool tablesOpen = renderTreeNodeWithIcon("Tables", tablesNodeId, ICON_FK_TABLE,
                                                            ImGui::GetColorU32(colors.green));
 
@@ -1713,35 +1767,35 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(CREATE_TABLE_LABEL)) {
-                    app.getTabManager()->createTableEditorTab(dbData);
+                    app.getTabManager()->createTableEditorTab(schemaData, schemaData->name);
                 }
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
-                    dbData->startTablesLoadAsync(true);
+                    schemaData->startTablesLoadAsync(true);
                 }
                 ImGui::PopStyleVar();
                 ImGui::EndPopup();
             }
 
             if (tablesOpen) {
-                if (!dbData->tablesLoaded && !dbData->tablesLoader.isRunning()) {
-                    dbData->startTablesLoadAsync();
+                if (!schemaData->tablesLoaded && !schemaData->tablesLoader.isRunning()) {
+                    schemaData->startTablesLoadAsync();
                 }
 
-                if (dbData->tablesLoader.isRunning()) {
-                    dbData->checkTablesStatusAsync();
+                if (schemaData->tablesLoader.isRunning()) {
+                    schemaData->checkTablesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
                     ImGui::Text("  Loading tables...");
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
-                } else if (dbData->tablesLoaded) {
-                    if (dbData->tables.empty()) {
+                } else if (schemaData->tablesLoaded) {
+                    if (schemaData->tables.empty()) {
                         ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
                         ImGui::Text("  No tables");
                         ImGui::PopStyleColor();
                     } else {
-                        for (auto& table : dbData->tables) {
-                            renderMSSQLTableNode(table, dbData);
+                        for (auto& table : schemaData->tables) {
+                            renderMSSQLTableNode(table, schemaData);
                         }
                     }
                 }
@@ -1751,8 +1805,8 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
 
         // views
         {
-            const std::string viewsNodeId =
-                std::format("views_{}_{:p}", dbData->name, static_cast<void*>(&dbData->views));
+            const std::string viewsNodeId = std::format("mssql_views_{}_{:p}", schemaData->name,
+                                                        static_cast<void*>(&schemaData->views));
             const bool viewsOpen = renderTreeNodeWithIcon("Views", viewsNodeId, ICON_FK_EYE,
                                                           ImGui::GetColorU32(colors.teal));
 
@@ -1760,32 +1814,32 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                 if (ImGui::MenuItem(REFRESH_LABEL)) {
-                    dbData->startViewsLoadAsync(true);
+                    schemaData->startViewsLoadAsync(true);
                 }
                 ImGui::PopStyleVar();
                 ImGui::EndPopup();
             }
 
             if (viewsOpen) {
-                if (!dbData->viewsLoaded && !dbData->viewsLoader.isRunning()) {
-                    dbData->startViewsLoadAsync();
+                if (!schemaData->viewsLoaded && !schemaData->viewsLoader.isRunning()) {
+                    schemaData->startViewsLoadAsync();
                 }
 
-                if (dbData->viewsLoader.isRunning()) {
-                    dbData->checkViewsStatusAsync();
+                if (schemaData->viewsLoader.isRunning()) {
+                    schemaData->checkViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
                     ImGui::Text("  Loading views...");
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
-                } else if (dbData->viewsLoaded) {
-                    if (dbData->views.empty()) {
+                } else if (schemaData->viewsLoaded) {
+                    if (schemaData->views.empty()) {
                         ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
                         ImGui::Text("  No views");
                         ImGui::PopStyleColor();
                     } else {
-                        for (auto& view : dbData->views) {
-                            renderMSSQLViewNode(view, dbData);
+                        for (auto& view : schemaData->views) {
+                            renderMSSQLViewNode(view, schemaData);
                         }
                     }
                 }
@@ -1797,7 +1851,7 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
     }
 }
 
-void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* dbData) {
+void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLSchemaNode* schemaData) {
     auto& app = Application::getInstance();
     const auto& colors = app.getCurrentColors();
 
@@ -1809,7 +1863,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
     const bool tableOpen = renderTreeNodeWithIcon(table.name, tableNodeId, ICON_FK_TABLE,
                                                   ImGui::GetColorU32(colors.green), tableFlags);
 
-    const bool isRefreshing = dbData->isTableRefreshing(table.name);
+    const bool isRefreshing = schemaData->isTableRefreshing(table.name);
     if (isRefreshing) {
         constexpr float spinnerRadius = 6.0f;
         const float spinnerX = ImGui::GetItemRectMax().x + 4.0f;
@@ -1822,34 +1876,34 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
                          ImGui::GetColorU32(colors.peach));
         ImGui::PopStyleColor();
 
-        dbData->checkTableRefreshStatusAsync(table.name);
+        schemaData->checkTableRefreshStatusAsync(table.name);
     }
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, table.name);
+        app.getTabManager()->createTableViewerTab(schemaData, table.name);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(dbData, table.name);
+            app.getTabManager()->createTableViewerTab(schemaData, table.name);
         }
         if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
-            app.getTabManager()->createTableEditorTab(dbData, table);
+            app.getTabManager()->createTableEditorTab(schemaData, table);
         }
         if (ImGui::MenuItem(REFRESH_LABEL)) {
-            dbData->startTableRefreshAsync(table.name);
+            schemaData->startTableRefreshAsync(table.name);
         }
-        TableExporter::renderExportMenu(dbData, table);
-        TableImporter::renderImportMenu(dbData, table.name);
+        TableExporter::renderExportMenu(schemaData, table);
+        TableImporter::renderImportMenu(schemaData, table.name);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = table.name;
             InputDialog::show(
                 "Rename Table", "New name:", oldName, "Rename",
-                [dbData, oldName](const std::string& newName) -> std::string {
-                    auto [success, error] = dbData->renameTable(oldName, newName);
+                [schemaData, oldName](const std::string& newName) -> std::string {
+                    auto [success, error] = schemaData->renameTable(oldName, newName);
                     return success ? "" : error;
                 },
                 nullptr,
@@ -1865,8 +1919,8 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
                         std::format("Remove all rows from '{}'? This is irreversible.", tableName),
                         {{"Cancel", nullptr, AlertButton::Style::Cancel},
                          {"Truncate",
-                          [dbData, tableName]() {
-                              auto [success, error] = dbData->truncateTable(tableName);
+                          [schemaData, tableName]() {
+                              auto [success, error] = schemaData->truncateTable(tableName);
                               if (!success) {
                                   Alert::show("Error",
                                               std::format("Failed to truncate table: {}", error));
@@ -1882,8 +1936,8 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
                             tableName),
                 {{"Cancel", nullptr, AlertButton::Style::Cancel},
                  {"Delete",
-                  [dbData, tableName]() {
-                      auto [success, error] = dbData->dropTable(tableName);
+                  [schemaData, tableName]() {
+                      auto [success, error] = schemaData->dropTable(tableName);
                       if (!success) {
                           Alert::show("Error", std::format("Failed to delete table: {}", error));
                       }
@@ -1932,8 +1986,9 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
                                 std::format("Permanently drop column '{}.{}'?", tblName, colName),
                                 {{"Cancel", nullptr, AlertButton::Style::Cancel},
                                  {"Drop",
-                                  [dbData, tblName, colName]() {
-                                      auto [success, error] = dbData->dropColumn(tblName, colName);
+                                  [schemaData, tblName, colName]() {
+                                      auto [success, error] =
+                                          schemaData->dropColumn(tblName, colName);
                                       if (!success) {
                                           Alert::show(
                                               "Error",
@@ -2030,7 +2085,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLDatabaseNode* db
     }
 }
 
-void DatabaseHierarchy::renderMSSQLViewNode(Table& view, MSSQLDatabaseNode* dbData) {
+void DatabaseHierarchy::renderMSSQLViewNode(Table& view, MSSQLSchemaNode* schemaData) {
     const auto& app = Application::getInstance();
     const auto& colors = app.getCurrentColors();
 
@@ -2050,14 +2105,14 @@ void DatabaseHierarchy::renderMSSQLViewNode(Table& view, MSSQLDatabaseNode* dbDa
     ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(colors.teal), ICON_FK_EYE);
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, view.name);
+        app.getTabManager()->createTableViewerTab(schemaData, view.name);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(dbData, view.name);
+            app.getTabManager()->createTableViewerTab(schemaData, view.name);
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
@@ -2963,7 +3018,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
     }
 }
 
-IDatabaseNode* DatabaseHierarchy::resolveNodeForScript(const SqlScript& script) const {
+IDatabaseNode* DatabaseHierarchy::resolveNodeForQuery(const SqlScript& query) const {
     if (!db)
         return nullptr;
 
@@ -2976,10 +3031,10 @@ IDatabaseNode* DatabaseHierarchy::resolveNodeForScript(const SqlScript& script) 
         auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get());
         if (!pgDb)
             return nullptr;
-        if (auto* dbNode = pgDb->getDatabaseData(script.databaseName)) {
-            if (!script.schemaName.empty()) {
+        if (auto* dbNode = pgDb->getDatabaseData(query.databaseName)) {
+            if (!query.schemaName.empty()) {
                 for (const auto& schema : dbNode->schemas) {
-                    if (schema && schema->name == script.schemaName)
+                    if (schema && schema->name == query.schemaName)
                         return schema.get();
                 }
             }
@@ -2991,24 +3046,33 @@ IDatabaseNode* DatabaseHierarchy::resolveNodeForScript(const SqlScript& script) 
         auto* mysqlDb = dynamic_cast<MySQLDatabase*>(db.get());
         if (!mysqlDb)
             return nullptr;
-        return mysqlDb->getDatabaseData(script.databaseName);
+        return mysqlDb->getDatabaseData(query.databaseName);
     }
     if (dbType == DatabaseType::MSSQL) {
         auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get());
         if (!mssqlDb)
             return nullptr;
-        return mssqlDb->getDatabaseData(script.databaseName);
+        if (auto* dbNode = mssqlDb->getDatabaseData(query.databaseName)) {
+            if (!query.schemaName.empty()) {
+                for (const auto& schema : dbNode->schemas) {
+                    if (schema && schema->name == query.schemaName)
+                        return schema.get();
+                }
+            }
+            return dbNode;
+        }
+        return nullptr;
     }
     if (dbType == DatabaseType::ORACLE) {
         auto* oracleDb = dynamic_cast<OracleDatabase*>(db.get());
         if (!oracleDb)
             return nullptr;
-        return oracleDb->getDatabaseData(script.databaseName);
+        return oracleDb->getDatabaseData(query.databaseName);
     }
     return nullptr;
 }
 
-void DatabaseHierarchy::renderScriptsNode() {
+void DatabaseHierarchy::renderQueriesNode() {
     auto& app = Application::getInstance();
     const auto& colors = app.getCurrentColors();
 
@@ -3020,17 +3084,17 @@ void DatabaseHierarchy::renderScriptsNode() {
     if (!appState)
         return;
 
-    const auto scripts = appState->getScriptsForConnection(connId);
+    const auto queries = appState->getScriptsForConnection(connId);
 
-    const std::string scriptsNodeId = std::format("scripts_conn_{}", static_cast<void*>(db.get()));
-    const bool scriptsOpen = renderTreeNodeWithIcon("Scripts", scriptsNodeId, ICON_FA_FILE_CODE,
+    const std::string queriesNodeId = std::format("scripts_conn_{}", static_cast<void*>(db.get()));
+    const bool queriesOpen = renderTreeNodeWithIcon("Queries", queriesNodeId, ICON_FA_FILE_CODE,
                                                     ImGui::GetColorU32(colors.mauve));
 
-    // context menu on the Scripts header
+    // context menu on the Queriess header
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-        if (ImGui::MenuItem("New SQL Script")) {
+        if (ImGui::MenuItem("New SQL Query")) {
             // resolve the first available database node for this connection
             IDatabaseNode* node = nullptr;
             const auto dbType = db->getConnectionInfo().type;
@@ -3072,54 +3136,53 @@ void DatabaseHierarchy::renderScriptsNode() {
             if (node) {
                 app.getTabManager()->createSQLEditorTab("", node);
             } else {
-                spdlog::warn("New SQL Script: no loaded database node found for this connection");
+                spdlog::warn("New SQL Query: no loaded database node found for this connection");
             }
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
     }
 
-    if (scriptsOpen) {
-        if (scripts.empty()) {
+    if (queriesOpen) {
+        if (queries.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
-            ImGui::Text("  No scripts");
+            ImGui::Text("  No query");
             ImGui::PopStyleColor();
         } else {
-            constexpr ImGuiTreeNodeFlags scriptItemFlags = ImGuiTreeNodeFlags_Leaf |
-                                                           ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                                                           ImGuiTreeNodeFlags_FramePadding;
-            for (const auto& script : scripts) {
-                const std::string scriptItemId =
-                    std::format("script_{}_{}", script.id, static_cast<const void*>(&script));
-                renderTreeNodeWithIcon(script.name, scriptItemId, ICON_FA_FILE_CODE,
-                                       ImGui::GetColorU32(colors.mauve), scriptItemFlags);
+            constexpr ImGuiTreeNodeFlags queryItemFlags = ImGuiTreeNodeFlags_Leaf |
+                                                          ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                          ImGuiTreeNodeFlags_FramePadding;
+            for (const auto& query : queries) {
+                const std::string queryItemId =
+                    std::format("script_{}_{}", query.id, static_cast<const void*>(&query));
+                renderTreeNodeWithIcon(query.name, queryItemId, ICON_FA_FILE_CODE,
+                                       ImGui::GetColorU32(colors.mauve), queryItemFlags);
 
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                    IDatabaseNode* node = resolveNodeForScript(script);
-                    app.getTabManager()->createSQLEditorTabFromScript(node, script);
+                    IDatabaseNode* node = resolveNodeForQuery(query);
+                    app.getTabManager()->createSQLEditorTabFromQuery(node, query);
                 }
 
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", script.filePath.c_str());
+                    ImGui::SetTooltip("%s", query.filePath.c_str());
                 }
 
-                if (ImGui::BeginPopupContextItem(scriptItemId.c_str())) {
+                if (ImGui::BeginPopupContextItem(queryItemId.c_str())) {
                     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                         ImVec2(Theme::Spacing::M, Theme::Spacing::M));
                     if (ImGui::MenuItem("Open")) {
-                        IDatabaseNode* node = resolveNodeForScript(script);
-                        app.getTabManager()->createSQLEditorTabFromScript(node, script);
+                        IDatabaseNode* node = resolveNodeForQuery(query);
+                        app.getTabManager()->createSQLEditorTabFromQuery(node, query);
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Delete")) {
-                        const int scriptId = script.id;
+                        const int queryId = query.id;
                         Alert::show(
-                            "Delete Script",
+                            "Delete Query",
                             std::format("Remove '{}' from the list? The file won't be deleted.",
-                                        script.name),
+                                        query.name),
                             {{"Cancel", nullptr, AlertButton::Style::Cancel},
-                             {"Remove",
-                              [appState, scriptId]() { appState->deleteScript(scriptId); },
+                             {"Remove", [appState, queryId]() { appState->deleteScript(queryId); },
                               AlertButton::Style::Destructive}});
                     }
                     ImGui::PopStyleVar();
