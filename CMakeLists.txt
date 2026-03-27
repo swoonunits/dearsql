@@ -299,9 +299,6 @@ elseif(WIN32)
         src/platform/windows_ssh_tunnel.cpp
         assets/app.rc
     )
-else()
-    list(APPEND APP_SOURCES src/platform/default_platform.cpp)
-    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 endif()
 
 # Include resource embedding functions

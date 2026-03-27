@@ -18,8 +18,6 @@
 #include "platform/linux_platform.hpp"
 #elif defined(_WIN32)
 #include "platform/windows_platform.hpp"
-#else
-#include "platform/default_platform.hpp"
 #endif
 
 #include "themes.hpp"
@@ -134,18 +132,6 @@ bool Application::initialize() {
     platform_->setupTitlebar();
 #elif defined(_WIN32)
     platform_ = std::make_unique<WindowsPlatform>(this);
-    if (!initializeGLFW()) {
-        return false;
-    }
-    if (!platform_->initializePlatform(window)) {
-        spdlog::error("Failed to initialize platform");
-        return false;
-    }
-    if (!initializeImGui()) {
-        return false;
-    }
-#else
-    platform_ = std::make_unique<DefaultPlatform>(this);
     if (!initializeGLFW()) {
         return false;
     }

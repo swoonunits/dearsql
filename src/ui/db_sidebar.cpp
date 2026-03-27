@@ -59,7 +59,6 @@ void DatabaseSidebarNew::renderEmpty() {
     ImGui::TextWrapped("Right-click here to add a new database connection");
     ImGui::PopStyleColor();
 
-    // Show context menu for adding database when area is right-clicked
     if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         ImGui::OpenPopup("AddDatabasePopup");
     }
