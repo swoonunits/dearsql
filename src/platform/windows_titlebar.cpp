@@ -7,6 +7,7 @@
 #include "platform/titlebar.hpp"
 #include "platform/updater.hpp"
 #include "themes.hpp"
+#include "ui/input_dialog.hpp"
 
 #include "IconsFontAwesome6.h"
 
@@ -387,23 +388,104 @@ void WindowsTitlebar::renderPopups() {
     ImGui::SetNextWindowPos(workspacePopupPos_);
     ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8, 8});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6, 6});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 2});
     if (ImGui::BeginPopup("##WorkspacePopup")) {
         auto workspaces = app_->getWorkspaces();
+        const float actionBtnW = ImGui::GetFontSize() + 4.0f;
+        const float rowW = 180.0f;
+        // reserve space for two action buttons on the right
+        const float nameW = rowW - actionBtnW * 2 - 8.0f;
+
         for (const auto& ws : workspaces) {
             bool isCurrent = (ws.id == app_->getCurrentWorkspaceId());
-            if (ImGui::Selectable(ws.name.c_str(), isCurrent)) {
+            ImGui::PushID(ws.id);
+
+            ImVec2 rowMin = ImGui::GetCursorScreenPos();
+            ImVec2 rowMax = {rowMin.x + rowW, rowMin.y + ImGui::GetFrameHeight()};
+            bool rowHovered = ImGui::IsMouseHoveringRect(rowMin, rowMax);
+
+            // hover background
+            if (rowHovered)
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    rowMin, rowMax, ImGui::GetColorU32(ImGuiCol_HeaderHovered), 3.0f);
+
+            // checkmark for current workspace
+            ImGui::TextUnformatted(isCurrent ? ICON_FA_CHECK : "  ");
+            ImGui::SameLine(0, 4);
+
+            // name — clicking selects the workspace
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
+            ImGui::SetNextItemWidth(nameW);
+            if (ImGui::Selectable(ws.name.c_str(), false, ImGuiSelectableFlags_DontClosePopups,
+                                  {nameW, 0})) {
                 app_->setCurrentWorkspace(ws.id);
+                ImGui::CloseCurrentPopup();
             }
+            ImGui::PopStyleColor(3);
+
+            // action buttons — only visible on hover
+            if (rowHovered) {
+                ImGui::SameLine(0, 4);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface2);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.overlay0);
+
+                // pencil / rename
+                if (ImGui::Button(ICON_FA_PENCIL "##edit", {actionBtnW, 0})) {
+                    int wsId = ws.id;
+                    std::string wsName = ws.name;
+                    ImGui::CloseCurrentPopup();
+                    InputDialog::show("Rename Workspace", "", wsName, "Rename",
+                                      [this, wsId](const std::string& newName) -> std::string {
+                                          if (newName.empty())
+                                              return "Name cannot be empty.";
+                                          app_->renameWorkspace(wsId, newName);
+                                          return "";
+                                      });
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Rename");
+
+                ImGui::SameLine(0, 2);
+
+                // trash / delete
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.77f, 0.17f, 0.11f, 0.6f));
+                if (ImGui::Button(ICON_FA_TRASH "##del", {actionBtnW, 0})) {
+                    int wsId = ws.id;
+                    ImGui::CloseCurrentPopup();
+                    Alert::show(
+                        "Delete Workspace",
+                        "Are you sure you want to delete this workspace? "
+                        "All connections in this workspace will be removed.",
+                        {AlertButton{"Delete", [this, wsId]() { app_->deleteWorkspace(wsId); },
+                                     AlertButton::Style::Destructive},
+                         AlertButton{"Cancel", {}, AlertButton::Style::Cancel}});
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Delete");
+
+                ImGui::PopStyleColor(4);
+            }
+
+            ImGui::PopID();
         }
+
         ImGui::Separator();
-        if (ImGui::Selectable("New Workspace...")) {
+        if (ImGui::Selectable("  " ICON_FA_PLUS "  New Workspace...")) {
             if (!app_->canAddWorkspace()) {
                 Alert::show(
                     "Workspace Limit Reached",
                     "Free tier is limited to 1 workspace. Activate a license to create more.");
             } else {
-                app_->createWorkspace("New Workspace", "");
+                InputDialog::show("New Workspace", "", "", "Create",
+                                  [this](const std::string& name) -> std::string {
+                                      if (name.empty())
+                                          return "Name cannot be empty.";
+                                      app_->createWorkspace(name, "");
+                                      return "";
+                                  });
             }
         }
         ImGui::EndPopup();
