@@ -57,6 +57,7 @@ public:
     [[nodiscard]] int saveWorkspace(const Workspace& workspace) const;
     [[nodiscard]] std::vector<Workspace> getWorkspaces() const;
     [[nodiscard]] bool deleteWorkspace(int workspaceId) const;
+    [[nodiscard]] bool renameWorkspace(int workspaceId, const std::string& name) const;
     bool updateWorkspaceLastUsed(int workspaceId) const;
     [[nodiscard]] std::vector<SavedConnection> getConnectionsForWorkspace(int workspaceId) const;
     [[nodiscard]] bool moveConnectionToWorkspace(int connectionId, int workspaceId) const;

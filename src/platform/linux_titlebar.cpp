@@ -8,6 +8,7 @@
 #include "platform/titlebar.hpp"
 #include "platform/updater.hpp"
 #include "themes.hpp"
+#include "ui/input_dialog.hpp"
 #include <format>
 #include <gtk/gtk.h>
 
@@ -345,7 +346,43 @@ void LinuxTitlebar::updateWorkspaceDropdown() {
             this);
         gtk_box_append(GTK_BOX(row), nameButton);
 
-        // trash button (visible on row hover via CSS controller)
+        // edit button (visible on row hover)
+        GtkWidget* editButton = gtk_button_new_from_icon_name("document-edit-symbolic");
+        gtk_widget_add_css_class(editButton, "flat");
+        gtk_widget_add_css_class(editButton, "ws-action-btn");
+        gtk_widget_set_opacity(editButton, 0.0);
+        gtk_widget_set_tooltip_text(editButton, "Rename Workspace");
+        g_object_set_data(G_OBJECT(editButton), "ws_index", GINT_TO_POINTER(static_cast<int>(i)));
+
+        g_signal_connect(
+            editButton, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer userData) {
+                auto* self = static_cast<LinuxTitlebar*>(userData);
+                int idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "ws_index"));
+                if (idx < 0 || idx >= static_cast<int>(self->workspaceIdsByIndex_.size()))
+                    return;
+                int wsId = self->workspaceIdsByIndex_[idx];
+                auto workspaces = self->app_->getWorkspaces();
+                std::string currentName;
+                for (const auto& ws : workspaces) {
+                    if (ws.id == wsId) {
+                        currentName = ws.name;
+                        break;
+                    }
+                }
+                gtk_popover_popdown(GTK_POPOVER(self->workspacePopover_));
+                InputDialog::show("Rename Workspace", "", currentName, "Rename",
+                                  [self, wsId](const std::string& newName) -> std::string {
+                                      if (newName.empty())
+                                          return "Name cannot be empty.";
+                                      if (self->app_)
+                                          self->app_->renameWorkspace(wsId, newName);
+                                      return "";
+                                  });
+            }),
+            this);
+        gtk_box_append(GTK_BOX(row), editButton);
+
+        // trash button (visible on row hover)
         GtkWidget* trashButton = gtk_button_new_from_icon_name("user-trash-symbolic");
         gtk_widget_add_css_class(trashButton, "flat");
         gtk_widget_add_css_class(trashButton, "ws-trash-btn");
@@ -376,20 +413,24 @@ void LinuxTitlebar::updateWorkspaceDropdown() {
             this);
         gtk_box_append(GTK_BOX(row), trashButton);
 
-        // hover controller to show/hide trash button
+        // hover controller to show/hide action buttons and highlight row
         GtkEventController* motionCtrl = gtk_event_controller_motion_new();
+        g_object_set_data(G_OBJECT(motionCtrl), "edit_btn", editButton);
         g_object_set_data(G_OBJECT(motionCtrl), "trash_btn", trashButton);
         g_signal_connect(motionCtrl, "enter",
                          G_CALLBACK(+[](GtkEventControllerMotion* ctrl, double, double, gpointer) {
-                             auto* trash =
-                                 GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "trash_btn"));
-                             gtk_widget_set_opacity(trash, 1.0);
+                             gtk_widget_set_opacity(
+                                 GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "edit_btn")), 1.0);
+                             gtk_widget_set_opacity(
+                                 GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "trash_btn")), 1.0);
                          }),
                          nullptr);
         g_signal_connect(
             motionCtrl, "leave", G_CALLBACK(+[](GtkEventControllerMotion* ctrl, gpointer) {
-                auto* trash = GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "trash_btn"));
-                gtk_widget_set_opacity(trash, 0.0);
+                gtk_widget_set_opacity(GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "edit_btn")),
+                                       0.0);
+                gtk_widget_set_opacity(GTK_WIDGET(g_object_get_data(G_OBJECT(ctrl), "trash_btn")),
+                                       0.0);
             }),
             nullptr);
         gtk_widget_add_controller(row, motionCtrl);
@@ -555,10 +596,18 @@ void LinuxTitlebar::applyTheme(bool isDark) {
                       overlay0 +
                       "; }\n"
 
+                      "popover button.ws-action-btn,"
                       "popover button.ws-trash-btn {"
                       "  padding: 2px;"
                       "  min-width: 0;"
                       "  min-height: 0;"
+                      "}\n"
+                      "popover button.ws-action-btn:hover,"
+                      "popover button.ws-action-btn:hover image {"
+                      "  color: " +
+                      toHex(colors.blue) +
+                      ";"
+                      "  -gtk-icon-filter: none;"
                       "}\n"
                       "popover button.ws-trash-btn:hover,"
                       "popover button.ws-trash-btn:hover image {"

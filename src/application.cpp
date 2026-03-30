@@ -720,6 +720,15 @@ bool Application::deleteWorkspace(const int workspaceId) {
     return success;
 }
 
+bool Application::renameWorkspace(const int workspaceId, const std::string& name) {
+    if (!appState || name.empty())
+        return false;
+    bool success = appState->renameWorkspace(workspaceId, name);
+    if (success)
+        platform_->updateWorkspaceDropdown();
+    return success;
+}
+
 void Application::refreshWorkspaceConnections() {
     databases.clear();
 

@@ -842,6 +842,21 @@ bool AppState::deleteWorkspace(const int workspaceId) const {
     return true;
 }
 
+bool AppState::renameWorkspace(const int workspaceId, const std::string& name) const {
+    const std::string sql = "UPDATE workspaces SET name = ? WHERE id = ?";
+    sqlite3_stmt* raw = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to rename workspace: " << sqlite3_errmsg(db_) << std::endl;
+        return false;
+    }
+    auto stmt = std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>(raw, sqlite3_finalize);
+    sqlite3_bind_text(stmt.get(), 1, name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 2, workspaceId);
+    rc = sqlite3_step(stmt.get());
+    return rc == SQLITE_DONE;
+}
+
 bool AppState::updateWorkspaceLastUsed(const int workspaceId) const {
     const std::string sql = "UPDATE workspaces SET last_used = CURRENT_TIMESTAMP WHERE id = ?";
     sqlite3_stmt* raw = nullptr;

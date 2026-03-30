@@ -10,18 +10,56 @@
 #include "platform/titlebar.hpp"
 #include "platform/updater.hpp"
 #include "themes.hpp"
+#include "ui/input_dialog.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
+
+// Workspace row view — shows edit/delete buttons and a hover background
+@interface WorkspaceRowView : NSView
+@property(nonatomic, strong) NSButton* editButton;
+@property(nonatomic, strong) NSButton* deleteButton;
+@end
+
+@implementation WorkspaceRowView
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    for (NSTrackingArea* ta in self.trackingAreas.copy) {
+        [self removeTrackingArea:ta];
+    }
+    NSTrackingArea* ta = [[NSTrackingArea alloc]
+        initWithRect:self.bounds
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:ta];
+}
+- (void)mouseEntered:(NSEvent*)event {
+    self.wantsLayer = YES;
+    self.layer.backgroundColor =
+        [[NSColor controlAccentColor] colorWithAlphaComponent:0.08].CGColor;
+    self.layer.cornerRadius = 4;
+    self.editButton.hidden = NO;
+    self.deleteButton.hidden = NO;
+}
+- (void)mouseExited:(NSEvent*)event {
+    self.layer.backgroundColor = [NSColor clearColor].CGColor;
+    self.editButton.hidden = YES;
+    self.deleteButton.hidden = YES;
+}
+@end
 
 // Toolbar delegate interface
 @interface MacOSTitlebarDelegate : NSObject <NSToolbarDelegate>
 @property(nonatomic, assign) Application* app;
-@property(nonatomic, strong) NSPopUpButton* workspaceDropdown;
+@property(nonatomic, strong) NSButton* workspaceButton;
+@property(nonatomic, strong) NSPopover* workspacePopover;
 @property(nonatomic, strong) NSPopover* menuPopover;
 @property(nonatomic, strong) NSButton* themeLightButton;
 @property(nonatomic, strong) NSButton* themeDarkButton;
 @property(nonatomic, strong) NSButton* themeAutoButton;
 - (void)showMenuPopover:(NSButton*)sender;
+- (void)showWorkspacePopover:(NSButton*)sender;
+- (void)editWorkspaceClicked:(NSButton*)sender;
 - (void)updateThemeButtons;
 - (void)updateWindowBackgroundColor;
 - (void)restoreMainWindowFocus:(NSWindow*)mainWindow;
@@ -46,15 +84,16 @@
         item.paletteLabel = @"Workspace Selector";
         item.toolTip = @"Select Workspace";
 
-        self.workspaceDropdown = [[NSPopUpButton alloc] init];
-        [self.workspaceDropdown setBezelStyle:NSBezelStyleTexturedRounded];
-        [self.workspaceDropdown setBordered:YES];
-        [self.workspaceDropdown setTarget:self];
-        [self.workspaceDropdown setAction:@selector(workspaceChanged:)];
-        [self updateWorkspaceDropdown];
-        [self.workspaceDropdown sizeToFit];
+        self.workspaceButton = [[NSButton alloc] init];
+        [self.workspaceButton setButtonType:NSButtonTypeMomentaryPushIn];
+        [self.workspaceButton setBezelStyle:NSBezelStyleTexturedRounded];
+        [self.workspaceButton setBordered:YES];
+        [self.workspaceButton setTarget:self];
+        [self.workspaceButton setAction:@selector(showWorkspacePopover:)];
+        [self updateWorkspaceButtonLabel];
+        [self.workspaceButton sizeToFit];
 
-        item.view = self.workspaceDropdown;
+        item.view = self.workspaceButton;
         return item;
     } else if ([itemIdentifier isEqualToString:@"MenuButton"]) {
         NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
@@ -106,70 +145,213 @@
     }
 }
 
-- (void)workspaceChanged:(id)sender {
+- (void)showWorkspacePopover:(NSButton*)sender {
     @try {
-        if (self.app && self.workspaceDropdown) {
-            NSInteger selectedIndex = [self.workspaceDropdown indexOfSelectedItem];
-            NSLog(@"workspaceChanged: selectedIndex=%ld", (long)selectedIndex);
-            if (selectedIndex >= 0) {
-                NSMenuItem* selectedItem = [self.workspaceDropdown itemAtIndex:selectedIndex];
-                int workspaceId = (int)selectedItem.tag;
-                NSLog(@"workspaceChanged: tag=%d, currentWorkspaceId=%d", workspaceId,
-                      self.app->getCurrentWorkspaceId());
-                // skip non-workspace items (separator, "New Workspace..." have tag 0)
-                if (workspaceId > 0) {
-                    self.app->setCurrentWorkspace(workspaceId);
-                } else {
-                    NSLog(@"workspaceChanged: skipped (tag <= 0)");
-                }
-            }
-        }
+        [self updateWorkspaceDropdown];
+        [self.workspacePopover showRelativeToRect:sender.bounds
+                                           ofView:sender
+                                    preferredEdge:NSRectEdgeMaxY];
     } @catch (NSException* exception) {
-        NSLog(@"Exception in workspaceChanged: %@", exception);
+        NSLog(@"Exception in showWorkspacePopover: %@", exception);
     }
 }
 
-- (void)updateWorkspaceDropdown {
-    if (!self.workspaceDropdown || !self.app) {
+- (void)updateWorkspaceButtonLabel {
+    if (!self.workspaceButton)
         return;
+    if (self.app) {
+        std::string name = self.app->getCurrentWorkspaceName();
+        [self.workspaceButton setTitle:[NSString stringWithUTF8String:name.c_str()]];
+    } else {
+        [self.workspaceButton setTitle:@"Workspace"];
     }
+    [self.workspaceButton sizeToFit];
+}
 
-    // suppress action during rebuild to prevent re-entrant workspaceChanged: callbacks
-    SEL savedAction = [self.workspaceDropdown action];
-    [self.workspaceDropdown setAction:nil];
+- (void)updateWorkspaceDropdown {
+    if (!self.app)
+        return;
 
-    [self.workspaceDropdown removeAllItems];
+    [self updateWorkspaceButtonLabel];
+
+    // rebuild popover
+    if (!self.workspacePopover) {
+        self.workspacePopover = [[NSPopover alloc] init];
+        self.workspacePopover.behavior = NSPopoverBehaviorTransient;
+    }
 
     auto workspaces = self.app->getWorkspaces();
-    int currentWorkspaceId = self.app->getCurrentWorkspaceId();
+    int currentWsId = self.app->getCurrentWorkspaceId();
 
-    for (const auto& workspace : workspaces) {
-        NSString* title = [NSString stringWithUTF8String:workspace.name.c_str()];
-        [self.workspaceDropdown addItemWithTitle:title];
+    CGFloat w = 220;
+    CGFloat rowH = 30;
+    CGFloat padH = 8;
+    CGFloat sepH = 1;
+    CGFloat newBtnH = 30;
+    // build bottom-up: pad + newBtn + pad + sep + pad + rows + pad
+    CGFloat totalH = padH + newBtnH + padH + sepH + padH + (CGFloat)workspaces.size() * rowH + padH;
 
-        NSMenuItem* item = [self.workspaceDropdown lastItem];
-        item.tag = workspace.id;
+    NSView* contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, w, totalH)];
 
-        if (workspace.id == currentWorkspaceId) {
-            [self.workspaceDropdown selectItem:item];
-        }
+    // layout from bottom up (AppKit y=0 is at the bottom)
+    CGFloat y = padH;
+
+    // "New Workspace..." button at the bottom
+    NSButton* newWsBtn = [[NSButton alloc] initWithFrame:NSMakeRect(8, y, w - 16, newBtnH)];
+    [newWsBtn setTitle:@"New Workspace..."];
+    [newWsBtn setButtonType:NSButtonTypeMomentaryPushIn];
+    [newWsBtn setBezelStyle:NSBezelStyleRounded];
+    [newWsBtn setTarget:self];
+    [newWsBtn setAction:@selector(createNewWorkspace:)];
+    [contentView addSubview:newWsBtn];
+    y += newBtnH + padH;
+
+    // separator above button
+    NSBox* sep = [[NSBox alloc] initWithFrame:NSMakeRect(8, y, w - 16, sepH)];
+    sep.boxType = NSBoxSeparator;
+    [contentView addSubview:sep];
+    y += sepH + padH;
+
+    // workspace rows above separator (bottom-most workspace first)
+    for (int i = (int)workspaces.size() - 1; i >= 0; i--) {
+        const auto& ws = workspaces[i];
+        int wsId = ws.id;
+        bool isCurrent = wsId == currentWsId;
+
+        WorkspaceRowView* row = [[WorkspaceRowView alloc] initWithFrame:NSMakeRect(0, y, w, rowH)];
+
+        // checkmark icon for current workspace
+        NSImageView* checkIcon =
+            [[NSImageView alloc] initWithFrame:NSMakeRect(6, (rowH - 14) / 2, 14, 14)];
+        checkIcon.image = [NSImage imageWithSystemSymbolName:@"checkmark"
+                                    accessibilityDescription:@"Active"];
+        checkIcon.hidden = !isCurrent;
+        [row addSubview:checkIcon];
+
+        // edit button (hidden by default, revealed on hover)
+        NSButton* editBtn =
+            [[NSButton alloc] initWithFrame:NSMakeRect(w - 52, (rowH - 22) / 2, 22, 22)];
+        [editBtn setImage:[NSImage imageWithSystemSymbolName:@"pencil"
+                                    accessibilityDescription:@"Rename Workspace"]];
+        [editBtn setButtonType:NSButtonTypeMomentaryPushIn];
+        [editBtn setBezelStyle:NSBezelStyleInline];
+        [editBtn setBordered:NO];
+        editBtn.hidden = YES;
+        row.editButton = editBtn;
+
+        objc_setAssociatedObject(editBtn, "wsId", @(wsId), OBJC_ASSOCIATION_RETAIN);
+        objc_setAssociatedObject(editBtn, "wsName", [NSString stringWithUTF8String:ws.name.c_str()],
+                                 OBJC_ASSOCIATION_RETAIN);
+        [editBtn setTarget:self];
+        [editBtn setAction:@selector(editWorkspaceClicked:)];
+        [row addSubview:editBtn];
+
+        // trash button (hidden by default, revealed on hover)
+        NSButton* trashBtn =
+            [[NSButton alloc] initWithFrame:NSMakeRect(w - 28, (rowH - 22) / 2, 22, 22)];
+        [trashBtn setImage:[NSImage imageWithSystemSymbolName:@"trash"
+                                     accessibilityDescription:@"Delete Workspace"]];
+        [trashBtn setButtonType:NSButtonTypeMomentaryPushIn];
+        [trashBtn setBezelStyle:NSBezelStyleInline];
+        [trashBtn setBordered:NO];
+        [trashBtn setContentTintColor:[NSColor systemRedColor]];
+        trashBtn.hidden = YES;
+        row.deleteButton = trashBtn;
+
+        objc_setAssociatedObject(trashBtn, "wsId", @(wsId), OBJC_ASSOCIATION_RETAIN);
+        [trashBtn setTarget:self];
+        [trashBtn setAction:@selector(deleteWorkspaceClicked:)];
+        [row addSubview:trashBtn];
+
+        // name button — fills space between checkmark and action buttons
+        CGFloat nameX = 24;
+        CGFloat nameW = w - nameX - 56;
+        NSButton* nameBtn = [[NSButton alloc] initWithFrame:NSMakeRect(nameX, 1, nameW, rowH - 2)];
+        [nameBtn setTitle:[NSString stringWithUTF8String:ws.name.c_str()]];
+        [nameBtn setButtonType:NSButtonTypeMomentaryPushIn];
+        [nameBtn setBezelStyle:NSBezelStyleInline];
+        [nameBtn setBordered:NO];
+        nameBtn.alignment = NSTextAlignmentLeft;
+        objc_setAssociatedObject(nameBtn, "wsId", @(wsId), OBJC_ASSOCIATION_RETAIN);
+        [nameBtn setTarget:self];
+        [nameBtn setAction:@selector(selectWorkspaceClicked:)];
+        [row addSubview:nameBtn];
+
+        [contentView addSubview:row];
+        y += rowH;
     }
 
-    // add "New Workspace..." option
-    [self.workspaceDropdown.menu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem* newWorkspaceItem = [[NSMenuItem alloc] initWithTitle:@"New Workspace..."
-                                                              action:@selector(createNewWorkspace:)
-                                                       keyEquivalent:@""];
-    newWorkspaceItem.target = self;
-    [self.workspaceDropdown.menu addItem:newWorkspaceItem];
+    NSViewController* vc = [[NSViewController alloc] init];
+    vc.view = contentView;
+    self.workspacePopover.contentViewController = vc;
+    self.workspacePopover.contentSize = NSMakeSize(w, totalH);
+}
 
-    [self.workspaceDropdown setAction:savedAction];
+- (void)selectWorkspaceClicked:(NSButton*)sender {
+    @try {
+        NSNumber* wsIdNum = objc_getAssociatedObject(sender, "wsId");
+        if (wsIdNum && self.app) {
+            self.app->setCurrentWorkspace(wsIdNum.intValue);
+            [self updateWorkspaceButtonLabel];
+        }
+        [self.workspacePopover close];
+    } @catch (NSException* exception) {
+        NSLog(@"Exception in selectWorkspaceClicked: %@", exception);
+    }
+}
+
+- (void)deleteWorkspaceClicked:(NSButton*)sender {
+    @try {
+        NSNumber* wsIdNum = objc_getAssociatedObject(sender, "wsId");
+        if (!wsIdNum || !self.app)
+            return;
+        int wsId = wsIdNum.intValue;
+        [self.workspacePopover close];
+        Alert::show("Delete Workspace",
+                    "Are you sure you want to delete this workspace? "
+                    "All connections in this workspace will be removed.",
+                    {AlertButton{"Delete",
+                                 [self, wsId]() {
+                                     if (self.app) {
+                                         self.app->deleteWorkspace(wsId);
+                                         [self updateWorkspaceButtonLabel];
+                                     }
+                                 },
+                                 AlertButton::Style::Destructive},
+                     AlertButton{"Cancel", {}, AlertButton::Style::Cancel}});
+    } @catch (NSException* exception) {
+        NSLog(@"Exception in deleteWorkspaceClicked: %@", exception);
+    }
+}
+
+- (void)editWorkspaceClicked:(NSButton*)sender {
+    @try {
+        NSNumber* wsIdNum = objc_getAssociatedObject(sender, "wsId");
+        NSString* wsName = objc_getAssociatedObject(sender, "wsName");
+        if (!wsIdNum || !self.app)
+            return;
+        int wsId = wsIdNum.intValue;
+        std::string currentName = wsName ? [wsName UTF8String] : "";
+        [self.workspacePopover close];
+        InputDialog::show("Rename Workspace", "", currentName, "Rename",
+                          [self, wsId](const std::string& newName) -> std::string {
+                              if (newName.empty())
+                                  return "Name cannot be empty.";
+                              self.app->renameWorkspace(wsId, newName);
+                              [self updateWorkspaceButtonLabel];
+                              return "";
+                          });
+    } @catch (NSException* exception) {
+        NSLog(@"Exception in editWorkspaceClicked: %@", exception);
+    }
 }
 
 - (void)createNewWorkspace:(id)sender {
     @try {
         if (!self.app)
             return;
+
+        [self.workspacePopover close];
 
         if (!self.app->canAddWorkspace()) {
             Alert::show("Workspace Limit Reached",
@@ -206,9 +388,7 @@
                                     }
                                 }
                             }
-                            [self updateWorkspaceDropdown];
-                            [self.workspaceDropdown sizeToFit];
-                            [self.workspaceDropdown setNeedsDisplay:YES];
+                            [self updateWorkspaceButtonLabel];
                             [mainWindow displayIfNeeded];
                             [self restoreMainWindowFocus:mainWindow];
                           }];
@@ -225,9 +405,7 @@
                     }
                 }
             }
-            [self updateWorkspaceDropdown];
-            [self.workspaceDropdown sizeToFit];
-            [self.workspaceDropdown setNeedsDisplay:YES];
+            [self updateWorkspaceButtonLabel];
             [self restoreMainWindowFocus:mainWindow];
         }
     } @catch (NSException* exception) {
