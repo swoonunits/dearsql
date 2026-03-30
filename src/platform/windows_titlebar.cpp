@@ -11,6 +11,7 @@
 
 #include "IconsFontAwesome6.h"
 
+#include <algorithm>
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <iostream>
@@ -367,6 +368,8 @@ void WindowsTitlebar::renderPopups() {
 
     const bool isDark = app_->isDarkTheme();
     const auto& colors = isDark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
+    const auto workspaces = app_->getWorkspaces();
+    constexpr const char* newWorkspaceLabel = "  " ICON_FA_PLUS "  New Workspace...";
 
     // we need an ImGui window context to host popups
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
@@ -385,57 +388,89 @@ void WindowsTitlebar::renderPopups() {
         ImGui::OpenPopup("##WorkspacePopup");
         openWorkspacePopup_ = false;
     }
-    ImGui::SetNextWindowPos(workspacePopupPos_);
+    const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+    const float popupPadding = 8.0f;
+    const float rowPaddingX = 8.0f;
+    const float rowHeight = std::max(ImGui::GetFrameHeight(), ImGui::GetTextLineHeight() + 10.0f);
+    const float actionBtnSize = rowHeight - 6.0f;
+    const float actionGap = 4.0f;
+    const float actionAreaW = actionBtnSize * 2.0f + actionGap;
+    const float checkSlotW = ImGui::CalcTextSize(ICON_FA_CHECK).x + rowPaddingX + 6.0f;
+
+    float widestLabelW = ImGui::CalcTextSize(newWorkspaceLabel).x;
+    for (const auto& ws : workspaces) {
+        widestLabelW = std::max(widestLabelW, ImGui::CalcTextSize(ws.name.c_str()).x);
+    }
+
+    const float minPopupW = 220.0f;
+    const float maxPopupW =
+        std::max(minPopupW, std::min(420.0f, mainViewport->WorkSize.x - 16.0f));
+    const float contentW =
+        std::clamp(checkSlotW + widestLabelW + actionAreaW + rowPaddingX * 3.0f,
+                   minPopupW - popupPadding * 2.0f, maxPopupW - popupPadding * 2.0f);
+    const float workspacePopupW = contentW + popupPadding * 2.0f;
+    const float popupMinX = mainViewport->WorkPos.x + 8.0f;
+    const float popupMaxX = std::max(
+        popupMinX, mainViewport->WorkPos.x + mainViewport->WorkSize.x - workspacePopupW - 8.0f);
+    const float popupX = std::clamp(workspacePopupPos_.x, popupMinX, popupMaxX);
+
+    ImGui::SetNextWindowPos({popupX, workspacePopupPos_.y});
+    ImGui::SetNextWindowSize({workspacePopupW, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8, 8});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 2});
     if (ImGui::BeginPopup("##WorkspacePopup")) {
-        auto workspaces = app_->getWorkspaces();
-        const float actionBtnW = ImGui::GetFontSize() + 4.0f;
-        const float rowW = 180.0f;
-        // reserve space for two action buttons on the right
-        const float nameW = rowW - actionBtnW * 2 - 8.0f;
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImU32 hoverRowBg = ImGui::GetColorU32(colors.surface1);
+        const ImU32 textColor = ImGui::GetColorU32(colors.text);
 
         for (const auto& ws : workspaces) {
             bool isCurrent = (ws.id == app_->getCurrentWorkspaceId());
             ImGui::PushID(ws.id);
 
-            ImVec2 rowMin = ImGui::GetCursorScreenPos();
-            ImVec2 rowMax = {rowMin.x + rowW, rowMin.y + ImGui::GetFrameHeight()};
-            bool rowHovered = ImGui::IsMouseHoveringRect(rowMin, rowMax);
+            const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+            ImGui::Dummy({contentW, rowHeight});
+            const ImVec2 nextRowPos = ImGui::GetCursorScreenPos();
+            const ImVec2 rowMax{rowMin.x + contentW, rowMin.y + rowHeight};
+            const bool rowHovered = ImGui::IsMouseHoveringRect(rowMin, rowMax);
 
-            // hover background
-            if (rowHovered)
-                ImGui::GetWindowDrawList()->AddRectFilled(
-                    rowMin, rowMax, ImGui::GetColorU32(ImGuiCol_HeaderHovered), 3.0f);
+            if (rowHovered) {
+                drawList->AddRectFilled(rowMin, rowMax, hoverRowBg, 4.0f);
+            }
 
-            // checkmark for current workspace
-            ImGui::TextUnformatted(isCurrent ? ICON_FA_CHECK : "  ");
-            ImGui::SameLine(0, 4);
+            const float actionX = rowMax.x - rowPaddingX - actionAreaW;
+            const float selectX = rowMin.x + rowPaddingX;
+            const float selectW = actionX - rowPaddingX - selectX;
+            const float textY = rowMin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f;
+            const float labelX = selectX + checkSlotW;
+            const float labelMaxX = actionX - rowPaddingX;
 
             // name — clicking selects the workspace
-            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
-            ImGui::SetNextItemWidth(nameW);
-            if (ImGui::Selectable(ws.name.c_str(), false, ImGuiSelectableFlags_DontClosePopups,
-                                  {nameW, 0})) {
+            ImGui::SetCursorScreenPos({selectX, rowMin.y});
+            if (ImGui::InvisibleButton("##select", {selectW, rowHeight})) {
                 app_->setCurrentWorkspace(ws.id);
                 ImGui::CloseCurrentPopup();
             }
-            ImGui::PopStyleColor(3);
+
+            if (isCurrent) {
+                drawList->AddText({selectX, textY}, textColor, ICON_FA_CHECK);
+            }
+
+            drawList->PushClipRect({labelX, rowMin.y}, {labelMaxX, rowMax.y}, true);
+            drawList->AddText({labelX, textY}, textColor, ws.name.c_str());
+            drawList->PopClipRect();
 
             // action buttons — only visible on hover
             if (rowHovered) {
-                ImGui::SameLine(0, 4);
+                const float actionY = rowMin.y + (rowHeight - actionBtnSize) * 0.5f;
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface2);
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.overlay0);
 
-                // pencil / rename
-                if (ImGui::Button(ICON_FA_PENCIL "##edit", {actionBtnW, 0})) {
-                    int wsId = ws.id;
-                    std::string wsName = ws.name;
+                ImGui::SetCursorScreenPos({actionX, actionY});
+                if (ImGui::Button(ICON_FA_PENCIL "##edit", {actionBtnSize, actionBtnSize})) {
+                    const int wsId = ws.id;
+                    const std::string wsName = ws.name;
                     ImGui::CloseCurrentPopup();
                     InputDialog::show("Rename Workspace", "", wsName, "Rename",
                                       [this, wsId](const std::string& newName) -> std::string {
@@ -448,12 +483,14 @@ void WindowsTitlebar::renderPopups() {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Rename");
 
-                ImGui::SameLine(0, 2);
+                ImGui::PopStyleColor(3);
 
-                // trash / delete
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.77f, 0.17f, 0.11f, 0.6f));
-                if (ImGui::Button(ICON_FA_TRASH "##del", {actionBtnW, 0})) {
-                    int wsId = ws.id;
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.67f, 0.14f, 0.09f, 0.8f));
+                ImGui::SetCursorScreenPos({actionX + actionBtnSize + actionGap, actionY});
+                if (ImGui::Button(ICON_FA_TRASH "##del", {actionBtnSize, actionBtnSize})) {
+                    const int wsId = ws.id;
                     ImGui::CloseCurrentPopup();
                     Alert::show(
                         "Delete Workspace",
@@ -466,14 +503,15 @@ void WindowsTitlebar::renderPopups() {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Delete");
 
-                ImGui::PopStyleColor(4);
+                ImGui::PopStyleColor(3);
             }
 
+            ImGui::SetCursorScreenPos(nextRowPos);
             ImGui::PopID();
         }
 
         ImGui::Separator();
-        if (ImGui::Selectable("  " ICON_FA_PLUS "  New Workspace...")) {
+        if (ImGui::Selectable(newWorkspaceLabel, false, 0, {contentW, rowHeight})) {
             if (!app_->canAddWorkspace()) {
                 Alert::show(
                     "Workspace Limit Reached",
