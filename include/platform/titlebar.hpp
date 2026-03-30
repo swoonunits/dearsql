@@ -71,7 +71,6 @@ public:
 
     // GTK signal callbacks (static — userData is LinuxTitlebar*)
     static void onSidebarToggle(GtkButton*, gpointer);
-    static void onWorkspaceChanged(GtkDropDown*, GParamSpec*, gpointer);
     static void onAddConnection(GtkButton*, gpointer);
     static void onThemeLightClicked(GtkButton*, gpointer);
     static void onThemeDarkClicked(GtkButton*, gpointer);
@@ -86,7 +85,9 @@ private:
 
     GtkWidget* headerBar_ = nullptr;
     GtkWidget* sidebarButton_ = nullptr;
-    GtkWidget* workspaceDropdown_ = nullptr;
+    GtkWidget* workspaceButton_ = nullptr;
+    GtkWidget* workspacePopover_ = nullptr;
+    GtkWidget* workspaceItemsBox_ = nullptr;
     GtkWidget* addButton_ = nullptr;
     GtkWidget* menuButton_ = nullptr;
     GtkWidget* menuPopover_ = nullptr;
@@ -96,8 +97,6 @@ private:
     GtkWidget* themeAutoButton_ = nullptr;
     GtkWidget* licenseButton_ = nullptr;
     GtkWidget* fontSizeLabel_ = nullptr;
-    GtkStringList* workspaceModel_ = nullptr;
-    gulong workspaceSignalId_ = 0;
 
     std::vector<int> workspaceIdsByIndex_;
     std::function<void()> interactionCb_;
