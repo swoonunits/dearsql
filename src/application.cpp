@@ -60,6 +60,9 @@ namespace {
     constexpr double kMinimumWaitSeconds = 1.0 / 120.0; // keep responsive when active
     constexpr double kMaximumWaitSeconds = 0.2;         // cap sleep to keep UI responsive
 
+    constexpr std::size_t kFreeConnectionLimit = 3;
+    constexpr std::size_t kFreeWorkspaceLimit = 1;
+
     bool isImGuiUserActive() {
         ImGuiIO& io = ImGui::GetIO();
 
@@ -402,18 +405,19 @@ void Application::addDatabase(const std::shared_ptr<DatabaseInterface>& db) {
 bool Application::canAddConnection() const {
     if (LicenseManager::instance().hasValidLicense())
         return true;
-    return databases.size() < 3;
+    return databases.size() < kFreeConnectionLimit;
 }
 
 bool Application::canAddWorkspace() const {
     if (LicenseManager::instance().hasValidLicense())
         return true;
-    return appState->getWorkspaces().size() < 1;
+    return appState->getWorkspaces().size() < kFreeWorkspaceLimit;
 }
 
 int Application::saveConnection(const SavedConnection& conn) {
     if (!canAddConnection()) {
-        spdlog::warn("Connection limit reached (free tier: 3). Upgrade to add more.");
+        spdlog::warn("Connection limit reached (free tier: {}). Upgrade to add more.",
+                     kFreeConnectionLimit);
         return -2;
     }
     return appState->saveConnection(conn);
@@ -670,7 +674,8 @@ int Application::createWorkspace(const std::string& name, const std::string& des
     }
 
     if (!canAddWorkspace()) {
-        spdlog::warn("Workspace limit reached (free tier: 1). Upgrade to create more.");
+        spdlog::warn("Workspace limit reached (free tier: {}). Upgrade to create more.",
+                     kFreeWorkspaceLimit);
         return -2;
     }
 

@@ -403,15 +403,14 @@ void WindowsTitlebar::renderPopups() {
     }
 
     const float minPopupW = 220.0f;
-    const float maxPopupW =
-        std::max(minPopupW, std::min(420.0f, mainViewport->WorkSize.x - 16.0f));
+    const float maxPopupW = std::max(minPopupW, std::min(420.0f, mainViewport->WorkSize.x - 16.0f));
     const float contentW =
         std::clamp(checkSlotW + widestLabelW + actionAreaW + rowPaddingX * 3.0f,
                    minPopupW - popupPadding * 2.0f, maxPopupW - popupPadding * 2.0f);
     const float workspacePopupW = contentW + popupPadding * 2.0f;
     const float popupMinX = mainViewport->WorkPos.x + 8.0f;
-    const float popupMaxX = std::max(
-        popupMinX, mainViewport->WorkPos.x + mainViewport->WorkSize.x - workspacePopupW - 8.0f);
+    const float popupMaxX = std::max(popupMinX, mainViewport->WorkPos.x + mainViewport->WorkSize.x -
+                                                    workspacePopupW - 8.0f);
     const float popupX = std::clamp(workspacePopupPos_.x, popupMinX, popupMaxX);
 
     ImGui::SetNextWindowPos({popupX, workspacePopupPos_.y});
