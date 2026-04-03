@@ -165,7 +165,6 @@ std::shared_ptr<Tab> TabManager::createSQLEditorTab(const std::string& name, IDa
         return nullptr;
     }
 
-    // Generate unique tab name
     std::string tabName = name;
     if (tabName.empty()) {
         std::string baseName = "SQL - " + node->getName();
@@ -189,11 +188,9 @@ std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
         return nullptr;
     }
 
-    // Build the full table path and tab name
     std::string tableFullName = node->getFullPath() + "." + tableName;
     std::string tabName = tableName + " (" + node->getName() + ")";
 
-    // Check if tab already exists
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::TABLE_VIEWER) {
             const auto tableTab = std::dynamic_pointer_cast<TableViewerTab>(tab);
@@ -207,7 +204,6 @@ std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
         }
     }
 
-    // Create new tab
     auto tab = std::make_shared<TableViewerTab>(tabName, tableFullName, tableName, node);
     registerOpenedTab(tab);
     std::cout << "Created new tab for table: " << tableName << " with fullName: " << tableFullName
@@ -222,6 +218,7 @@ void TabManager::renderTabs() {
     ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, colors.mantle);
     ImGui::PushStyleColor(ImGuiCol_Tab, colors.mantle);
     ImGui::PushStyleColor(ImGuiCol_TabHovered, colors.surface0);
     ImGui::PushStyleColor(ImGuiCol_TabSelected, colors.surface1);
@@ -232,13 +229,11 @@ void TabManager::renderTabs() {
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, colors.surface1);
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
 
-    // Render each tab as a separate dockable window
     for (auto it = tabs.begin(); it != tabs.end();) {
         const auto& tab = *it;
         const std::uint64_t tabId = tab->getId();
         const std::string& windowName = tab->getWindowName();
 
-        // Handle tab focusing by setting next window focus
         const bool shouldFocusTab = (pendingFocusTabId_ == tabId);
         if (shouldFocusTab) {
             ImGui::SetNextWindowFocus();
@@ -246,7 +241,6 @@ void TabManager::renderTabs() {
 
         bool isOpen = tab->isOpen();
 
-        // Create a dockable window for each tab
         ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
                                        ImGuiWindowFlags_NoScrollWithMouse;
         if (tab->hasUnsavedChanges()) {
@@ -306,7 +300,6 @@ void TabManager::renderTabs() {
 
         ImGui::End();
 
-        // Update tab open state
         tab->setOpen(isOpen);
 
         if (!isOpen) {
@@ -354,14 +347,13 @@ void TabManager::renderTabs() {
         pendingCloseTargetId_ = 0;
     }
 
-    ImGui::PopStyleColor(8);
+    ImGui::PopStyleColor(9);
     ImGui::PopStyleVar(3);
 }
 
 void TabManager::renderEmptyState() {
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() / 2 - 40);
 
-    // Center the text
     constexpr auto text = "Connect to a database to get started";
     const float textWidth = ImGui::CalcTextSize(text).x;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) / 2);
@@ -374,7 +366,6 @@ std::shared_ptr<Tab> TabManager::createDiagramTab(IDatabaseNode* node) {
         return nullptr;
     }
 
-    // Generate a unique tab name for the diagram
     const std::string baseName = "Diagram - " + node->getFullPath();
     std::string tabName = baseName;
     int count = 1;
@@ -383,7 +374,6 @@ std::shared_ptr<Tab> TabManager::createDiagramTab(IDatabaseNode* node) {
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
-    // Create the diagram tab
     std::shared_ptr<Tab> tab = std::make_shared<DiagramTab>(tabName, node);
     registerOpenedTab(tab);
     std::cout << "Created new diagram tab for: " << node->getFullPath() << std::endl;
@@ -429,7 +419,6 @@ std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
     if (!db)
         return nullptr;
 
-    // reuse existing tab for same db + pattern
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::REDIS_KEY_VIEWER) {
             const auto keyTab = std::dynamic_pointer_cast<RedisKeyViewerTab>(tab);
@@ -458,7 +447,6 @@ std::shared_ptr<Tab> TabManager::createRedisPubSubTab(RedisDatabase* db) {
     if (!db)
         return nullptr;
 
-    // reuse existing tab for same db
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::REDIS_PUBSUB) {
             const auto pubsubTab = std::dynamic_pointer_cast<RedisPubSubTab>(tab);
@@ -486,7 +474,6 @@ std::shared_ptr<Tab> TabManager::createCsvEditorTab(const std::string& filePath)
     if (filePath.empty())
         return nullptr;
 
-    // reuse existing tab for the same file
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::CSV_EDITOR) {
             const auto csvTab = std::dynamic_pointer_cast<CsvEditorTab>(tab);
@@ -532,7 +519,6 @@ std::shared_ptr<Tab> TabManager::createTableEditorTab(IDatabaseNode* node, const
 
 std::shared_ptr<Tab> TabManager::createSQLEditorTabFromQuery(IDatabaseNode* node,
                                                              const SqlScript& script) {
-    // focus existing tab if the same script is already open
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::SQL_EDITOR) {
             const auto sqlTab = std::dynamic_pointer_cast<SQLEditorTab>(tab);

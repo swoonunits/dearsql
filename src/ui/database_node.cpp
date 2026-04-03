@@ -35,6 +35,7 @@ namespace {
     constexpr const char* NEW_SQL_EDITOR_LABEL = "New SQL Editor";
     constexpr const char* NEW_QUERY_EDITOR_LABEL = "New Query Editor";
     constexpr const char* SHOW_DIAGRAM_LABEL = "Show Diagram";
+    constexpr const char* LOADING_LABEL = "  Loading...";
 } // namespace
 
 DatabaseHierarchy::DatabaseHierarchy(std::shared_ptr<DatabaseInterface> dbInterface)
@@ -181,7 +182,7 @@ void DatabaseHierarchy::renderRootNode() {
         if (pgDb->isLoadingDatabases()) {
             pgDb->checkDatabasesStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading databases...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_dbs_spinner", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -207,7 +208,7 @@ void DatabaseHierarchy::renderRootNode() {
         if (mysqlDb->isLoadingDatabases()) {
             mysqlDb->checkDatabasesStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading databases...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_dbs_spinner", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -232,7 +233,7 @@ void DatabaseHierarchy::renderRootNode() {
         if (mongoDb->isLoadingDatabases()) {
             mongoDb->checkDatabasesStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading databases...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_dbs_spinner", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -257,7 +258,7 @@ void DatabaseHierarchy::renderRootNode() {
         if (mssqlDb->isLoadingDatabases()) {
             mssqlDb->checkDatabasesStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading databases...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_dbs_spinner", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -282,7 +283,7 @@ void DatabaseHierarchy::renderRootNode() {
         if (oracleDb->isLoadingDatabases()) {
             oracleDb->checkDatabasesStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading schemas...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_schemas_spinner", 6.0f, 2,
                              ImGui::GetColorU32(colors.peach));
@@ -340,7 +341,7 @@ void DatabaseHierarchy::renderRootNode() {
                 ImVec2(ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing(),
                        ImGui::GetItemRectMin().y +
                            (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f);
-            ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(colors.mauve),
+            ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(colors.purple),
                                                 ICON_FA_TERMINAL);
 
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -405,7 +406,7 @@ void DatabaseHierarchy::renderRootNode() {
         // Show loading indicator if loading
         if (redisDb->loadingKeys.load()) {
             ImGui::SameLine();
-            ImGui::Text("Loading keys...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             return;
         }
 
@@ -413,7 +414,7 @@ void DatabaseHierarchy::renderRootNode() {
         const auto& keyGroups = redisDb->getKeyGroups();
         if (keyGroups.empty()) {
             if (!redisDb->keysLoaded) {
-                ImGui::Text("  Loading...");
+                ImGui::TextUnformatted(LOADING_LABEL);
             } else {
                 ImGui::Text("  No keys found");
             }
@@ -492,7 +493,7 @@ void DatabaseHierarchy::renderSQLiteNode() {
             if (sqliteDb->isLoadingTables()) {
                 sqliteDb->checkLoadingStatus();
                 ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                ImGui::Text("  Loading tables...");
+                ImGui::TextUnformatted(LOADING_LABEL);
                 ImGui::SameLine(0, Theme::Spacing::S);
                 UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                 ImGui::PopStyleColor();
@@ -539,7 +540,7 @@ void DatabaseHierarchy::renderSQLiteNode() {
             if (sqliteDb->isLoadingViews()) {
                 sqliteDb->checkLoadingStatus();
                 ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                ImGui::Text("  Loading views...");
+                ImGui::TextUnformatted(LOADING_LABEL);
                 ImGui::SameLine(0, Theme::Spacing::S);
                 UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                 ImGui::PopStyleColor();
@@ -645,7 +646,7 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
         if (dbData->schemasLoader.isRunning()) {
             dbData->checkSchemasStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading schemas...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_schemas", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -756,7 +757,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                 if (schemaData->tablesLoader.isRunning()) {
                     schemaData->checkTablesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading tables...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -801,7 +802,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                 if (schemaData->viewsLoader.isRunning()) {
                     schemaData->checkViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading views...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -849,7 +850,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                 if (schemaData->materializedViewsLoader.isRunning()) {
                     schemaData->checkMaterializedViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading materialized views...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_matviews", 6.0f, 2,
                                      ImGui::GetColorU32(colors.peach));
@@ -873,8 +874,9 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
         {
             const std::string seqNodeId = std::format("sequences_{}_{:p}", schemaData->name,
                                                       static_cast<void*>(&schemaData->sequences));
-            const bool seqOpen = renderTreeNodeWithIcon(
-                "Sequences", seqNodeId, ICON_FK_SORT_NUMERIC_ASC, ImGui::GetColorU32(colors.mauve));
+            const bool seqOpen =
+                renderTreeNodeWithIcon("Sequences", seqNodeId, ICON_FK_SORT_NUMERIC_ASC,
+                                       ImGui::GetColorU32(colors.purple));
 
             // Context menu for Sequences node
             if (ImGui::BeginPopupContextItem(nullptr)) {
@@ -895,7 +897,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                 if (schemaData->sequencesLoader.isRunning()) {
                     schemaData->checkSequencesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading sequences...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_sequences", 6.0f, 2,
                                      ImGui::GetColorU32(colors.peach));
@@ -921,7 +923,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                                     (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) *
                                         0.5f);
                             ImGui::GetWindowDrawList()->AddText(iconPos,
-                                                                ImGui::GetColorU32(colors.mauve),
+                                                                ImGui::GetColorU32(colors.purple),
                                                                 ICON_FK_SORT_NUMERIC_ASC);
                         }
                     }
@@ -1028,7 +1030,7 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                 if (dbData->tablesLoader.isRunning()) {
                     dbData->checkTablesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading tables...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -1073,7 +1075,7 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                 if (dbData->viewsLoader.isRunning()) {
                     dbData->checkViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading views...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -1760,7 +1762,7 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
 
     const std::string nodeId = std::format("db_{}_{:p}", dbData->name, static_cast<void*>(dbData));
     const bool isOpen = renderTreeNodeWithIcon(dbData->name, nodeId, ICON_FK_DATABASE,
-                                               ImGui::GetColorU32(colors.mauve));
+                                               ImGui::GetColorU32(colors.purple));
 
     if (ImGui::IsItemToggledOpen()) {
         dbData->expanded = isOpen;
@@ -1816,7 +1818,7 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
         if (dbData->schemasLoader.isRunning()) {
             dbData->checkSchemasStatusAsync();
             ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-            ImGui::Text("  Loading schemas...");
+            ImGui::TextUnformatted(LOADING_LABEL);
             ImGui::SameLine(0, Theme::Spacing::S);
             UIUtils::Spinner("##loading_schemas", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
@@ -1890,7 +1892,7 @@ void DatabaseHierarchy::renderMSSQLSchemaNode(const MSSQLDatabaseNode* dbData,
                 if (schemaData->tablesLoader.isRunning()) {
                     schemaData->checkTablesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading tables...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -1934,7 +1936,7 @@ void DatabaseHierarchy::renderMSSQLSchemaNode(const MSSQLDatabaseNode* dbData,
                 if (schemaData->viewsLoader.isRunning()) {
                     schemaData->checkViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading views...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -2251,7 +2253,7 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
 
     const std::string nodeId = std::format("db_{}_{:p}", dbData->name, static_cast<void*>(dbData));
     const bool isOpen = renderTreeNodeWithIcon(dbData->name, nodeId, ICON_FK_DATABASE,
-                                               ImGui::GetColorU32(colors.mauve));
+                                               ImGui::GetColorU32(colors.purple));
 
     if (ImGui::IsItemToggledOpen()) {
         dbData->expanded = isOpen;
@@ -2327,7 +2329,7 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                 if (dbData->tablesLoader.isRunning()) {
                     dbData->checkTablesStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading tables...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_tables", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -2371,7 +2373,7 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                 if (dbData->viewsLoader.isRunning()) {
                     dbData->checkViewsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading views...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
@@ -2756,7 +2758,7 @@ void DatabaseHierarchy::renderMongoDBDatabaseNode(MongoDBDatabaseNode* dbData) {
                 if (dbData->collectionsLoader.isRunning()) {
                     dbData->checkCollectionsStatusAsync();
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  Loading collections...");
+                    ImGui::TextUnformatted(LOADING_LABEL);
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##loading_collections", 6.0f, 2,
                                      ImGui::GetColorU32(colors.peach));
@@ -3256,7 +3258,7 @@ void DatabaseHierarchy::renderQueriesNode() {
 
     const std::string queriesNodeId = std::format("scripts_conn_{}", static_cast<void*>(db.get()));
     const bool queriesOpen = renderTreeNodeWithIcon("Queries", queriesNodeId, ICON_FA_FILE_CODE,
-                                                    ImGui::GetColorU32(colors.mauve));
+                                                    ImGui::GetColorU32(colors.purple));
 
     // context menu on the Queriess header
     if (ImGui::BeginPopupContextItem(nullptr)) {
@@ -3324,7 +3326,7 @@ void DatabaseHierarchy::renderQueriesNode() {
                 const std::string queryItemId =
                     std::format("script_{}_{}", query.id, static_cast<const void*>(&query));
                 renderTreeNodeWithIcon(query.name, queryItemId, ICON_FA_FILE_CODE,
-                                       ImGui::GetColorU32(colors.mauve), queryItemFlags);
+                                       ImGui::GetColorU32(colors.purple), queryItemFlags);
 
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                     IDatabaseNode* node = resolveNodeForQuery(query);
