@@ -61,7 +61,7 @@ namespace {
     constexpr double kMaximumWaitSeconds = 0.2;         // cap sleep to keep UI responsive
 
     constexpr std::size_t kFreeConnectionLimit = 3;
-    constexpr std::size_t kFreeWorkspaceLimit = 1;
+    constexpr std::size_t kFreeWorkspaceLimit = 2;
 
     bool isImGuiUserActive() {
         ImGuiIO& io = ImGui::GetIO();
