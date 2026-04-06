@@ -102,6 +102,7 @@ private:
     mutable std::vector<Table> allTables;
     mutable std::vector<Table> allViews;
     mutable std::vector<std::string> allSequences;
+
     mutable bool aggregatedObjectsDirty = true;
     mutable std::string aggregatedTablesError;
     mutable std::string aggregatedViewsError;

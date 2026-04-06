@@ -165,15 +165,36 @@ std::shared_ptr<Tab> TabManager::createSQLEditorTab(const std::string& name, IDa
         return nullptr;
     }
 
-    std::string tabName = name;
-    if (tabName.empty()) {
-        std::string baseName = "SQL - " + node->getName();
-        int count = 1;
-        tabName = baseName;
-        while (hasTabTitle(tabName)) {
-            count++;
-            tabName = baseName + " (" + std::to_string(count) + ")";
+    std::string baseName = "SQL";
+    if (const auto* schemaNode = dynamic_cast<PostgresSchemaNode*>(node)) {
+        if (schemaNode->parentDbNode && schemaNode->parentDbNode->parentDb) {
+            baseName += " - " + schemaNode->parentDbNode->name;
+            baseName += " - " + schemaNode->name;
         }
+    } else if (auto* postgresDbNode = dynamic_cast<PostgresDatabaseNode*>(node)) {
+        baseName += " - " + postgresDbNode->name;
+    } else if (auto* mysqlDbNode = dynamic_cast<MySQLDatabaseNode*>(node)) {
+        baseName += " - " + mysqlDbNode->name;
+    } else if (auto* sqliteDbNode = dynamic_cast<SQLiteDatabase*>(node)) {
+        baseName += " - " + sqliteDbNode->getName();
+    } else if (auto* mssqlDbNode = dynamic_cast<MSSQLDatabaseNode*>(node)) {
+        baseName += " - " + mssqlDbNode->name;
+    } else if (auto* oracleDbNode = dynamic_cast<OracleDatabaseNode*>(node)) {
+        baseName += " - " + oracleDbNode->name;
+    } else if (auto* dbNode = node->ownerDatabase()) {
+        baseName += " - " + dbNode->getConnectionInfo().host;
+    } else {
+        baseName += " - " + node->getName();
+    }
+
+    if (!name.empty()) {
+        baseName += " - " + name;
+    }
+
+    int count = 1;
+    std::string tabName = baseName;
+    while (hasTabTitle(tabName)) {
+        tabName = baseName + " (" + std::to_string(++count) + ")";
     }
 
     auto tab = std::make_shared<SQLEditorTab>(tabName, node, schemaName);
@@ -415,14 +436,16 @@ std::shared_ptr<Tab> TabManager::createRedisCommandEditorTab(RedisDatabase* db) 
 }
 
 std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
-                                                         const std::string& pattern) {
+                                                         const std::string& pattern, int dbIndex) {
     if (!db)
         return nullptr;
 
+    // reuse existing tab for same db + pattern + database index
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::REDIS_KEY_VIEWER) {
             const auto keyTab = std::dynamic_pointer_cast<RedisKeyViewerTab>(tab);
-            if (keyTab && keyTab->getDatabase() == db && keyTab->getPattern() == pattern) {
+            if (keyTab && keyTab->getDatabase() == db && keyTab->getPattern() == pattern &&
+                keyTab->getDatabaseIndex() == dbIndex) {
                 requestTabFocus(tab->getId());
                 return tab;
             }
@@ -430,7 +453,7 @@ std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
     }
 
     const std::string displayName = (pattern == "*") ? "Browse" : pattern;
-    const std::string baseName = std::format("Redis: {}", displayName);
+    const std::string baseName = std::format("Redis db{}: {}", dbIndex, displayName);
     std::string tabName = baseName;
     int count = 1;
     while (hasTabTitle(tabName)) {
@@ -438,7 +461,7 @@ std::shared_ptr<Tab> TabManager::createRedisKeyViewerTab(RedisDatabase* db,
         tabName = baseName + " (" + std::to_string(count) + ")";
     }
 
-    auto tab = std::make_shared<RedisKeyViewerTab>(tabName, db, pattern);
+    auto tab = std::make_shared<RedisKeyViewerTab>(tabName, db, pattern, dbIndex);
     registerOpenedTab(tab);
     return tab;
 }

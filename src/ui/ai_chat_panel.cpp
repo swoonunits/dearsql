@@ -22,10 +22,11 @@ namespace {
     };
 
     constexpr ModelOption MODEL_OPTIONS[] = {
-        {"claude-sonnet-4-5", "claude-sonnet-4-5", AIProvider::ANTHROPIC},
-        {"claude-haiku-3-5", "claude-3-5-haiku-latest", AIProvider::ANTHROPIC},
-        {"gemini-2.0-flash", "gemini-2.0-flash", AIProvider::GEMINI},
+        {"claude-sonnet-4-6", "claude-sonnet-4-6", AIProvider::ANTHROPIC},
+        {"claude-haiku-4-5", "claude-haiku-4-5-20251001", AIProvider::ANTHROPIC},
+        {"gemini-2.5-flash", "gemini-2.5-flash", AIProvider::GEMINI},
         {"gemini-2.5-pro", "gemini-2.5-pro", AIProvider::GEMINI},
+        {"gemini-2.0-flash", "gemini-2.0-flash", AIProvider::GEMINI},
     };
     constexpr int MODEL_COUNT = sizeof(MODEL_OPTIONS) / sizeof(MODEL_OPTIONS[0]);
 
@@ -51,11 +52,11 @@ void AIChatPanel::setInsertCallback(InsertSQLCallback cb) {
 }
 
 void AIChatPanel::render() {
+    chatState_->pollAsyncPrompt();
     pollStreaming();
 
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    // Header buttons
     float btnWidth = ImGui::CalcTextSize(LABEL_SETTINGS).x +
                      ImGui::CalcTextSize(LABEL_CLEAR_CHAT).x +
                      ImGui::GetStyle().FramePadding.x * 4 + ImGui::GetStyle().ItemSpacing.x;
@@ -65,20 +66,19 @@ void AIChatPanel::render() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton(LABEL_CLEAR_CHAT)) {
-        chatState_->clear();
+        chatState_->cancelAsyncPrompt();
         if (client_->isStreaming()) {
             client_->cancel();
         }
+        chatState_->clear();
     }
     ImGui::Separator();
 
-    // Messages area - reserve exact space for input section below
     float inputAreaHeight = getAIInputContainerHeight() + Theme::Spacing::S;
     float availHeight = ImGui::GetContentRegionAvail().y - inputAreaHeight;
 
     if (ImGui::BeginChild("##ai_messages", ImVec2(-1, availHeight), false)) {
         if (chatState_->getMessages().empty()) {
-            // Center the placeholder text
             ImVec2 textSize = ImGui::CalcTextSize(LABEL_EMPTY_CHAT, nullptr, false,
                                                   ImGui::GetContentRegionAvail().x * 0.8f);
             float availW = ImGui::GetContentRegionAvail().x;
@@ -101,7 +101,6 @@ void AIChatPanel::render() {
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0.0f, Theme::Spacing::S));
 
-    // Input area
     renderInputArea();
 }
 
@@ -111,10 +110,14 @@ void AIChatPanel::renderMessages() {
         renderMessage(messages[i], i);
     }
 
-    // Show spinner during streaming
-    if (client_->isStreaming()) {
+    if (client_->isStreaming() || chatState_->isBuildingPrompt()) {
         ImGui::Spacing();
         UIUtils::Spinner("##ai_spinner", 6.0f, 2, ImGui::GetColorU32(ImGuiCol_Text));
+        if (chatState_->isBuildingPrompt()) {
+            ImGui::SameLine();
+            ImGui::TextColored(Application::getInstance().getCurrentColors().subtext0,
+                               "Analyzing database schema...");
+        }
     }
 }
 
@@ -124,20 +127,15 @@ void AIChatPanel::renderMessage(const AIChatMessage& msg, size_t index) {
 
     ImGui::PushID(static_cast<int>(index));
 
-    // Bottom padding between messages
     if (index > 0) {
         ImGui::Dummy(ImVec2(0, Theme::Spacing::M));
     }
 
-    // Horizontal padding for the whole message block
     ImGui::Indent(Theme::Spacing::M);
-
-    // Role label
     ImGui::TextColored(colors.subtext0, "%s", isUser ? "You" : "Assistant");
 
     float wrapWidth = ImGui::GetContentRegionAvail().x - Theme::Spacing::M;
 
-    // Parse and render content with code blocks
     auto blocks = parseCodeBlocks(msg.content);
 
     if (blocks.empty()) {
@@ -194,7 +192,6 @@ void AIChatPanel::renderCodeBlock(const std::string& code, const std::string& la
 
     std::string childId = std::format("##code_{}_{}", msgIdx, blockIdx);
 
-    // Calculate needed height
     float lineCount = 1.0f;
     for (char c : code) {
         if (c == '\n') {
@@ -205,7 +202,6 @@ void AIChatPanel::renderCodeBlock(const std::string& code, const std::string& la
     float totalHeight = textHeight + Theme::Spacing::M * 2 + ImGui::GetFrameHeightWithSpacing();
 
     if (ImGui::BeginChild(childId.c_str(), ImVec2(-1, totalHeight), true)) {
-        // Action buttons
         std::string copyId = std::format("{}##{}_{}_{}", LABEL_COPY, "cp", msgIdx, blockIdx);
         if (ImGui::SmallButton(copyId.c_str())) {
             ImGui::SetClipboardText(code.c_str());
@@ -223,7 +219,6 @@ void AIChatPanel::renderCodeBlock(const std::string& code, const std::string& la
             }
         }
 
-        // Code text
         ImGui::PushStyleColor(ImGuiCol_Text, colors.green);
         ImGui::TextWrapped("%s", code.c_str());
         ImGui::PopStyleColor();
@@ -241,7 +236,6 @@ void AIChatPanel::renderInputArea() {
 
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    // Bordered container for input area (sharp corners)
     ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.surface0);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::L, Theme::Spacing::M));
@@ -249,7 +243,6 @@ void AIChatPanel::renderInputArea() {
     float containerHeight = getAIInputContainerHeight();
     if (ImGui::BeginChild("##ai_input_container", ImVec2(-1, containerHeight),
                           ImGuiChildFlags_Borders)) {
-        // Row 1: Full-width text input (no border)
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
@@ -270,18 +263,15 @@ void AIChatPanel::renderInputArea() {
         ImGui::PopStyleColor(3);
         ImGui::PopStyleVar(2);
 
-        // Row 2: AI icon + model dropdown (+ chevron) + send button
         float rowStartX = ImGui::GetCursorPosX();
         float rowLeftPadding = Theme::Spacing::S;
         float rowRightPadding = Theme::Spacing::S;
 
-        // AI icon
         ImGui::SetCursorPosX(rowStartX + rowLeftPadding);
         ImGui::AlignTextToFramePadding();
         ImGui::TextColored(colors.subtext0, ICON_FA_WAND_MAGIC_SPARKLES);
         ImGui::SameLine(0.0f, Theme::Spacing::S);
 
-        // Model dropdown
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
@@ -301,7 +291,6 @@ void AIChatPanel::renderInputArea() {
                                 ImVec2(ImGui::GetStyle().ItemSpacing.x, Theme::Spacing::S));
             for (int i = 0; i < MODEL_COUNT; ++i) {
                 bool selected = (modelIndex_ == i);
-                // Show provider prefix
                 std::string label = MODEL_OPTIONS[i].label;
                 if (ImGui::Selectable(label.c_str(), selected)) {
                     modelIndex_ = i;
@@ -319,16 +308,16 @@ void AIChatPanel::renderInputArea() {
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
 
-        // Send button (right-aligned)
-        float sendBtnWidth = ImGui::GetFrameHeight(); // square button
+        float sendBtnWidth = ImGui::GetFrameHeight();
         ImGui::SameLine(rowStartX + ImGui::GetContentRegionAvail().x - sendBtnWidth -
                         rowRightPadding);
 
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
-        if (client_->isStreaming()) {
+        if (client_->isStreaming() || chatState_->isBuildingPrompt()) {
             if (ImGui::Button(ICON_FA_STOP, ImVec2(sendBtnWidth, 0))) {
+                chatState_->cancelAsyncPrompt();
                 client_->cancel();
             }
         } else {
@@ -349,7 +338,6 @@ void AIChatPanel::renderInputArea() {
 void AIChatPanel::sendMessage() {
     std::string text(inputBuf_);
 
-    // Trim whitespace
     auto start = text.find_first_not_of(" \t\n\r");
     if (start == std::string::npos) {
         return;
@@ -362,7 +350,6 @@ void AIChatPanel::sendMessage() {
         return;
     }
 
-    // Add user message
     chatState_->addUserMessage(text);
     std::vector<AIChatMessage> requestMessages = chatState_->getMessages();
     chatState_->startAssistantMessage();
@@ -385,15 +372,21 @@ void AIChatPanel::sendMessage() {
     }
 
     std::string model = getSelectedModel();
-    std::string systemPrompt = chatState_->buildSystemPrompt();
-    client_->sendStreaming(provider, apiKey, model, systemPrompt, requestMessages);
+
+    if (chatState_->isBuildingPrompt()) {
+        return; // Prevent multiple clicks
+    }
+
+    chatState_->buildSystemPromptAsync(
+        [this, provider, apiKey, model, requestMessages](std::string systemPrompt) {
+            client_->sendStreaming(provider, apiKey, model, systemPrompt, requestMessages);
+        });
 }
 
 void AIChatPanel::loadModelSettings() {
     auto* appState = Application::getInstance().getAppState();
     std::string provider = appState->getSetting("ai_provider", "anthropic");
 
-    // Find matching model option based on saved provider
     if (provider == "gemini") {
         for (int i = 0; i < MODEL_COUNT; ++i) {
             if (MODEL_OPTIONS[i].provider == AIProvider::GEMINI) {
@@ -447,7 +440,6 @@ std::vector<AIChatPanel::CodeBlock> AIChatPanel::parseCodeBlocks(const std::stri
             break;
         }
 
-        // Find language identifier (rest of line after ```)
         size_t langStart = start + 3;
         size_t langEnd = content.find('\n', langStart);
         if (langEnd == std::string::npos) {
@@ -455,16 +447,13 @@ std::vector<AIChatPanel::CodeBlock> AIChatPanel::parseCodeBlocks(const std::stri
         }
 
         std::string lang = content.substr(langStart, langEnd - langStart);
-        // Trim whitespace from lang
         while (!lang.empty() && (lang.back() == ' ' || lang.back() == '\r')) {
             lang.pop_back();
         }
 
-        // Find closing ```
         size_t codeStart = langEnd + 1;
         auto codeEnd = content.find("```", codeStart);
         if (codeEnd == std::string::npos) {
-            // Unclosed code block - treat rest as code (streaming in progress)
             std::string code = content.substr(codeStart);
             while (!code.empty() && code.back() == '\n') {
                 code.pop_back();
@@ -474,14 +463,11 @@ std::vector<AIChatPanel::CodeBlock> AIChatPanel::parseCodeBlocks(const std::stri
         }
 
         std::string code = content.substr(codeStart, codeEnd - codeStart);
-        // Trim trailing newline
         while (!code.empty() && code.back() == '\n') {
             code.pop_back();
         }
 
-        // end position includes closing ```
         size_t blockEnd = codeEnd + 3;
-        // Skip newline after closing ```
         if (blockEnd < content.size() && content[blockEnd] == '\n') {
             ++blockEnd;
         }

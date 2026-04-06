@@ -12,7 +12,8 @@ class TableRenderer;
 
 class RedisKeyViewerTab final : public Tab {
 public:
-    RedisKeyViewerTab(const std::string& name, RedisDatabase* db, const std::string& pattern);
+    RedisKeyViewerTab(const std::string& name, RedisDatabase* db, const std::string& pattern,
+                      int dbIndex);
     ~RedisKeyViewerTab() override;
 
     void render() override;
@@ -23,10 +24,14 @@ public:
     [[nodiscard]] const RedisDatabase* getDatabase() const {
         return db_;
     }
+    [[nodiscard]] int getDatabaseIndex() const {
+        return dbIndex_;
+    }
 
 private:
     RedisDatabase* db_;
     std::string pattern_;
+    int dbIndex_ = 0;
 
     std::vector<std::string> columnNames_;
     std::vector<std::vector<std::string>> tableData_;

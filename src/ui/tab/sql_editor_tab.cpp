@@ -1,5 +1,6 @@
 #include "ui/tab/sql_editor_tab.hpp"
 #include "IconsFontAwesome6.h"
+#include "SQLParser.h"
 #include "ai/ai_chat.hpp"
 #include "application.hpp"
 #include "database/database_node.hpp"
@@ -17,12 +18,14 @@
 #include "utils/spinner.hpp"
 #include "utils/splitter.hpp"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <set>
 #include <spdlog/spdlog.h>
 
 namespace {
@@ -86,6 +89,371 @@ namespace {
         if (!node->isViewsLoaded() && !node->isLoadingViews())
             node->startViewsLoadAsync();
     }
+
+    std::string toLowerCopy(std::string_view s) {
+        std::string out;
+        out.reserve(s.size());
+        for (const char ch : s)
+            out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        return out;
+    }
+
+    enum class SqlCompletionContext { Other, FromJoin, SelectWhereOn };
+
+    SqlCompletionContext
+    detectSqlCompletionContext(const dearsql::TextEditor::CompletionRequest& request) {
+        const int wordStartPos = request.cursorIndex - static_cast<int>(request.currentWord.size());
+        int p = wordStartPos;
+        while (p > 0 && (request.content[static_cast<size_t>(p - 1)] == ' ' ||
+                         request.content[static_cast<size_t>(p - 1)] == '\n' ||
+                         request.content[static_cast<size_t>(p - 1)] == '\t' ||
+                         request.content[static_cast<size_t>(p - 1)] == ',' ||
+                         request.content[static_cast<size_t>(p - 1)] == '\r')) {
+            --p;
+        }
+
+        const int kwEnd = p;
+        while (p > 0) {
+            const char ch = request.content[static_cast<size_t>(p - 1)];
+            if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_')
+                break;
+            --p;
+        }
+
+        if (kwEnd <= p)
+            return SqlCompletionContext::Other;
+
+        const std::string kw = toLowerCopy(
+            request.content.substr(static_cast<size_t>(p), static_cast<size_t>(kwEnd - p)));
+        if (kw == "from" || kw == "join" || kw == "table" || kw == "into" || kw == "update")
+            return SqlCompletionContext::FromJoin;
+        if (kw == "select" || kw == "where" || kw == "and" || kw == "or" || kw == "on" ||
+            kw == "having" || kw == "by" || kw == "set" || kw == "case" || kw == "when" ||
+            kw == "then") {
+            return SqlCompletionContext::SelectWhereOn;
+        }
+        return SqlCompletionContext::Other;
+    }
+
+    std::set<std::string>
+    extractReferencedTables(const dearsql::TextEditor::CompletionRequest& request) {
+        std::set<std::string> referencedTables;
+
+        int stmtStart = 0;
+        for (int p = request.cursorIndex - 1; p >= 0; --p) {
+            if (request.content[static_cast<size_t>(p)] == ';') {
+                stmtStart = p + 1;
+                break;
+            }
+        }
+
+        const std::string stmt = std::string(request.content.substr(
+            static_cast<size_t>(stmtStart), static_cast<size_t>(request.cursorIndex - stmtStart)));
+        const std::string lowerStmt = toLowerCopy(stmt);
+
+        auto extractTablesAfterKeyword = [&](std::string_view keyword) {
+            size_t searchPos = 0;
+            while ((searchPos = lowerStmt.find(keyword, searchPos)) != std::string::npos) {
+                if (searchPos > 0 &&
+                    std::isalnum(static_cast<unsigned char>(lowerStmt[searchPos - 1]))) {
+                    searchPos += keyword.size();
+                    continue;
+                }
+
+                size_t afterKw = searchPos + keyword.size();
+                if (afterKw < lowerStmt.size() &&
+                    std::isalnum(static_cast<unsigned char>(lowerStmt[afterKw]))) {
+                    searchPos = afterKw;
+                    continue;
+                }
+
+                size_t p = afterKw;
+                while (p < stmt.size() &&
+                       (stmt[p] == ' ' || stmt[p] == '\n' || stmt[p] == '\t' || stmt[p] == '\r')) {
+                    ++p;
+                }
+
+                while (p < stmt.size()) {
+                    while (p < stmt.size() && (stmt[p] == ' ' || stmt[p] == '\n' ||
+                                               stmt[p] == '\t' || stmt[p] == '\r')) {
+                        ++p;
+                    }
+                    if (p >= stmt.size())
+                        break;
+
+                    size_t kwCheck = p;
+                    std::string nextWord;
+                    while (kwCheck < stmt.size() &&
+                           (std::isalnum(static_cast<unsigned char>(stmt[kwCheck])) ||
+                            stmt[kwCheck] == '_')) {
+                        nextWord.push_back(static_cast<char>(
+                            std::tolower(static_cast<unsigned char>(stmt[kwCheck++]))));
+                    }
+
+                    if (nextWord == "where" || nextWord == "on" || nextWord == "set" ||
+                        nextWord == "order" || nextWord == "group" || nextWord == "having" ||
+                        nextWord == "limit" || nextWord == "union" || nextWord == "inner" ||
+                        nextWord == "left" || nextWord == "right" || nextWord == "outer" ||
+                        nextWord == "cross" || nextWord == "full" || nextWord == "join" ||
+                        nextWord == "select" || nextWord == "values") {
+                        break;
+                    }
+
+                    std::string tableName;
+                    while (p < stmt.size() && (std::isalnum(static_cast<unsigned char>(stmt[p])) ||
+                                               stmt[p] == '_' || stmt[p] == '.')) {
+                        tableName.push_back(stmt[p++]);
+                    }
+
+                    if (!tableName.empty()) {
+                        referencedTables.insert(tableName);
+                        const auto dotPos = tableName.rfind('.');
+                        if (dotPos != std::string::npos)
+                            referencedTables.insert(tableName.substr(dotPos + 1));
+                    }
+
+                    while (p < stmt.size() &&
+                           (stmt[p] == ' ' || stmt[p] == '\n' || stmt[p] == '\t')) {
+                        ++p;
+                    }
+                    if (p < stmt.size() && stmt[p] != ',' && stmt[p] != ';') {
+                        std::string maybeAlias;
+                        while (
+                            p < stmt.size() &&
+                            (std::isalnum(static_cast<unsigned char>(stmt[p])) || stmt[p] == '_')) {
+                            maybeAlias.push_back(static_cast<char>(
+                                std::tolower(static_cast<unsigned char>(stmt[p++]))));
+                        }
+                        if (maybeAlias == "as") {
+                            while (p < stmt.size() && (stmt[p] == ' ' || stmt[p] == '\t'))
+                                ++p;
+                            while (p < stmt.size() &&
+                                   (std::isalnum(static_cast<unsigned char>(stmt[p])) ||
+                                    stmt[p] == '_')) {
+                                ++p;
+                            }
+                        }
+                    }
+
+                    while (p < stmt.size() && (stmt[p] == ' ' || stmt[p] == '\n' ||
+                                               stmt[p] == '\t' || stmt[p] == '\r')) {
+                        ++p;
+                    }
+                    if (p < stmt.size() && stmt[p] == ',')
+                        ++p;
+                    else
+                        break;
+                }
+
+                searchPos = afterKw;
+            }
+        };
+
+        extractTablesAfterKeyword("from");
+        extractTablesAfterKeyword("join");
+        extractTablesAfterKeyword("update");
+        return referencedTables;
+    }
+
+    std::vector<CompletionItem>
+    filterSqlCompletions(const dearsql::TextEditor::CompletionRequest& request,
+                         const std::vector<CompletionItem>& items) {
+        const std::string lowerWord = toLowerCopy(request.currentWord);
+        std::vector<std::string> lowerQualifierParts;
+        lowerQualifierParts.reserve(request.qualifierParts.size());
+        for (const auto& part : request.qualifierParts)
+            lowerQualifierParts.push_back(toLowerCopy(part));
+
+        const auto ctx = detectSqlCompletionContext(request);
+        const auto referencedTables = extractReferencedTables(request);
+        const bool hasTableContext = !referencedTables.empty();
+
+        auto qualifiersMatch = [&](const CompletionItem& ci) {
+            if (lowerQualifierParts.empty())
+                return true;
+
+            if (!ci.qualifiers.empty()) {
+                if (ci.qualifiers.size() < lowerQualifierParts.size())
+                    return false;
+                const size_t offset = ci.qualifiers.size() - lowerQualifierParts.size();
+                for (size_t i = 0; i < lowerQualifierParts.size(); ++i) {
+                    if (toLowerCopy(ci.qualifiers[offset + i]) != lowerQualifierParts[i])
+                        return false;
+                }
+                return true;
+            }
+
+            if (ci.kind != CompletionKind::Column || ci.matchText.empty())
+                return false;
+
+            const auto lastDot = ci.matchText.rfind('.');
+            if (lastDot == std::string::npos)
+                return false;
+
+            std::vector<std::string> ownerParts;
+            std::string currentPart;
+            for (const char ch : ci.matchText.substr(0, lastDot)) {
+                if (ch == '.') {
+                    if (!currentPart.empty()) {
+                        ownerParts.push_back(toLowerCopy(currentPart));
+                        currentPart.clear();
+                    }
+                } else {
+                    currentPart.push_back(ch);
+                }
+            }
+            if (!currentPart.empty())
+                ownerParts.push_back(toLowerCopy(currentPart));
+
+            if (ownerParts.size() < lowerQualifierParts.size())
+                return false;
+
+            const size_t offset = ownerParts.size() - lowerQualifierParts.size();
+            for (size_t i = 0; i < lowerQualifierParts.size(); ++i) {
+                if (ownerParts[offset + i] != lowerQualifierParts[i])
+                    return false;
+            }
+            return true;
+        };
+
+        struct ScoredItem {
+            CompletionItem item;
+            int score;
+        };
+        std::vector<ScoredItem> scored;
+
+        for (const auto& item : items) {
+            if (!qualifiersMatch(item))
+                continue;
+            if (!lowerQualifierParts.empty() && item.qualifiers.empty() &&
+                item.kind != CompletionKind::Column)
+                continue;
+
+            const std::string insertText = item.insertText.empty() ? item.text : item.insertText;
+            if (!lowerWord.empty() && toLowerCopy(insertText) == lowerWord)
+                continue;
+
+            const std::string matchText = item.matchText.empty() ? item.text : item.matchText;
+            const std::string lowerMatchText = toLowerCopy(matchText);
+
+            if (item.kind == CompletionKind::Column && !hasTableContext &&
+                ctx != SqlCompletionContext::SelectWhereOn) {
+                continue;
+            }
+
+            if (item.kind == CompletionKind::Column && ctx == SqlCompletionContext::SelectWhereOn &&
+                !hasTableContext) {
+                continue;
+            }
+
+            int score = 0;
+            if (lowerWord.empty()) {
+                score = 100;
+            } else if (lowerMatchText.find(lowerWord) == 0) {
+                score = 300;
+            } else if (lowerMatchText.find(lowerWord) != std::string::npos) {
+                score = 100;
+            } else {
+                continue;
+            }
+
+            switch (item.kind) {
+            case CompletionKind::Column:
+                score += 30;
+                break;
+            case CompletionKind::Table:
+                score += 25;
+                break;
+            case CompletionKind::View:
+                score += 20;
+                break;
+            case CompletionKind::Function:
+                score += 15;
+                break;
+            case CompletionKind::Sequence:
+                score += 10;
+                break;
+            case CompletionKind::Keyword:
+                score -= 10;
+                break;
+            }
+
+            if (ctx == SqlCompletionContext::FromJoin) {
+                if (item.kind == CompletionKind::Table)
+                    score += 80;
+                else if (item.kind == CompletionKind::View)
+                    score += 60;
+                else if (item.kind == CompletionKind::Column)
+                    continue;
+                else if (item.kind == CompletionKind::Keyword)
+                    score -= 40;
+            } else if (ctx == SqlCompletionContext::SelectWhereOn) {
+                if (item.kind == CompletionKind::Column)
+                    score += 80;
+                else if (item.kind == CompletionKind::Function)
+                    score += 50;
+                else if (item.kind == CompletionKind::Keyword)
+                    score -= 20;
+            }
+
+            if (lowerMatchText.size() < 15)
+                score += 5;
+
+            if (item.kind == CompletionKind::Column && !referencedTables.empty()) {
+                for (const auto& tableName : referencedTables) {
+                    if (lowerMatchText.find(toLowerCopy(tableName)) != std::string::npos) {
+                        score += 100;
+                        break;
+                    }
+                }
+            }
+
+            scored.push_back({item, score});
+        }
+
+        std::sort(scored.begin(), scored.end(), [](const ScoredItem& a, const ScoredItem& b) {
+            if (a.score != b.score)
+                return a.score > b.score;
+            if (a.item.text != b.item.text) {
+                return std::lexicographical_compare(
+                    a.item.text.begin(), a.item.text.end(), b.item.text.begin(), b.item.text.end(),
+                    [](char x, char y) { return std::tolower(x) < std::tolower(y); });
+            }
+            return std::lexicographical_compare(
+                a.item.detailText.begin(), a.item.detailText.end(), b.item.detailText.begin(),
+                b.item.detailText.end(),
+                [](char x, char y) { return std::tolower(x) < std::tolower(y); });
+        });
+
+        std::vector<CompletionItem> filtered;
+        filtered.reserve(scored.size());
+        for (auto& item : scored)
+            filtered.push_back(std::move(item.item));
+        return filtered;
+    }
+
+    std::string_view trimSqlView(const std::string& sql) {
+        size_t start = 0;
+        while (start < sql.size() && std::isspace(static_cast<unsigned char>(sql[start]))) {
+            ++start;
+        }
+
+        size_t end = sql.size();
+        while (end > start && std::isspace(static_cast<unsigned char>(sql[end - 1]))) {
+            --end;
+        }
+
+        return std::string_view(sql).substr(start, end - start);
+    }
+
+    std::string getLeadingSqlKeyword(std::string_view sql) {
+        size_t pos = 0;
+        while (pos < sql.size() &&
+               (std::isalpha(static_cast<unsigned char>(sql[pos])) || sql[pos] == '_')) {
+            ++pos;
+        }
+        return toLowerCopy(sql.substr(0, pos));
+    }
 } // namespace
 
 SQLEditorTab::SQLEditorTab(const std::string& name, IDatabaseNode* node,
@@ -94,10 +462,16 @@ SQLEditorTab::SQLEditorTab(const std::string& name, IDatabaseNode* node,
       scriptName_(name) {
     sqlEditor.SetShowLineNumbers(true);
     sqlEditor.SetSubmitCallback([this] {
-        sqlQuery = sqlEditor.GetText();
-        startQueryExecutionAsync(sqlQuery);
+        if (sqlEditor.HasSelection()) {
+            startQueryExecutionAsync(sqlEditor.GetSelectedText());
+        } else {
+            sqlQuery = sqlEditor.GetText();
+            startQueryExecutionAsync(sqlQuery);
+        }
     });
+    sqlEditor.SetCompletionFilter(filterSqlCompletions);
     bindNode(node_);
+    scheduleSyntaxCheck();
     // seed rename buffer with initial name
     std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
 }
@@ -118,6 +492,7 @@ void SQLEditorTab::render() {
     }
 
     checkQueryExecutionStatus();
+    updateSyntaxDiagnostics();
 
     // Cmd+S / Ctrl+S save shortcut — flag here, execute after editor text is synced below
     const bool wantSave = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
@@ -158,6 +533,7 @@ void SQLEditorTab::render() {
             if (newText != sqlQuery) {
                 sqlQuery = newText;
                 contentModified_ = true;
+                scheduleSyntaxCheck();
             }
         }
         ImGui::EndChild();
@@ -258,6 +634,30 @@ void SQLEditorTab::renderConnectionInfo() {
 }
 
 void SQLEditorTab::renderConnectionInfoPostgres() {
+    // Database-level editor: PostgresDatabaseNode bound directly
+    if (auto* pgDbNode = dynamic_cast<PostgresDatabaseNode*>(node_)) {
+        auto* serverDb = pgDbNode->parentDb;
+        if (!serverDb) {
+            ImGui::Text("Database: %s", node_->getFullPath().c_str());
+            return;
+        }
+
+        const auto& dbMap = serverDb->getDatabaseDataMap();
+        std::vector<std::string> dbNames;
+        dbNames.reserve(dbMap.size());
+        for (const auto& dbName : dbMap | std::views::keys)
+            dbNames.push_back(dbName);
+        std::ranges::sort(dbNames);
+
+        renderDatabaseCombo(serverDb->getConnectionInfo().host, "Database:", pgDbNode->name,
+                            dbNames, [serverDb, this](const std::string& selectedName) {
+                                if (auto* n = serverDb->getDatabaseData(selectedName))
+                                    switchNode(n);
+                            });
+        return;
+    }
+
+    // Schema-level editor: PostgresSchemaNode bound (backward compat)
     auto* dbNode = dynamic_cast<PostgresDatabaseNode*>(node_);
     auto* schemaNode = dynamic_cast<PostgresSchemaNode*>(node_);
     if (!dbNode && schemaNode)
@@ -567,12 +967,25 @@ void SQLEditorTab::renderToolbar() {
         }
     } else {
         if (ImGui::Button(ICON_FA_PLAY " Run")) {
-            startQueryExecutionAsync(sqlQuery);
+            if (sqlEditor.HasSelection()) {
+                startQueryExecutionAsync(sqlEditor.GetSelectedText());
+            } else {
+                startQueryExecutionAsync(sqlQuery);
+            }
         }
         ImGui::SameLine(0, Theme::Spacing::M);
         if (ImGui::Button(ICON_FA_ALIGN_LEFT " Format")) {
             formatSQL();
         }
+    }
+
+    if (syntaxDiagnostic_.active) {
+        ImGui::SameLine(0, Theme::Spacing::L);
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+        const std::string inlineMessage =
+            std::string(ICON_FA_TRIANGLE_EXCLAMATION) + " " + syntaxDiagnostic_.message;
+        ImGui::TextUnformatted(inlineMessage.c_str());
+        ImGui::PopStyleColor();
     }
 
     ImGui::PopStyleColor();
@@ -703,17 +1116,21 @@ void SQLEditorTab::bindNode(IDatabaseNode* node) {
         return;
     }
 
+    // PostgresDatabaseNode: database-level editor (no SET search_path — cross-schema queries)
     if (auto* dbNode = dynamic_cast<PostgresDatabaseNode*>(node); dbNode && dbNode->parentDb) {
         const std::string dbName = dbNode->name;
         binding_.resolveNode = [serverDb = dbNode->parentDb, dbName]() -> IDatabaseNode* {
-            if (auto* resolved = serverDb->getDatabaseData(dbName))
+            if (auto* resolved = const_cast<PostgresDatabaseNode*>(
+                    static_cast<const PostgresDatabase*>(serverDb)->getDatabaseData(dbName))) {
                 return resolved;
+            }
 
             if (!serverDb->areDatabasesLoaded() && !serverDb->isLoadingDatabases()) {
                 serverDb->refreshDatabaseNames();
             }
             serverDb->checkDatabasesStatusAsync();
-            return serverDb->getDatabaseData(dbName);
+            return const_cast<PostgresDatabaseNode*>(
+                static_cast<const PostgresDatabase*>(serverDb)->getDatabaseData(dbName));
         };
         binding_.resolveExecutor = [this]() -> IQueryExecutor* {
             return binding_.resolveNode ? binding_.resolveNode() : nullptr;
@@ -821,6 +1238,60 @@ void SQLEditorTab::formatSQL() {
     if (!formatted.empty()) {
         sqlEditor.SetText(formatted);
         sqlQuery = formatted;
+        scheduleSyntaxCheck();
+    }
+}
+
+void SQLEditorTab::scheduleSyntaxCheck() {
+    syntaxCheckPending_ = true;
+    syntaxCheckDelay_ = 0.25f;
+}
+
+void SQLEditorTab::updateSyntaxDiagnostics() {
+    if (!syntaxCheckPending_) {
+        return;
+    }
+
+    syntaxCheckDelay_ -= ImGui::GetIO().DeltaTime;
+    if (syntaxCheckDelay_ > 0.0f) {
+        return;
+    }
+
+    syntaxCheckPending_ = false;
+    syntaxDiagnostic_ = {};
+
+    const std::string_view trimmed = trimSqlView(sqlQuery);
+    if (trimmed.empty()) {
+        return;
+    }
+
+    hsql::SQLParserResult parseResult;
+    if (!hsql::SQLParser::parse(sqlQuery, &parseResult)) {
+        syntaxDiagnostic_.active = true;
+        syntaxDiagnostic_.message = "SQL parser failed internally while checking syntax.";
+        return;
+    }
+
+    if (parseResult.isValid()) {
+        return;
+    }
+
+    syntaxDiagnostic_.active = true;
+    syntaxDiagnostic_.line = std::max(1, parseResult.errorLine());
+    syntaxDiagnostic_.column = std::max(1, parseResult.errorColumn());
+
+    const std::string keyword = getLeadingSqlKeyword(trimmed);
+    if (keyword == "alter" || keyword == "explain" || keyword == "rename" || keyword == "export") {
+        syntaxDiagnostic_.message =
+            std::format("The embedded parser does not fully support '{}' statements yet.", keyword);
+        return;
+    }
+
+    const char* parserMessage = parseResult.errorMsg();
+    if (parserMessage && parserMessage[0] != '\0') {
+        syntaxDiagnostic_.message = parserMessage;
+    } else {
+        syntaxDiagnostic_.message = "Syntax issue.";
     }
 }
 
@@ -828,212 +1299,345 @@ void SQLEditorTab::updateCompletionKeywords() {
     std::vector<CompletionItem> items;
 
     // SQL keywords
-    for (const auto& kw : dearsql::TextEditor::GetDefaultCompletionKeywords())
+    std::set<std::string> seenLabels;
+    for (const auto& kw : dearsql::TextEditor::GetDefaultCompletionKeywords()) {
         items.push_back({kw, CompletionKind::Keyword});
+        seenLabels.insert(kw);
+    }
 
-    if (node_) {
-        auto addColumnsFromNode = [&](IDatabaseNode* sourceNode) {
-            if (!sourceNode)
-                return;
-            for (const auto& table : sourceNode->getTables()) {
-                for (const auto& col : table.columns)
-                    items.push_back({col.name, CompletionKind::Column});
+    // SQL functions (aggregate, string, date, math, conditional)
+    static const std::vector<std::string> sqlFunctions = {
+        // Aggregate
+        "COUNT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "GROUP_CONCAT",
+        "STRING_AGG",
+        "ARRAY_AGG",
+        // String
+        "CONCAT",
+        "LENGTH",
+        "UPPER",
+        "LOWER",
+        "TRIM",
+        "LTRIM",
+        "RTRIM",
+        "SUBSTRING",
+        "REPLACE",
+        "LEFT",
+        "RIGHT",
+        "REVERSE",
+        "REPEAT",
+        "POSITION",
+        "STRPOS",
+        "SPLIT_PART",
+        "INITCAP",
+        "LPAD",
+        "RPAD",
+        "TRANSLATE",
+        "FORMAT",
+        // Date/Time
+        "NOW",
+        "CURRENT_DATE",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "DATE_TRUNC",
+        "DATE_PART",
+        "EXTRACT",
+        "AGE",
+        "DATE_ADD",
+        "DATE_SUB",
+        "DATEDIFF",
+        "DATEADD",
+        "GETDATE",
+        "SYSDATE",
+        "TO_DATE",
+        "TO_CHAR",
+        "TO_TIMESTAMP",
+        "INTERVAL",
+        // Math
+        "ABS",
+        "CEIL",
+        "CEILING",
+        "FLOOR",
+        "ROUND",
+        "MOD",
+        "POWER",
+        "SQRT",
+        "SIGN",
+        "RANDOM",
+        "LOG",
+        "LN",
+        "EXP",
+        "PI",
+        "GREATEST",
+        "LEAST",
+        // Conditional
+        "COALESCE",
+        "NULLIF",
+        "IFNULL",
+        "NVL",
+        "NVL2",
+        "DECODE",
+        "IIF",
+        // Type conversion
+        "CAST",
+        "CONVERT",
+        "TRY_CAST",
+        // Window
+        "ROW_NUMBER",
+        "RANK",
+        "DENSE_RANK",
+        "NTILE",
+        "LAG",
+        "LEAD",
+        "FIRST_VALUE",
+        "LAST_VALUE",
+        "NTH_VALUE",
+        // JSON (PostgreSQL/MySQL)
+        "JSON_AGG",
+        "JSON_BUILD_OBJECT",
+        "JSON_EXTRACT",
+        "JSON_EXTRACT_PATH",
+        "JSONB_BUILD_OBJECT",
+        "JSON_OBJECT",
+        "JSON_ARRAY",
+        // Other
+        "EXISTS",
+        "IN",
+        "ANY",
+        "ALL",
+        "SOME",
+        "GENERATE_SERIES",
+        "UNNEST",
+        "ARRAY_LENGTH",
+    };
+    for (const auto& fn : sqlFunctions) {
+        if (seenLabels.insert(fn).second)
+            items.push_back({fn, CompletionKind::Function});
+    }
+
+    auto addColumnsFromNode = [&](IDatabaseNode* sourceNode,
+                                  const std::vector<std::string>& qualifiers = {}) {
+        if (!sourceNode)
+            return;
+        for (const auto& table : sourceNode->getTables()) {
+            for (const auto& col : table.columns) {
+                CompletionItem colItem(col.name, CompletionKind::Column);
+                std::string owner = joinQualifiers(qualifiers);
+                if (!owner.empty())
+                    owner += ".";
+                owner += table.name;
+
+                colItem.matchText = owner.empty() ? col.name : owner + "." + col.name;
+
+                std::string detail = table.name;
+                if (!col.type.empty()) {
+                    if (!detail.empty())
+                        detail += "  ";
+                    detail += col.type;
+                }
+                colItem.detailText = detail;
+                items.push_back(std::move(colItem));
             }
-        };
+        }
+    };
 
-        auto addNodeObjects = [&](IDatabaseNode* sourceNode,
-                                  const std::vector<std::string>& qualifiers) {
-            if (!sourceNode)
+    auto addNodeObjects = [&](IDatabaseNode* sourceNode,
+                              const std::vector<std::string>& qualifiers) {
+        if (!sourceNode)
+            return;
+
+        for (const auto& table : sourceNode->getTables())
+            items.push_back(makeCompletionItem(table.name, CompletionKind::Table, qualifiers));
+
+        for (const auto& view : sourceNode->getViews())
+            items.push_back(makeCompletionItem(view.name, CompletionKind::View, qualifiers));
+
+        for (const auto& seq : sourceNode->getSequences())
+            items.push_back(makeCompletionItem(seq, CompletionKind::Sequence, qualifiers));
+    };
+
+    auto finalizePartialItems = [&]() {
+        sortAndDeduplicateCompletionItems(items);
+        sqlEditor.SetCompletionItems(items);
+    };
+
+    if (auto* dbNode = dynamic_cast<PostgresDatabaseNode*>(node_); dbNode) {
+        dbNode->checkSchemasStatusAsync();
+        if (!dbNode->schemasLoaded && !dbNode->schemasLoader.isRunning())
+            dbNode->startSchemasLoadAsync();
+
+        bool tablesLoaded = dbNode->schemasLoaded;
+        bool viewsLoaded = dbNode->schemasLoaded;
+        for (const auto& schema : dbNode->schemas) {
+            if (!schema)
+                continue;
+            scheduleMetadataLoad(schema.get());
+            tablesLoaded = tablesLoaded && schema->isTablesLoaded();
+            viewsLoaded = viewsLoaded && schema->isViewsLoaded();
+            addNodeObjects(schema.get(), {schema->name});
+            addColumnsFromNode(schema.get(), {dbNode->name, schema->name});
+        }
+
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else if (auto* schemaNode = dynamic_cast<PostgresSchemaNode*>(node_);
+               schemaNode && schemaNode->parentDbNode) {
+        auto* dbNode = schemaNode->parentDbNode;
+        dbNode->checkSchemasStatusAsync();
+        if (!dbNode->schemasLoaded && !dbNode->schemasLoader.isRunning())
+            dbNode->startSchemasLoadAsync();
+
+        bool tablesLoaded = true;
+        bool viewsLoaded = true;
+        for (const auto& schema : dbNode->schemas) {
+            if (!schema)
+                continue;
+            scheduleMetadataLoad(schema.get());
+            tablesLoaded = tablesLoaded && schema->isTablesLoaded();
+            viewsLoaded = viewsLoaded && schema->isViewsLoaded();
+            addNodeObjects(schema.get(), {schema->name});
+            if (schema.get() == schemaNode)
+                addColumnsFromNode(schema.get(), {dbNode->name, schema->name});
+        }
+
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else if (auto* mySqlNode = dynamic_cast<MySQLDatabaseNode*>(node_);
+               mySqlNode && mySqlNode->parentDb) {
+        auto* serverDb = mySqlNode->parentDb;
+        serverDb->checkDatabasesStatusAsync();
+
+        bool tablesLoaded = true;
+        bool viewsLoaded = true;
+        for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
+            if (!dbEntry)
+                continue;
+            scheduleMetadataLoad(dbEntry.get());
+            tablesLoaded = tablesLoaded && dbEntry->isTablesLoaded();
+            viewsLoaded = viewsLoaded && dbEntry->isViewsLoaded();
+            addNodeObjects(dbEntry.get(), {dbEntry->name});
+            if (dbEntry.get() == mySqlNode)
+                addColumnsFromNode(dbEntry.get(), {dbEntry->name});
+        }
+
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else if (auto* msSqlSchemaNode = dynamic_cast<MSSQLSchemaNode*>(node_);
+               msSqlSchemaNode && msSqlSchemaNode->parentDbNode) {
+        auto* msSqlDbNode = msSqlSchemaNode->parentDbNode;
+        auto* serverDb = msSqlDbNode->parentDb;
+        if (serverDb)
+            serverDb->checkDatabasesStatusAsync();
+
+        bool tablesLoaded = true;
+        bool viewsLoaded = true;
+        for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
+            if (!dbEntry)
+                continue;
+
+            dbEntry->checkSchemasStatusAsync();
+            if (!dbEntry->schemasLoaded) {
+                if (!dbEntry->schemasLoader.isRunning())
+                    dbEntry->startSchemasLoadAsync();
+                finalizePartialItems();
                 return;
+            }
 
-            for (const auto& table : sourceNode->getTables())
-                items.push_back(makeCompletionItem(table.name, CompletionKind::Table, qualifiers));
-
-            for (const auto& view : sourceNode->getViews())
-                items.push_back(makeCompletionItem(view.name, CompletionKind::View, qualifiers));
-
-            for (const auto& seq : sourceNode->getSequences())
-                items.push_back(makeCompletionItem(seq, CompletionKind::Sequence, qualifiers));
-        };
-
-        auto finalizePartialItems = [&]() {
-            sortAndDeduplicateCompletionItems(items);
-            sqlEditor.SetCompletionItems(items);
-        };
-
-        if (auto* dbNode = dynamic_cast<PostgresDatabaseNode*>(node_); dbNode) {
-            dbNode->checkSchemasStatusAsync();
-            if (!dbNode->schemasLoaded && !dbNode->schemasLoader.isRunning())
-                dbNode->startSchemasLoadAsync();
-
-            bool tablesLoaded = dbNode->schemasLoaded;
-            bool viewsLoaded = dbNode->schemasLoaded;
-            for (const auto& schema : dbNode->schemas) {
+            for (const auto& schema : dbEntry->schemas) {
                 if (!schema)
                     continue;
                 scheduleMetadataLoad(schema.get());
                 tablesLoaded = tablesLoaded && schema->isTablesLoaded();
                 viewsLoaded = viewsLoaded && schema->isViewsLoaded();
-                addNodeObjects(schema.get(), {schema->name});
-                addColumnsFromNode(schema.get());
+                addNodeObjects(schema.get(), {dbEntry->name, schema->name});
+                if (schema.get() == msSqlSchemaNode)
+                    addColumnsFromNode(schema.get(), {dbEntry->name, schema->name});
             }
+        }
 
-            if (!tablesLoaded || !viewsLoaded) {
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else if (auto* msSqlNode = dynamic_cast<MSSQLDatabaseNode*>(node_);
+               msSqlNode && msSqlNode->parentDb) {
+        auto* serverDb = msSqlNode->parentDb;
+        serverDb->checkDatabasesStatusAsync();
+
+        bool tablesLoaded = true;
+        bool viewsLoaded = true;
+        for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
+            if (!dbEntry)
+                continue;
+
+            dbEntry->checkSchemasStatusAsync();
+            if (!dbEntry->schemasLoaded) {
+                if (!dbEntry->schemasLoader.isRunning())
+                    dbEntry->startSchemasLoadAsync();
                 finalizePartialItems();
                 return;
             }
-        } else if (auto* schemaNode = dynamic_cast<PostgresSchemaNode*>(node_);
-                   schemaNode && schemaNode->parentDbNode) {
-            auto* dbNode = schemaNode->parentDbNode;
-            dbNode->checkSchemasStatusAsync();
-            if (!dbNode->schemasLoaded && !dbNode->schemasLoader.isRunning())
-                dbNode->startSchemasLoadAsync();
 
-            bool tablesLoaded = true;
-            bool viewsLoaded = true;
-            for (const auto& schema : dbNode->schemas) {
+            for (const auto& schema : dbEntry->schemas) {
                 if (!schema)
                     continue;
                 scheduleMetadataLoad(schema.get());
                 tablesLoaded = tablesLoaded && schema->isTablesLoaded();
                 viewsLoaded = viewsLoaded && schema->isViewsLoaded();
-                addNodeObjects(schema.get(), {schema->name});
-                if (schema.get() == schemaNode)
-                    addColumnsFromNode(schema.get());
+                addNodeObjects(schema.get(), {dbEntry->name, schema->name});
             }
+            if (dbEntry.get() == msSqlNode && !dbEntry->schemas.empty())
+                addColumnsFromNode(dbEntry->schemas.front().get(),
+                                   {dbEntry->name, dbEntry->schemas.front()->name});
+        }
 
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
-        } else if (auto* mySqlNode = dynamic_cast<MySQLDatabaseNode*>(node_);
-                   mySqlNode && mySqlNode->parentDb) {
-            auto* serverDb = mySqlNode->parentDb;
-            serverDb->checkDatabasesStatusAsync();
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else if (auto* oracleNode = dynamic_cast<OracleDatabaseNode*>(node_);
+               oracleNode && oracleNode->parentDb) {
+        auto* serverDb = oracleNode->parentDb;
+        serverDb->checkDatabasesStatusAsync();
 
-            bool tablesLoaded = true;
-            bool viewsLoaded = true;
-            for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
-                if (!dbEntry)
-                    continue;
-                scheduleMetadataLoad(dbEntry.get());
-                tablesLoaded = tablesLoaded && dbEntry->isTablesLoaded();
-                viewsLoaded = viewsLoaded && dbEntry->isViewsLoaded();
-                addNodeObjects(dbEntry.get(), {dbEntry->name});
-                if (dbEntry.get() == mySqlNode)
-                    addColumnsFromNode(dbEntry.get());
-            }
+        bool tablesLoaded = true;
+        bool viewsLoaded = true;
+        for (const auto& schemaEntry : serverDb->getDatabaseDataMap() | std::views::values) {
+            if (!schemaEntry)
+                continue;
+            scheduleMetadataLoad(schemaEntry.get());
+            tablesLoaded = tablesLoaded && schemaEntry->isTablesLoaded();
+            viewsLoaded = viewsLoaded && schemaEntry->isViewsLoaded();
+            addNodeObjects(schemaEntry.get(), {schemaEntry->name});
+            if (schemaEntry.get() == oracleNode)
+                addColumnsFromNode(schemaEntry.get(), {schemaEntry->name});
+        }
 
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
-        } else if (auto* msSqlSchemaNode = dynamic_cast<MSSQLSchemaNode*>(node_);
-                   msSqlSchemaNode && msSqlSchemaNode->parentDbNode) {
-            auto* msSqlDbNode = msSqlSchemaNode->parentDbNode;
-            auto* serverDb = msSqlDbNode->parentDb;
-            if (serverDb)
-                serverDb->checkDatabasesStatusAsync();
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
+        }
+    } else {
+        scheduleMetadataLoad(node_);
+        const bool tablesLoaded = node_->isTablesLoaded();
+        const bool viewsLoaded = node_->isViewsLoaded();
 
-            bool tablesLoaded = true;
-            bool viewsLoaded = true;
-            for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
-                if (!dbEntry)
-                    continue;
+        addNodeObjects(node_, {});
+        addColumnsFromNode(node_);
 
-                dbEntry->checkSchemasStatusAsync();
-                if (!dbEntry->schemasLoaded) {
-                    if (!dbEntry->schemasLoader.isRunning())
-                        dbEntry->startSchemasLoadAsync();
-                    finalizePartialItems();
-                    return;
-                }
-
-                for (const auto& schema : dbEntry->schemas) {
-                    if (!schema)
-                        continue;
-                    scheduleMetadataLoad(schema.get());
-                    tablesLoaded = tablesLoaded && schema->isTablesLoaded();
-                    viewsLoaded = viewsLoaded && schema->isViewsLoaded();
-                    addNodeObjects(schema.get(), {dbEntry->name, schema->name});
-                    if (schema.get() == msSqlSchemaNode)
-                        addColumnsFromNode(schema.get());
-                }
-            }
-
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
-        } else if (auto* msSqlNode = dynamic_cast<MSSQLDatabaseNode*>(node_);
-                   msSqlNode && msSqlNode->parentDb) {
-            auto* serverDb = msSqlNode->parentDb;
-            serverDb->checkDatabasesStatusAsync();
-
-            bool tablesLoaded = true;
-            bool viewsLoaded = true;
-            for (const auto& dbEntry : serverDb->getDatabaseDataMap() | std::views::values) {
-                if (!dbEntry)
-                    continue;
-
-                dbEntry->checkSchemasStatusAsync();
-                if (!dbEntry->schemasLoaded) {
-                    if (!dbEntry->schemasLoader.isRunning())
-                        dbEntry->startSchemasLoadAsync();
-                    finalizePartialItems();
-                    return;
-                }
-
-                for (const auto& schema : dbEntry->schemas) {
-                    if (!schema)
-                        continue;
-                    scheduleMetadataLoad(schema.get());
-                    tablesLoaded = tablesLoaded && schema->isTablesLoaded();
-                    viewsLoaded = viewsLoaded && schema->isViewsLoaded();
-                    addNodeObjects(schema.get(), {dbEntry->name, schema->name});
-                }
-                if (dbEntry.get() == msSqlNode && !dbEntry->schemas.empty())
-                    addColumnsFromNode(dbEntry->schemas.front().get());
-            }
-
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
-        } else if (auto* oracleNode = dynamic_cast<OracleDatabaseNode*>(node_);
-                   oracleNode && oracleNode->parentDb) {
-            auto* serverDb = oracleNode->parentDb;
-            serverDb->checkDatabasesStatusAsync();
-
-            bool tablesLoaded = true;
-            bool viewsLoaded = true;
-            for (const auto& schemaEntry : serverDb->getDatabaseDataMap() | std::views::values) {
-                if (!schemaEntry)
-                    continue;
-                scheduleMetadataLoad(schemaEntry.get());
-                tablesLoaded = tablesLoaded && schemaEntry->isTablesLoaded();
-                viewsLoaded = viewsLoaded && schemaEntry->isViewsLoaded();
-                addNodeObjects(schemaEntry.get(), {schemaEntry->name});
-                if (schemaEntry.get() == oracleNode)
-                    addColumnsFromNode(schemaEntry.get());
-            }
-
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
-        } else {
-            scheduleMetadataLoad(node_);
-            const bool tablesLoaded = node_->isTablesLoaded();
-            const bool viewsLoaded = node_->isViewsLoaded();
-
-            addNodeObjects(node_, {});
-            addColumnsFromNode(node_);
-
-            if (!tablesLoaded || !viewsLoaded) {
-                finalizePartialItems();
-                return;
-            }
+        if (!tablesLoaded || !viewsLoaded) {
+            finalizePartialItems();
+            return;
         }
     }
 
@@ -1054,6 +1658,7 @@ void SQLEditorTab::initAIPanel() {
         current += sql;
         sqlEditor.SetText(current);
         sqlQuery = current;
+        scheduleSyntaxCheck();
     });
 }
 

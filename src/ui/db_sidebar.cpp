@@ -19,9 +19,11 @@
 #include "utils/file_dialog.hpp"
 #include "utils/spinner.hpp"
 #include "utils/texture_manager.hpp"
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <memory>
+#include <ranges>
 #include <spdlog/spdlog.h>
 
 DatabaseHierarchy* DatabaseSidebarNew::getHierarchy(const std::shared_ptr<DatabaseInterface>& db) {
@@ -473,11 +475,12 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
     const std::string dbLabel =
         std::format("   {}###db_{:p}", connectionInfo.name, static_cast<const void*>(db.get()));
     const bool dbOpen = ImGui::TreeNodeEx(dbLabel.c_str(), dbFlags);
+    const ImVec2 nodeMin = ImGui::GetItemRectMin();
+    const ImVec2 nodeMax = ImGui::GetItemRectMax();
 
     const float iconSize = texMgr.getIconSize();
-    const auto dbIconPos =
-        ImVec2(ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing(),
-               ImGui::GetItemRectMin().y + (ImGui::GetItemRectSize().y - iconSize) * 0.5f);
+    const auto dbIconPos = ImVec2(nodeMin.x + ImGui::GetTreeNodeToLabelSpacing(),
+                                  nodeMin.y + ((nodeMax.y - nodeMin.y) - iconSize) * 0.5f);
 
     if (showSpinner) {
         const ImVec2 centre(dbIconPos.x + iconSize * 0.5f, dbIconPos.y + iconSize * 0.5f);
@@ -499,29 +502,135 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
 
     db->checkConnectionStatusAsync();
 
-    if (type == DatabaseType::POSTGRESQL || type == DatabaseType::REDSHIFT) {
-        if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
-            pgDb->checkRefreshWorkflowAsync();
+    auto tryRefresh = [&]<typename T>() {
+        if (auto* d = dynamic_cast<T*>(db.get()))
+            d->checkRefreshWorkflowAsync();
+    };
+
+    switch (type) {
+    case DatabaseType::POSTGRESQL:
+    case DatabaseType::REDSHIFT:
+        tryRefresh.template operator()<PostgresDatabase>();
+        break;
+    case DatabaseType::MYSQL:
+    case DatabaseType::MARIADB:
+        tryRefresh.template operator()<MySQLDatabase>();
+        break;
+    case DatabaseType::MONGODB:
+        tryRefresh.template operator()<MongoDBDatabase>();
+        break;
+    case DatabaseType::MSSQL:
+        tryRefresh.template operator()<MSSQLDatabase>();
+        break;
+    case DatabaseType::ORACLE:
+        tryRefresh.template operator()<OracleDatabase>();
+        break;
+    case DatabaseType::REDIS:
+        tryRefresh.template operator()<RedisDatabase>();
+        break;
+    default:
+        break;
+    }
+
+    if (db->isConnected() && type != DatabaseType::SQLITE) {
+        std::vector<std::string> dbNames;
+
+        auto collectNames = [&]<typename T>() {
+            if (auto* d = dynamic_cast<T*>(db.get()))
+                for (const auto& name : d->getDatabaseDataMap() | std::views::keys)
+                    dbNames.push_back(name);
+        };
+
+        switch (type) {
+        case DatabaseType::POSTGRESQL:
+        case DatabaseType::REDSHIFT:
+            collectNames.template operator()<PostgresDatabase>();
+            break;
+        case DatabaseType::MYSQL:
+        case DatabaseType::MARIADB:
+            collectNames.template operator()<MySQLDatabase>();
+            break;
+        case DatabaseType::MSSQL:
+            collectNames.template operator()<MSSQLDatabase>();
+            break;
+        case DatabaseType::ORACLE:
+            collectNames.template operator()<OracleDatabase>();
+            break;
+        case DatabaseType::MONGODB:
+            collectNames.template operator()<MongoDBDatabase>();
+            break;
+        case DatabaseType::REDIS:
+            if (auto* redisDb = dynamic_cast<RedisDatabase*>(db.get()))
+                for (const auto& info : redisDb->getDatabaseInfoList())
+                    dbNames.push_back(std::format("db{}", info.index));
+            break;
+        default:
+            break;
         }
-    } else if (type == DatabaseType::MYSQL || type == DatabaseType::MARIADB) {
-        if (auto* mysqlDb = dynamic_cast<MySQLDatabase*>(db.get())) {
-            mysqlDb->checkRefreshWorkflowAsync();
-        }
-    } else if (type == DatabaseType::MONGODB) {
-        if (auto* mongoDb = dynamic_cast<MongoDBDatabase*>(db.get())) {
-            mongoDb->checkRefreshWorkflowAsync();
-        }
-    } else if (type == DatabaseType::MSSQL) {
-        if (auto* mssqlDb = dynamic_cast<MSSQLDatabase*>(db.get())) {
-            mssqlDb->checkRefreshWorkflowAsync();
-        }
-    } else if (type == DatabaseType::ORACLE) {
-        if (auto* oracleDb = dynamic_cast<OracleDatabase*>(db.get())) {
-            oracleDb->checkRefreshWorkflowAsync();
-        }
-    } else if (type == DatabaseType::REDIS) {
-        if (auto* redisDb = dynamic_cast<RedisDatabase*>(db.get())) {
-            redisDb->checkRefreshWorkflowAsync();
+
+        if (!dbNames.empty()) {
+            auto* hierarchy = getHierarchy(db);
+            const int total = static_cast<int>(dbNames.size());
+            int hiddenCount = 0;
+            for (const auto& name : dbNames) {
+                if (hierarchy && hierarchy->isDatabaseHidden(name))
+                    hiddenCount++;
+            }
+            const int visibleCount = total - hiddenCount;
+
+            const std::string countStr =
+                hiddenCount > 0 ? std::format("{}/{}", visibleCount, total) : std::to_string(total);
+            const ImVec4& badgeColor = hiddenCount > 0 ? colors.peach : colors.overlay1;
+
+            const float textW = ImGui::CalcTextSize(countStr.c_str()).x;
+            constexpr float hPad = 4.0f;
+            const float btnW = textW + hPad * 2.0f;
+            const float rowH = nodeMax.y - nodeMin.y;
+            const float rightEdge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+            const float btnX = rightEdge - btnW - hPad;
+
+            // draw badge text
+            const ImVec2 textPos(btnX + hPad,
+                                 nodeMin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(badgeColor),
+                                                countStr.c_str());
+
+            // invisible button for hover/click
+            const ImVec2 savedCursor = ImGui::GetCursorScreenPos();
+            const std::string btnId =
+                std::format("##filter_btn_{:p}", static_cast<const void*>(db.get()));
+            const std::string popupId =
+                std::format("##filter_popup_{:p}", static_cast<const void*>(db.get()));
+            ImGui::SetCursorScreenPos(ImVec2(btnX, nodeMin.y));
+            if (ImGui::InvisibleButton(btnId.c_str(), ImVec2(btnW, rowH))) {
+                ImGui::OpenPopup(popupId.c_str());
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    ImVec2(btnX, nodeMin.y), ImVec2(btnX + btnW, nodeMax.y),
+                    ImGui::GetColorU32(colors.surface1), 3.0f);
+                ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(badgeColor),
+                                                    countStr.c_str());
+            }
+            ImGui::SetCursorScreenPos(savedCursor);
+
+            if (ImGui::BeginPopup(popupId.c_str())) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                    ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
+                std::sort(dbNames.begin(), dbNames.end());
+                for (const auto& name : dbNames) {
+                    bool visible = !(hierarchy && hierarchy->isDatabaseHidden(name));
+                    if (ImGui::Checkbox(name.c_str(), &visible)) {
+                        if (hierarchy)
+                            hierarchy->setDatabaseHidden(name, !visible);
+                    }
+                }
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar(2);
+                ImGui::EndPopup();
+            }
         }
     }
 

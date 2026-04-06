@@ -952,8 +952,8 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         makeCtrl("STATIC", "Key file:", IDC_LABEL_SSH_KEY, SS_RIGHT, LX, y + 3, LW, RH);
         makeCtrl("EDIT", "", IDC_SSH_KEY_EDIT, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, FX, y,
                  FW - 80, RH);
-        makeCtrl("BUTTON", "Browse...", IDC_SSH_KEY_BROWSE, WS_TABSTOP | BS_OWNERDRAW,
-                 FX + FW - 74, y, 74, RH);
+        makeCtrl("BUTTON", "Browse...", IDC_SSH_KEY_BROWSE, WS_TABSTOP | BS_OWNERDRAW, FX + FW - 74,
+                 y, 74, RH);
         y += RS + 4;
 
         // status label (placed left of buttons on the same row)

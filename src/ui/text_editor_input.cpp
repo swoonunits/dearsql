@@ -900,36 +900,6 @@ namespace dearsql {
         for (const auto& part : qualifierParts)
             lowerQualifierParts.push_back(toLower(part));
 
-        // --- Detect SQL context (keyword before cursor) ---
-        enum class Ctx { Other, FromJoin, SelectWhereOn };
-        Ctx ctx = Ctx::Other;
-        {
-            int p = wordStartPos;
-            while (p > 0 &&
-                   (content_[p - 1] == ' ' || content_[p - 1] == '\n' || content_[p - 1] == '\t' ||
-                    content_[p - 1] == ',' || content_[p - 1] == '\r'))
-                --p;
-            int kwEnd = p;
-            while (p > 0 && isWordChar(content_[p - 1]))
-                --p;
-            if (kwEnd > p) {
-                std::string kw = toLower(content_.substr(p, kwEnd - p));
-                if (kw == "from" || kw == "join" || kw == "table" || kw == "into" || kw == "update")
-                    ctx = Ctx::FromJoin;
-                else if (kw == "select" || kw == "where" || kw == "and" || kw == "or" ||
-                         kw == "on" || kw == "having" || kw == "by" || kw == "set" ||
-                         kw == "case" || kw == "when" || kw == "then")
-                    ctx = Ctx::SelectWhereOn;
-            }
-        }
-
-        // --- Scoring ---
-        struct Scored {
-            CompletionItem item;
-            int score;
-        };
-        std::vector<Scored> scored;
-
         auto qualifiersMatch = [&](const CompletionItem& ci) {
             if (lowerQualifierParts.empty())
                 return true;
@@ -943,71 +913,71 @@ namespace dearsql {
             return true;
         };
 
-        auto addScored = [&](const CompletionItem& ci, const std::string& matchText) {
-            const std::string lt = toLower(matchText);
-            const std::string insertText = ci.insertText.empty() ? ci.text : ci.insertText;
-            if (!lowerWord.empty() && toLower(insertText) == lowerWord)
-                return; // exact match = already typed
-
-            int score = 0;
-            if (lowerWord.empty()) {
-                score = 100;
-            } else if (lt.find(lowerWord) == 0) {
-                score = 200; // prefix match
-            } else if (lt.find(lowerWord) != std::string::npos) {
-                score = 100; // substring match
-            } else {
-                return; // no match
-            }
-
-            // Context bonus
-            if (ctx == Ctx::FromJoin) {
-                if (ci.kind == CompletionKind::Table)
-                    score += 50;
-                else if (ci.kind == CompletionKind::View)
-                    score += 40;
-                else if (ci.kind == CompletionKind::Keyword)
-                    score -= 20;
-            } else if (ctx == Ctx::SelectWhereOn) {
-                if (ci.kind == CompletionKind::Column)
-                    score += 50;
-                else if (ci.kind == CompletionKind::Function)
-                    score += 30;
-            }
-
-            scored.push_back({ci, score});
-        };
-
-        // --- Build filtered list ---
-        for (const auto& item : *items) {
-            if (!qualifiersMatch(item))
-                continue;
-
-            if (!lowerQualifierParts.empty() && item.qualifiers.empty())
-                continue;
-
-            addScored(item, item.text);
-        }
-
-        // --- Sort by score desc, then alphabetically ---
-        std::sort(scored.begin(), scored.end(), [&](const Scored& a, const Scored& b) {
-            if (a.score != b.score)
-                return a.score > b.score;
-            if (a.item.text != b.item.text) {
-                return std::lexicographical_compare(
-                    a.item.text.begin(), a.item.text.end(), b.item.text.begin(), b.item.text.end(),
-                    [](char x, char y) { return std::tolower(x) < std::tolower(y); });
-            }
-            return std::lexicographical_compare(
-                a.item.detailText.begin(), a.item.detailText.end(), b.item.detailText.begin(),
-                b.item.detailText.end(),
-                [](char x, char y) { return std::tolower(x) < std::tolower(y); });
-        });
-
         constexpr int kMaxResults = 50;
         filteredCompletions_.clear();
-        for (int i = 0; i < static_cast<int>(scored.size()) && i < kMaxResults; ++i)
-            filteredCompletions_.push_back(scored[i].item);
+        if (completionFilter_) {
+            CompletionRequest request{.content = content_,
+                                      .cursorIndex = cursorIndex_,
+                                      .currentWord = word,
+                                      .qualifierParts = qualifierParts,
+                                      .forced = autocompleteForced_};
+            auto filtered = completionFilter_(request, *items);
+            if (static_cast<int>(filtered.size()) > kMaxResults)
+                filtered.resize(kMaxResults);
+            filteredCompletions_ = std::move(filtered);
+        } else {
+            struct Scored {
+                CompletionItem item;
+                int score;
+            };
+            std::vector<Scored> scored;
+
+            for (const auto& item : *items) {
+                if (!qualifiersMatch(item))
+                    continue;
+                if (!lowerQualifierParts.empty() && item.qualifiers.empty())
+                    continue;
+
+                const std::string insertText =
+                    item.insertText.empty() ? item.text : item.insertText;
+                if (!lowerWord.empty() && toLower(insertText) == lowerWord)
+                    continue;
+
+                const std::string matchText = item.matchText.empty() ? item.text : item.matchText;
+                const std::string lowerMatchText = toLower(matchText);
+
+                int score = 0;
+                if (lowerWord.empty()) {
+                    score = 100;
+                } else if (lowerMatchText.find(lowerWord) == 0) {
+                    score = 200;
+                } else if (lowerMatchText.find(lowerWord) != std::string::npos) {
+                    score = 100;
+                } else {
+                    continue;
+                }
+
+                scored.push_back({item, score});
+            }
+
+            std::sort(scored.begin(), scored.end(), [&](const Scored& a, const Scored& b) {
+                if (a.score != b.score)
+                    return a.score > b.score;
+                if (a.item.text != b.item.text) {
+                    return std::lexicographical_compare(
+                        a.item.text.begin(), a.item.text.end(), b.item.text.begin(),
+                        b.item.text.end(),
+                        [](char x, char y) { return std::tolower(x) < std::tolower(y); });
+                }
+                return std::lexicographical_compare(
+                    a.item.detailText.begin(), a.item.detailText.end(), b.item.detailText.begin(),
+                    b.item.detailText.end(),
+                    [](char x, char y) { return std::tolower(x) < std::tolower(y); });
+            });
+
+            for (int i = 0; i < static_cast<int>(scored.size()) && i < kMaxResults; ++i)
+                filteredCompletions_.push_back(scored[i].item);
+        }
 
         if (filteredCompletions_.empty()) {
             dismissAutoComplete();
@@ -1032,7 +1002,7 @@ namespace dearsql {
         int line = getLineFromPos(cursorIndex_);
         float cursorY = textOrigin_.y + (line + 1) * lineHeight_;
 
-        constexpr float popupWidth = 320.0f;
+        constexpr float popupWidth = 520.0f;
         constexpr float popupPadding = 6.0f;
         const int maxShow =
             std::min(static_cast<int>(filteredCompletions_.size()), kAutocompleteMaxVisible);
@@ -1098,14 +1068,27 @@ namespace dearsql {
 
             float iconX = pos.x + popupPadding;
             drawList->AddText(ImVec2(iconX, rowY), iconColor, icon);
-            drawList->AddText(ImVec2(pos.x + popupPadding + iconWidth, rowY), textColor,
-                              filteredCompletions_[itemIdx].text.c_str());
-            if (!filteredCompletions_[itemIdx].detailText.empty()) {
-                const ImVec2 detailSize =
-                    ImGui::CalcTextSize(filteredCompletions_[itemIdx].detailText.c_str());
-                drawList->AddText(ImVec2(pos.x + popupWidth - popupPadding - detailSize.x, rowY),
-                                  palette_.lineNumber,
-                                  filteredCompletions_[itemIdx].detailText.c_str());
+
+            const float textStartX = pos.x + popupPadding + iconWidth;
+            const auto& itemText = filteredCompletions_[itemIdx].text;
+            const auto& detailText = filteredCompletions_[itemIdx].detailText;
+
+            if (!detailText.empty()) {
+                // Calculate available space: left side for name, right side for detail
+                const ImVec2 detailSize = ImGui::CalcTextSize(detailText.c_str());
+                const float detailX = pos.x + popupWidth - popupPadding - detailSize.x;
+                const float maxNameWidth = detailX - textStartX - 12.0f; // 12px gap
+
+                // Clip the item name if it would overlap with detail
+                drawList->PushClipRect(ImVec2(textStartX, rowY),
+                                       ImVec2(textStartX + maxNameWidth, rowY + rowHeight));
+                drawList->AddText(ImVec2(textStartX, rowY), textColor, itemText.c_str());
+                drawList->PopClipRect();
+
+                // Draw detail text (right-aligned, dimmed)
+                drawList->AddText(ImVec2(detailX, rowY), palette_.lineNumber, detailText.c_str());
+            } else {
+                drawList->AddText(ImVec2(textStartX, rowY), textColor, itemText.c_str());
             }
         }
     }

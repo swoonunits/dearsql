@@ -10,6 +10,7 @@
 #include "database/oracle.hpp"
 #include "database/postgresql.hpp"
 #include "database/redis.hpp"
+#include "database/sql_builder.hpp"
 #include "database/sqlite.hpp"
 #include "imgui.h"
 #include "platform/alert.hpp"
@@ -17,6 +18,8 @@
 #include "ui/tab/sql_editor_tab.hpp"
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
+
+#include "ui/text_editor.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"
@@ -187,9 +190,22 @@ void DatabaseHierarchy::renderRootNode() {
             UIUtils::Spinner("##loading_dbs_spinner", 6.0f, 2, ImGui::GetColorU32(colors.peach));
             ImGui::PopStyleColor();
         } else if (pgDb->areDatabasesLoaded()) {
+            // check deferred sql editor open
+            if (!pendingEditorOpenDbName_.empty()) {
+                auto* pendingDb = pgDb->getDatabaseData(pendingEditorOpenDbName_);
+                if (!pendingDb) {
+                    // database was deleted while waiting
+                    pendingEditorOpenDbName_.clear();
+                } else {
+                    // Open directly at database level (no need to wait for schemas)
+                    app.getTabManager()->createSQLEditorTab("", pendingDb);
+                    pendingEditorOpenDbName_.clear();
+                }
+            }
+
             const auto& databases = pgDb->getDatabaseDataMap() | std::views::values;
             for (const auto& dbDataPtr : databases) {
-                if (dbDataPtr) {
+                if (dbDataPtr && !hiddenDatabases_.contains(dbDataPtr->name)) {
                     renderPostgresDatabaseNode(dbDataPtr.get());
                 }
             }
@@ -215,7 +231,7 @@ void DatabaseHierarchy::renderRootNode() {
         } else if (mysqlDb->areDatabasesLoaded()) {
             const auto& databases = mysqlDb->getDatabaseDataMap() | std::views::values;
             for (const auto& dbDataPtr : databases) {
-                if (dbDataPtr) {
+                if (dbDataPtr && !hiddenDatabases_.contains(dbDataPtr->name)) {
                     renderMySQLDatabaseNode(dbDataPtr.get());
                 }
             }
@@ -240,7 +256,7 @@ void DatabaseHierarchy::renderRootNode() {
         } else if (mongoDb->areDatabasesLoaded()) {
             const auto& databases = mongoDb->getDatabaseDataMap() | std::views::values;
             for (const auto& dbDataPtr : databases) {
-                if (dbDataPtr) {
+                if (dbDataPtr && !hiddenDatabases_.contains(dbDataPtr->name)) {
                     renderMongoDBDatabaseNode(dbDataPtr.get());
                 }
             }
@@ -265,7 +281,7 @@ void DatabaseHierarchy::renderRootNode() {
         } else if (mssqlDb->areDatabasesLoaded()) {
             const auto& databases = mssqlDb->getDatabaseDataMap() | std::views::values;
             for (const auto& dbDataPtr : databases) {
-                if (dbDataPtr) {
+                if (dbDataPtr && !hiddenDatabases_.contains(dbDataPtr->name)) {
                     renderMSSQLDatabaseNode(dbDataPtr.get());
                 }
             }
@@ -291,7 +307,7 @@ void DatabaseHierarchy::renderRootNode() {
         } else if (oracleDb->areDatabasesLoaded()) {
             const auto& schemas = oracleDb->getDatabaseDataMap() | std::views::values;
             for (const auto& schemaPtr : schemas) {
-                if (schemaPtr) {
+                if (schemaPtr && !hiddenDatabases_.contains(schemaPtr->name)) {
                     renderOracleDatabaseNode(schemaPtr.get());
                 }
             }
@@ -393,59 +409,77 @@ void DatabaseHierarchy::renderRootNode() {
             }
         }
 
-        // Load keys if not loaded yet
-        if (!redisDb->keysLoaded && !redisDb->loadingKeys.load()) {
-            redisDb->startKeysLoadAsync();
+        // Load database info if not loaded yet
+        if (!redisDb->isDbInfoLoaded() && !redisDb->isLoadingDbInfo()) {
+            redisDb->startDbInfoLoadAsync();
         }
 
-        // Check async status
-        if (redisDb->loadingKeys.load()) {
-            redisDb->checkKeysStatusAsync();
+        // Check async db info loading status
+        if (redisDb->isLoadingDbInfo()) {
+            redisDb->checkDbInfoStatusAsync();
         }
 
-        // Show loading indicator if loading
-        if (redisDb->loadingKeys.load()) {
-            ImGui::SameLine();
-            ImGui::TextUnformatted(LOADING_LABEL);
+        // Show loading indicator if loading db info
+        if (redisDb->isLoadingDbInfo()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+            ImGui::Text("  Loading databases...");
+            ImGui::SameLine(0, Theme::Spacing::S);
+            UIUtils::Spinner("##loading_redis_dbs", 6.0f, 2, ImGui::GetColorU32(colors.peach));
+            ImGui::PopStyleColor();
             return;
         }
 
-        // Show key groups directly (no nested Keys section)
-        const auto& keyGroups = redisDb->getKeyGroups();
-        if (keyGroups.empty()) {
-            if (!redisDb->keysLoaded) {
-                ImGui::TextUnformatted(LOADING_LABEL);
-            } else {
-                ImGui::Text("  No keys found");
-            }
-        } else {
-            for (const auto& keyGroup : keyGroups) {
-                constexpr ImGuiTreeNodeFlags keyGroupFlags = ImGuiTreeNodeFlags_Leaf |
-                                                             ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                                                             ImGuiTreeNodeFlags_FramePadding;
+        // Render database nodes (db0-db15)
+        if (redisDb->isDbInfoLoaded()) {
+            const auto& dbInfoList = redisDb->getDatabaseInfoList();
+            for (const auto& dbInfo : dbInfoList) {
+                const std::string dbName = std::format("db{}", dbInfo.index);
 
-                const std::string displayName = (keyGroup.name == "*") ? "Browse" : keyGroup.name;
-                const std::string keyGroupId = std::format("redis_key_{}_{:p}", displayName,
-                                                           static_cast<const void*>(&keyGroup));
+                // Skip hidden databases
+                if (hiddenDatabases_.contains(dbName))
+                    continue;
 
-                renderTreeNodeWithIcon(displayName, keyGroupId, ICON_FA_KEY,
-                                       ImGui::GetColorU32(colors.yellow), keyGroupFlags);
+                const std::string dbNodeId = std::format("redis_db_{}_{:p}", dbInfo.index,
+                                                         static_cast<const void*>(redisDb.get()));
+
+                // Build label with key count
+                std::string dbLabel;
+                if (dbInfo.hasKeys) {
+                    dbLabel = std::format("   {} ({} keys)###{}", dbName, dbInfo.keys, dbNodeId);
+                } else {
+                    dbLabel = std::format("   {}###{}", dbName, dbNodeId);
+                }
+
+                constexpr ImGuiTreeNodeFlags dbNodeFlags = ImGuiTreeNodeFlags_Leaf |
+                                                           ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                           ImGuiTreeNodeFlags_FramePadding;
+
+                ImGui::TreeNodeEx(dbLabel.c_str(), dbNodeFlags);
+
+                // Database icon
+                const auto dbIconPos =
+                    ImVec2(ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing(),
+                           ImGui::GetItemRectMin().y +
+                               (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f);
+                ImGui::GetWindowDrawList()->AddText(
+                    dbIconPos, ImGui::GetColorU32(dbInfo.hasKeys ? colors.blue : colors.overlay1),
+                    ICON_FA_DATABASE);
 
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                     Application::getInstance().getTabManager()->createRedisKeyViewerTab(
-                        redisDb.get(), keyGroup.name);
+                        redisDb.get(), "*", dbInfo.index);
                 }
 
-                // Context menu
-                if (ImGui::BeginPopupContextItem(keyGroupId.c_str())) {
+                // Context menu for database node
+                if (ImGui::BeginPopupContextItem(dbNodeId.c_str())) {
                     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                         ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-                    if (ImGui::MenuItem("View Keys")) {
+                    if (ImGui::MenuItem("Browse Keys")) {
                         Application::getInstance().getTabManager()->createRedisKeyViewerTab(
-                            redisDb.get(), keyGroup.name);
+                            redisDb.get(), "*", dbInfo.index);
                     }
-                    if (ImGui::MenuItem("Refresh Keys")) {
-                        redisDb->startKeysLoadAsync(true);
+                    if (ImGui::MenuItem("Refresh")) {
+                        redisDb->startDbInfoLoadAsync(true);
                     }
                     ImGui::PopStyleVar();
                     ImGui::EndPopup();
@@ -584,6 +618,8 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(NEW_SQL_EDITOR_LABEL)) {
+            // PostgresDatabaseNode now implements IDatabaseNode — pass directly
+            // for database-level SQL editor (no SET search_path, cross-schema queries)
             app.getTabManager()->createSQLEditorTab("", dbData);
         }
         if (ImGui::MenuItem(REFRESH_LABEL)) {

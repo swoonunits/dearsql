@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 struct TSParser;
@@ -25,6 +26,12 @@ namespace dearsql {
         // --- Public API ---
         void SetText(const std::string& text);
         [[nodiscard]] std::string GetText() const;
+        [[nodiscard]] bool HasSelection() const {
+            return selectionActive_ && selectionAnchor_ != cursorIndex_;
+        }
+        [[nodiscard]] std::string GetSelectedText() const {
+            return getSelectedText();
+        }
         void SetPlaceholder(const std::string& text);
         void Render(const char* label, ImVec2 size, bool border = false);
         void SetFocus();
@@ -42,8 +49,18 @@ namespace dearsql {
             CompletionItem(std::string t, CompletionKind k)
                 : text(std::move(t)), insertText(text), matchText(text), kind(k) {}
         };
+        struct CompletionRequest {
+            std::string_view content;
+            int cursorIndex = 0;
+            std::string_view currentWord;
+            std::vector<std::string> qualifierParts;
+            bool forced = false;
+        };
+        using CompletionFilter = std::function<std::vector<CompletionItem>(
+            const CompletionRequest&, const std::vector<CompletionItem>&)>;
         void SetCompletionItems(const std::vector<CompletionItem>& items);
         void SetCompletionKeywords(const std::vector<std::string>& keywords);
+        void SetCompletionFilter(CompletionFilter filter);
         [[nodiscard]] static const std::vector<std::string>& GetDefaultCompletionKeywords();
 
         // Theme
@@ -149,6 +166,7 @@ namespace dearsql {
 
         // --- Autocomplete ---
         std::vector<CompletionItem> completionItems_;
+        CompletionFilter completionFilter_;
         std::vector<CompletionItem> filteredCompletions_;
         bool autocompleteVisible_ = false;
         bool autocompleteForced_ = false; // Ctrl+Space: show all items even with empty word

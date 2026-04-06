@@ -32,12 +32,16 @@ public:
     void setQuery(const std::string& query) {
         sqlQuery = query;
         sqlEditor.SetText(query);
+        scheduleSyntaxCheck();
     }
     [[nodiscard]] const std::string& getSelectedSchemaName() const {
         return selectedSchemaName;
     }
     void setSelectedSchemaName(const std::string& schemaName) {
         selectedSchemaName = schemaName;
+    }
+    void setSelectedTable(const std::string& tableName) {
+        selectedTableName_ = tableName;
     }
     [[nodiscard]] IDatabaseNode* getDatabaseNode() const {
         return node_;
@@ -106,14 +110,28 @@ private:
 
     // Formatting
     void formatSQL();
+    void scheduleSyntaxCheck();
+    void updateSyntaxDiagnostics();
 
     // Autocomplete
     void updateCompletionKeywords();
     bool completionKeywordsSet_ = false;
     int pendingEditorFocusFrames_ = 3;
 
+    struct SyntaxDiagnostic {
+        bool active = false;
+        bool advisory = true;
+        int line = 0;
+        int column = 0;
+        std::string message;
+    };
+    SyntaxDiagnostic syntaxDiagnostic_;
+    float syntaxCheckDelay_ = 0.0f;
+    bool syntaxCheckPending_ = false;
+
     // Deferred database switch (PostgreSQL: waiting for schemas to load)
     std::string pendingDatabaseSwitch_;
+    std::string selectedTableName_; // The currently selected table in the UI
 
     // AI Chat panel
     std::unique_ptr<AIChatState> aiChatState_;

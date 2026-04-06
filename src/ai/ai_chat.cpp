@@ -1,6 +1,7 @@
 #include "ai/ai_chat.hpp"
 #include "database/database_node.hpp"
 #include <format>
+#include <string>
 
 AIChatState::AIChatState(IDatabaseNode* node) : node_(node) {}
 
@@ -19,7 +20,6 @@ void AIChatState::appendToAssistant(const std::string& delta) {
 }
 
 void AIChatState::finalizeAssistant() {
-    // Trim trailing whitespace from the last assistant message
     if (!messages_.empty() && messages_.back().role == "assistant") {
         auto& content = messages_.back().content;
         while (!content.empty() && (content.back() == ' ' || content.back() == '\n')) {
@@ -42,6 +42,42 @@ void AIChatState::setCurrentSQL(const std::string& sql) {
 
 void AIChatState::setDatabaseNode(IDatabaseNode* node) {
     node_ = node;
+}
+
+void AIChatState::buildSystemPromptAsync(std::function<void(std::string)> callback) {
+    if (isBuildingPrompt()) {
+        return;
+    }
+
+    promptReadyCallback_ = std::move(callback);
+    promptBuilderOp_.startCancellable(
+        [this](std::stop_token stopToken) { return buildSystemPrompt(stopToken); });
+}
+
+void AIChatState::cancelAsyncPrompt() {
+    if (promptBuilderOp_.isRunning()) {
+        promptBuilderOp_.cancel();
+        promptReadyCallback_ = nullptr;
+    }
+    if (!messages_.empty() && messages_.back().role == "assistant" &&
+        messages_.back().content.empty()) {
+        messages_.pop_back();
+    }
+}
+
+void AIChatState::pollAsyncPrompt() {
+    if (isBuildingPrompt()) {
+        promptBuilderOp_.check([this](std::string prompt) {
+            if (promptReadyCallback_) {
+                promptReadyCallback_(std::move(prompt));
+                promptReadyCallback_ = nullptr;
+            }
+        });
+    }
+}
+
+bool AIChatState::isBuildingPrompt() const {
+    return promptBuilderOp_.isRunning();
 }
 
 std::string AIChatState::dbTypeName() const {
@@ -71,7 +107,7 @@ std::string AIChatState::dbTypeName() const {
     return "SQL";
 }
 
-std::string AIChatState::buildSchemaContext() const {
+std::string AIChatState::buildSchemaContext(std::stop_token stopToken) const {
     if (!node_ || !node_->isTablesLoaded()) {
         return "(schema not loaded)";
     }
@@ -79,6 +115,9 @@ std::string AIChatState::buildSchemaContext() const {
     const bool isMongo = node_->getDatabaseType() == DatabaseType::MONGODB;
     std::string ctx;
     for (const auto& table : node_->getTables()) {
+        if (stopToken.stop_requested())
+            return "";
+
         if (isMongo) {
             ctx += std::format("Collection: {}", table.name);
             if (!table.columns.empty()) {
@@ -94,6 +133,8 @@ std::string AIChatState::buildSchemaContext() const {
         } else {
             ctx += std::format("Table: {} (", table.name);
             for (size_t i = 0; i < table.columns.size(); ++i) {
+                if (stopToken.stop_requested())
+                    return "";
                 if (i > 0)
                     ctx += ", ";
                 const auto& col = table.columns[i];
@@ -121,9 +162,13 @@ std::string AIChatState::buildSchemaContext() const {
     return ctx;
 }
 
-std::string AIChatState::buildSystemPrompt() const {
+std::string AIChatState::buildSystemPrompt(std::stop_token stopToken) const {
     std::string dbType = dbTypeName();
-    std::string schema = buildSchemaContext();
+    std::string schema = buildSchemaContext(stopToken);
+
+    if (stopToken.stop_requested())
+        return "";
+
     bool isMongo = node_ && node_->getDatabaseType() == DatabaseType::MONGODB;
 
     if (isMongo) {
