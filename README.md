@@ -6,6 +6,10 @@
 
 <p align="center">A simple, cross-platform database client built with Dear ImGui.</p>
 
+<p align="center">
+  <a href="https://dearsql.dev/">Download</a>
+</p>
+
 ![Screenshot](assets/sc.webp)
 
 ## Features
@@ -23,6 +27,5 @@
 
 - [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI
 - [Native File Dialog](https://github.com/btzy/nativefiledialog-extended) - File pickers
-- [hiredis](https://github.com/redis/hiredis) - Redis client
-- [mongocxx](https://github.com/mongodb/mongo-cxx-driver) - MongoDB C++ driver
 - [IconFontCppHeaders](https://github.com/juliettef/IconFontCppHeaders) - Icon fonts
+- [vcpkg.json](vcpkg.json) - Full dependency list
