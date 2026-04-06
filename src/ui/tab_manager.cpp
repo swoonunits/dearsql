@@ -9,6 +9,7 @@
 #include "ui/tab/redis_editor_tab.hpp"
 #include "ui/tab/redis_key_viewer_tab.hpp"
 #include "ui/tab/redis_pubsub_tab.hpp"
+#include "ui/tab/routine_viewer_tab.hpp"
 #include "ui/tab/sql_editor_tab.hpp"
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab/table_viewer_tab.hpp"
@@ -518,6 +519,29 @@ std::shared_ptr<Tab> TabManager::createCsvEditorTab(const std::string& filePath)
     }
 
     auto tab = std::make_shared<CsvEditorTab>(tabName, filePath);
+    registerOpenedTab(tab);
+    return tab;
+}
+
+std::shared_ptr<Tab> TabManager::createRoutineViewerTab(IDatabaseNode* node,
+                                                        const Routine& routine) {
+    if (!node)
+        return nullptr;
+
+    // reuse an existing viewer for the same node + routine name
+    for (auto& tab : tabs) {
+        if (tab->getType() == TabType::ROUTINE_VIEWER) {
+            const auto routineTab = std::dynamic_pointer_cast<RoutineViewerTab>(tab);
+            if (routineTab && routineTab->getDatabaseNode() == node &&
+                routineTab->getRoutineSignature() == routine.signature &&
+                routineTab->getRoutineKind() == routine.kind) {
+                requestTabFocus(tab->getId());
+                return tab;
+            }
+        }
+    }
+
+    auto tab = std::make_shared<RoutineViewerTab>(node, routine);
     registerOpenedTab(tab);
     return tab;
 }

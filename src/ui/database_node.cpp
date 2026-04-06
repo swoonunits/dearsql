@@ -39,8 +39,9 @@ namespace {
     constexpr const char* LOADING_LABEL = "  Loading...";
 
     // shared routine rendering for all database types
-    void renderRoutineItems(const std::vector<Routine>& routines) {
-        const auto& colors = Application::getInstance().getCurrentColors();
+    void renderRoutineItems(const std::vector<Routine>& routines, IDatabaseNode* node) {
+        auto& app = Application::getInstance();
+        const auto& colors = app.getCurrentColors();
         constexpr ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf |
                                              ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                              ImGuiTreeNodeFlags_FramePadding;
@@ -63,6 +64,10 @@ namespace {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("%s %s", isProc ? "PROCEDURE" : "FUNCTION",
                                   routine.returnType.c_str());
+
+                if (ImGui::IsMouseDoubleClicked(0)) {
+                    app.getTabManager()->createRoutineViewerTab(node, routine);
+                }
             }
         }
     }
@@ -1031,7 +1036,7 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                         ImGui::Text("  No routines");
                         ImGui::PopStyleColor();
                     } else {
-                        renderRoutineItems(schemaData->routines);
+                        renderRoutineItems(schemaData->routines, schemaData);
                     }
                 }
                 ImGui::TreePop();
@@ -1236,7 +1241,7 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                         ImGui::Text("  No routines");
                         ImGui::PopStyleColor();
                     } else {
-                        renderRoutineItems(dbData->routines);
+                        renderRoutineItems(dbData->routines, dbData);
                     }
                 }
                 ImGui::TreePop();
@@ -2140,7 +2145,7 @@ void DatabaseHierarchy::renderMSSQLSchemaNode(const MSSQLDatabaseNode* dbData,
                         ImGui::Text("  No routines");
                         ImGui::PopStyleColor();
                     } else {
-                        renderRoutineItems(schemaData->routines);
+                        renderRoutineItems(schemaData->routines, schemaData);
                     }
                 }
                 ImGui::TreePop();
@@ -2620,7 +2625,7 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                         ImGui::Text("  No routines");
                         ImGui::PopStyleColor();
                     } else {
-                        renderRoutineItems(dbData->routines);
+                        renderRoutineItems(dbData->routines, dbData);
                     }
                 }
                 ImGui::TreePop();

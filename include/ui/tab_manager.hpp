@@ -12,6 +12,7 @@ class MongoDBDatabaseNode;
 class RedisDatabase;
 class DatabaseInterface;
 struct Table;
+struct Routine;
 
 class TabManager {
 public:
@@ -62,6 +63,8 @@ public:
     std::shared_ptr<Tab> createRedisPubSubTab(RedisDatabase* db);
 
     std::shared_ptr<Tab> createCsvEditorTab(const std::string& filePath);
+
+    std::shared_ptr<Tab> createRoutineViewerTab(IDatabaseNode* node, const Routine& routine);
 
     // UI rendering
     void renderTabs();

@@ -12,7 +12,8 @@ enum class TabType {
     REDIS_KEY_VIEWER,
     REDIS_PUBSUB,
     MONGO_EDITOR,
-    CSV_EDITOR
+    CSV_EDITOR,
+    ROUTINE_VIEWER
 };
 
 class Tab {
