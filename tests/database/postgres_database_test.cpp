@@ -404,3 +404,35 @@ TEST_F(PostgresSchemaNodeDDLTest, DropSchemaRemovesSchema) {
     ASSERT_FALSE(check.empty());
     EXPECT_TRUE(check[0].tableData.empty());
 }
+
+TEST_F(PostgresSchemaNodeDDLTest, RoutinesLoadAsyncFindsRoutines) {
+    const std::string funcName = TestHelpers::makeUniqueIdentifier("dearsql_pg_func_");
+
+    auto createResult = database->executeQuery(std::format(
+        R"(CREATE FUNCTION public."{}"(a integer, b integer) RETURNS integer LANGUAGE sql AS 'SELECT a + b')",
+        funcName));
+    ASSERT_TRUE(createResult.success()) << createResult.errorMessage();
+
+    schemaNode->startRoutinesLoadAsync();
+    for (int i = 0; i < 100 && !schemaNode->routinesLoaded; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        schemaNode->checkRoutinesStatusAsync();
+    }
+    ASSERT_TRUE(schemaNode->routinesLoaded) << "routines never finished loading";
+
+    bool found = false;
+    for (const auto& r : schemaNode->routines) {
+        if (r.name.find(funcName) != std::string::npos) {
+            found = true;
+            EXPECT_EQ(r.kind, RoutineKind::Function);
+            EXPECT_NE(r.signature.find("integer"), std::string::npos)
+                << "should include argument types: " << r.signature;
+            EXPECT_FALSE(r.returnType.empty()) << "should have a return type";
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "created function not found in loaded routines";
+
+    database->executeQuery(
+        std::format(R"(DROP FUNCTION IF EXISTS public."{}"(integer, integer))", funcName));
+}

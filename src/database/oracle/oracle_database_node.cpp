@@ -867,6 +867,118 @@ DatabaseType OracleDatabaseNode::getDatabaseType() const {
 void OracleDatabaseNode::checkLoadingStatus() {
     checkTablesStatusAsync();
     checkViewsStatusAsync();
+    checkRoutinesStatusAsync();
+}
+
+void OracleDatabaseNode::checkRoutinesStatusAsync() {
+    routinesLoader.check([this](const std::vector<Routine>& result) {
+        routines = result;
+        spdlog::debug("Async routine loading completed for schema {}. Found {} routines", name,
+                      routines.size());
+        routinesLoaded = true;
+    });
+}
+
+void OracleDatabaseNode::startRoutinesLoadAsync(bool forceRefresh) {
+    spdlog::debug("startRoutinesLoadAsync for schema: {}{}", name,
+                  (forceRefresh ? " (force refresh)" : ""));
+    if (!parentDb)
+        return;
+    if (routinesLoader.isRunning())
+        return;
+
+    if (forceRefresh) {
+        routinesLoaded = false;
+        lastRoutinesError.clear();
+    }
+
+    if (!forceRefresh && routinesLoaded)
+        return;
+
+    routines.clear();
+    routinesLoader.start([this]() { return getRoutinesAsync(); });
+}
+
+std::vector<Routine> OracleDatabaseNode::getRoutinesAsync() {
+    std::vector<Routine> result;
+
+    if (!routinesLoader.isRunning())
+        return result;
+
+    try {
+        ensureConnectionPool();
+        auto session = getSession();
+        dpiConn* conn = session.get();
+
+        std::string query =
+            std::format("SELECT o.OBJECT_NAME, "
+                        "o.OBJECT_NAME || '(' || NVL("
+                        "(SELECT LISTAGG(a.ARGUMENT_NAME || ' ' || a.DATA_TYPE, ', ') "
+                        "WITHIN GROUP (ORDER BY a.POSITION) "
+                        "FROM ALL_ARGUMENTS a "
+                        "WHERE a.OWNER = o.OWNER AND a.OBJECT_NAME = o.OBJECT_NAME "
+                        "AND a.POSITION > 0), '') || ')' AS signature, "
+                        "o.OBJECT_TYPE, "
+                        "NVL((SELECT a.DATA_TYPE FROM ALL_ARGUMENTS a "
+                        "WHERE a.OWNER = o.OWNER AND a.OBJECT_NAME = o.OBJECT_NAME "
+                        "AND a.POSITION = 0), '') AS return_type "
+                        "FROM ALL_OBJECTS o "
+                        "WHERE o.OWNER = '{}' "
+                        "AND o.OBJECT_TYPE IN ('FUNCTION', 'PROCEDURE') "
+                        "ORDER BY o.OBJECT_TYPE, o.OBJECT_NAME",
+                        name);
+
+        dpiStmt* stmt = nullptr;
+        if (dpiConn_prepareStmt(conn, 0, query.c_str(), static_cast<uint32_t>(query.size()),
+                                nullptr, 0, &stmt) != DPI_SUCCESS) {
+            return result;
+        }
+
+        uint32_t numCols = 0;
+        if (dpiStmt_execute(stmt, DPI_MODE_EXEC_DEFAULT, &numCols) != DPI_SUCCESS) {
+            dpiStmt_release(stmt);
+            return result;
+        }
+
+        int found = 0;
+        uint32_t bufIdx = 0;
+        while (dpiStmt_fetch(stmt, &found, &bufIdx) == DPI_SUCCESS && found) {
+            if (!routinesLoader.isRunning())
+                break;
+
+            dpiNativeTypeNum nt;
+            dpiData* d;
+
+            Routine routine;
+
+            // OBJECT_NAME
+            dpiStmt_getQueryValue(stmt, 1, &nt, &d);
+            routine.name = dpiDataToString(nt, d);
+
+            // signature
+            dpiStmt_getQueryValue(stmt, 2, &nt, &d);
+            routine.signature = dpiDataToString(nt, d);
+
+            // OBJECT_TYPE
+            dpiStmt_getQueryValue(stmt, 3, &nt, &d);
+            std::string objType = dpiDataToString(nt, d);
+            routine.kind = (objType == "FUNCTION") ? RoutineKind::Function : RoutineKind::Procedure;
+
+            // return_type
+            dpiStmt_getQueryValue(stmt, 4, &nt, &d);
+            routine.returnType = dpiDataToString(nt, d);
+
+            result.push_back(std::move(routine));
+        }
+
+        dpiStmt_release(stmt);
+        spdlog::debug("Found {} routines in schema {}", result.size(), name);
+    } catch (const std::exception& e) {
+        spdlog::error("Error getting routines for schema {}: {}", name, e.what());
+        lastRoutinesError = e.what();
+    }
+
+    return result;
 }
 
 std::pair<bool, std::string> OracleDatabaseNode::renameTable(const std::string& oldName,

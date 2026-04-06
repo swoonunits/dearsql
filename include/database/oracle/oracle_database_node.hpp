@@ -25,17 +25,21 @@ public:
     std::vector<Table> tables;
     std::vector<Table> views;
     std::vector<std::string> sequences;
+    std::vector<Routine> routines;
 
     bool tablesLoaded = false;
     bool viewsLoaded = false;
     bool sequencesLoaded = false;
+    bool routinesLoaded = false;
 
     AsyncOperation<std::vector<Table>> tablesLoader;
     AsyncOperation<std::vector<Table>> viewsLoader;
+    AsyncOperation<std::vector<Routine>> routinesLoader;
     std::map<std::string, AsyncOperation<Table>> tableRefreshLoaders;
 
     std::string lastTablesError;
     std::string lastViewsError;
+    std::string lastRoutinesError;
 
     bool expanded = false;
     bool tablesExpanded = false;
@@ -115,9 +119,13 @@ public:
 
     void checkTablesStatusAsync();
     void checkViewsStatusAsync();
+    void checkRoutinesStatusAsync();
+
+    void startRoutinesLoadAsync(bool force = false);
 
 private:
     std::vector<Table> getTablesAsync();
     std::vector<Table> getViewsForSchemaAsync();
     Table refreshTableAsync(const std::string& tableName);
+    std::vector<Routine> getRoutinesAsync();
 };

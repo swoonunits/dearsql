@@ -44,6 +44,7 @@ std::pair<bool, std::string> MSSQLSchemaNode::createTable(const Table& table) {
 void MSSQLSchemaNode::checkLoadingStatus() {
     checkTablesStatusAsync();
     checkViewsStatusAsync();
+    checkRoutinesStatusAsync();
 }
 
 // tables
@@ -399,6 +400,85 @@ std::vector<Table> MSSQLSchemaNode::getViewsAsync() {
         spdlog::error("Error getting views for schema {}.{}: {}", parentDbNode->name, name,
                       e.what());
         lastViewsError = e.what();
+    }
+
+    return result;
+}
+
+// routines
+
+void MSSQLSchemaNode::checkRoutinesStatusAsync() {
+    routinesLoader.check([this](const std::vector<Routine>& result) {
+        routines = result;
+        spdlog::debug("Async routine loading completed for schema {}.{}. Found {} routines",
+                      parentDbNode ? parentDbNode->name : "?", name, routines.size());
+        routinesLoaded = true;
+    });
+}
+
+void MSSQLSchemaNode::startRoutinesLoadAsync(bool forceRefresh) {
+    spdlog::debug("startRoutinesLoadAsync for schema: {}{}", name,
+                  (forceRefresh ? " (force refresh)" : ""));
+    if (!parentDbNode)
+        return;
+
+    if (routinesLoader.isRunning() || (routinesLoaded && !forceRefresh))
+        return;
+
+    if (forceRefresh) {
+        routines.clear();
+        routinesLoaded = false;
+        lastRoutinesError.clear();
+    }
+
+    routinesLoader.start([this]() { return getRoutinesAsync(); });
+}
+
+std::vector<Routine> MSSQLSchemaNode::getRoutinesAsync() {
+    std::vector<Routine> result;
+    if (!routinesLoader.isRunning())
+        return result;
+
+    try {
+        parentDbNode->ensureConnectionPool();
+        auto session = parentDbNode->getSession();
+        DBPROCESS* dbproc = session.get();
+
+        std::string query = std::format(
+            "SELECT o.name, "
+            "o.name + '(' + ISNULL(STUFF((SELECT ', ' + p.name + ' ' + TYPE_NAME(p.user_type_id) "
+            "FROM sys.parameters p WHERE p.object_id = o.object_id "
+            "ORDER BY p.parameter_id FOR XML PATH('')), 1, 2, ''), '') + ')' AS signature, "
+            "CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' "
+            "WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS kind, "
+            "ISNULL(TYPE_NAME(o.type_desc), '') AS return_type "
+            "FROM sys.objects o "
+            "WHERE o.schema_id = SCHEMA_ID('{}') "
+            "AND o.type IN ('P', 'FN', 'IF', 'TF') "
+            "ORDER BY o.type, o.name",
+            name);
+
+        if (execQuery(dbproc, query) && dbresults(dbproc) == SUCCEED) {
+            while (dbnextrow(dbproc) != NO_MORE_ROWS) {
+                if (!routinesLoader.isRunning())
+                    return result;
+
+                Routine r;
+                r.name = colToString(dbproc, 1);
+                r.signature = colToString(dbproc, 2);
+                std::string kindStr = colToString(dbproc, 3);
+                r.kind = (kindStr == "PROCEDURE") ? RoutineKind::Procedure : RoutineKind::Function;
+                r.returnType = colToString(dbproc, 4);
+                result.push_back(std::move(r));
+            }
+        }
+        drainResults(dbproc);
+
+        spdlog::debug("Found {} routines in schema {}.{}", result.size(), parentDbNode->name, name);
+    } catch (const std::exception& e) {
+        spdlog::error("Error getting routines for schema {}.{}: {}", parentDbNode->name, name,
+                      e.what());
+        lastRoutinesError = e.what();
     }
 
     return result;

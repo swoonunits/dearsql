@@ -35,20 +35,24 @@ public:
     std::vector<Table> tables;
     std::vector<Table> views;
     std::vector<std::string> sequences; // Empty for MySQL (for API compatibility)
+    std::vector<Routine> routines;
 
     // Loading state flags
     bool tablesLoaded = false;
     bool viewsLoaded = false;
     bool sequencesLoaded = false; // For API compatibility
+    bool routinesLoaded = false;
 
     // Async operations
     AsyncOperation<std::vector<Table>> tablesLoader;
     AsyncOperation<std::vector<Table>> viewsLoader;
+    AsyncOperation<std::vector<Routine>> routinesLoader;
     std::map<std::string, AsyncOperation<Table>> tableRefreshLoaders;
 
     // Error tracking
     std::string lastTablesError;
     std::string lastViewsError;
+    std::string lastRoutinesError;
 
     // UI expansion state (to be moved to ViewModel in later phase)
     bool expanded = false;
@@ -126,6 +130,9 @@ public:
     std::vector<Table> getTablesAsync();
     void checkViewsStatusAsync();
     std::vector<Table> getViewsForDatabaseAsync();
+    void startRoutinesLoadAsync(bool force = false);
+    void checkRoutinesStatusAsync();
+    std::vector<Routine> getRoutinesAsync();
     Table refreshTableAsync(const std::string& tableName);
 
     ConnectionPool<MYSQL*>::Session getSession() const;

@@ -17,17 +17,21 @@ public:
 
     std::vector<Table> tables;
     std::vector<Table> views;
+    std::vector<Routine> routines;
     std::vector<std::string> sequences; // empty, for API compatibility
 
     bool tablesLoaded = false;
     bool viewsLoaded = false;
+    bool routinesLoaded = false;
 
     AsyncOperation<std::vector<Table>> tablesLoader;
     AsyncOperation<std::vector<Table>> viewsLoader;
+    AsyncOperation<std::vector<Routine>> routinesLoader;
     std::map<std::string, AsyncOperation<Table>> tableRefreshLoaders;
 
     std::string lastTablesError;
     std::string lastViewsError;
+    std::string lastRoutinesError;
 
     // IDatabaseNode
     [[nodiscard]] std::string getName() const override {
@@ -92,6 +96,9 @@ public:
 
     void checkTablesStatusAsync();
     void checkViewsStatusAsync();
+    void checkRoutinesStatusAsync();
+
+    void startRoutinesLoadAsync(bool force = false);
 
     // schema modification
     std::pair<bool, std::string> renameTable(const std::string& oldName,
@@ -104,6 +111,7 @@ public:
 private:
     std::vector<Table> getTablesAsync();
     std::vector<Table> getViewsAsync();
+    std::vector<Routine> getRoutinesAsync();
     Table refreshTableAsync(const std::string& tableName);
 
     // build [schema].[table] qualified name

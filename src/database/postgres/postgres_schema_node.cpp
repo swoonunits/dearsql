@@ -625,6 +625,92 @@ std::vector<std::string> PostgresSchemaNode::getSequencesAsync() {
     return result;
 }
 
+void PostgresSchemaNode::checkRoutinesStatusAsync() {
+    routinesLoader.check([this](const std::vector<Routine>& result) {
+        routines = result;
+        spdlog::debug("Async routine loading completed for schema {}. Found {} routines", name,
+                      routines.size());
+        routinesLoaded = true;
+    });
+}
+
+void PostgresSchemaNode::startRoutinesLoadAsync(bool forceRefresh) {
+    spdlog::debug("startRoutinesLoadAsync for schema: {}{}", name,
+                  (forceRefresh ? " (force refresh)" : ""));
+    if (!parentDbNode || routinesLoader.isRunning()) {
+        return;
+    }
+
+    if (forceRefresh) {
+        routines.clear();
+        routinesLoaded = false;
+        lastRoutinesError.clear();
+    }
+
+    if (!forceRefresh && routinesLoaded) {
+        return;
+    }
+
+    routines.clear();
+    routinesLoader.start([this]() { return getRoutinesAsync(); });
+}
+
+std::vector<Routine> PostgresSchemaNode::getRoutinesAsync() {
+    std::vector<Routine> result;
+
+    if (!routinesLoader.isRunning()) {
+        return result;
+    }
+
+    try {
+        if (!parentDbNode) {
+            return result;
+        }
+
+        const std::string query = std::format(
+            "SELECT p.proname, "
+            "p.proname || '(' || COALESCE(pg_catalog.pg_get_function_identity_arguments(p.oid), "
+            "'') || ')' AS signature, "
+            "CASE p.prokind WHEN 'f' THEN 'FUNCTION' ELSE 'PROCEDURE' END AS kind, "
+            "pg_catalog.pg_get_function_result(p.oid) AS return_type "
+            "FROM pg_catalog.pg_proc p "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = '{}' AND p.prokind IN ('f', 'p') "
+            "ORDER BY p.prokind, p.proname",
+            name);
+
+        {
+            auto session = parentDbNode->getSession();
+            PGconn* conn = session.get();
+            PgResultPtr res(PQexec(conn, query.c_str()));
+            if (res && PQresultStatus(res.get()) == PGRES_TUPLES_OK) {
+                int nRows = PQntuples(res.get());
+                for (int i = 0; i < nRows; i++) {
+                    if (!routinesLoader.isRunning()) {
+                        return result;
+                    }
+                    Routine r;
+                    r.name = PQgetvalue(res.get(), i, 0);
+                    r.signature = PQgetvalue(res.get(), i, 1);
+                    std::string kindStr = PQgetvalue(res.get(), i, 2);
+                    r.kind =
+                        (kindStr == "PROCEDURE") ? RoutineKind::Procedure : RoutineKind::Function;
+                    r.returnType = PQgetvalue(res.get(), i, 3);
+                    result.push_back(std::move(r));
+                }
+            }
+        }
+
+        spdlog::debug("Found {} routines in schema {}", result.size(), name);
+
+    } catch (const std::exception& e) {
+        spdlog::error("Error getting routines for schema {}: {}", name, e.what());
+        lastRoutinesError = e.what();
+    }
+
+    return result;
+}
+
 void PostgresSchemaNode::startTableRefreshAsync(const std::string& tableName) {
     spdlog::debug("Starting async refresh for table: {}.{}", name, tableName);
 
@@ -891,6 +977,7 @@ void PostgresSchemaNode::checkLoadingStatus() {
     checkViewsStatusAsync();
     checkMaterializedViewsStatusAsync();
     checkSequencesStatusAsync();
+    checkRoutinesStatusAsync();
 }
 
 std::pair<bool, std::string> PostgresSchemaNode::renameSchema(const std::string& newName) {

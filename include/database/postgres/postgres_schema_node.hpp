@@ -27,18 +27,21 @@ public:
     std::vector<Table> views;
     std::vector<Table> materializedViews;
     std::vector<std::string> sequences;
+    std::vector<Routine> routines;
 
     // Loading state flags
     bool tablesLoaded = false;
     bool viewsLoaded = false;
     bool materializedViewsLoaded = false;
     bool sequencesLoaded = false;
+    bool routinesLoaded = false;
 
     // Async operations
     AsyncOperation<std::vector<Table>> tablesLoader;
     AsyncOperation<std::vector<Table>> viewsLoader;
     AsyncOperation<std::vector<Table>> materializedViewsLoader;
     AsyncOperation<std::vector<std::string>> sequencesLoader;
+    AsyncOperation<std::vector<Routine>> routinesLoader;
     std::map<std::string, AsyncOperation<Table>> tableRefreshLoaders;
 
     // Error tracking
@@ -46,6 +49,7 @@ public:
     std::string lastViewsError;
     std::string lastMaterializedViewsError;
     std::string lastSequencesError;
+    std::string lastRoutinesError;
 
     // ========== IDatabaseNode Implementation ==========
 
@@ -128,6 +132,10 @@ public:
     void startSequencesLoadAsync(bool forceRefresh = false);
     void checkSequencesStatusAsync();
     std::vector<std::string> getSequencesAsync();
+
+    void startRoutinesLoadAsync(bool forceRefresh = false);
+    void checkRoutinesStatusAsync();
+    std::vector<Routine> getRoutinesAsync();
 
     Table refreshTableAsync(const std::string& tableName);
 

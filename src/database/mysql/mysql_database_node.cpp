@@ -379,6 +379,108 @@ std::vector<Table> MySQLDatabaseNode::getViewsForDatabaseAsync() {
     return result;
 }
 
+void MySQLDatabaseNode::checkRoutinesStatusAsync() {
+    routinesLoader.check([this](const std::vector<Routine>& result) {
+        routines = result;
+        spdlog::debug("Async routine loading completed for database {}. Found {} routines", name,
+                      routines.size());
+        routinesLoaded = true;
+    });
+}
+
+void MySQLDatabaseNode::startRoutinesLoadAsync(bool forceRefresh) {
+    spdlog::debug("startRoutinesLoadAsync for database: {}", name);
+    if (!parentDb) {
+        return;
+    }
+
+    if (routinesLoader.isRunning() || (routinesLoaded && !forceRefresh)) {
+        return;
+    }
+
+    if (forceRefresh) {
+        routines.clear();
+        routinesLoaded = false;
+        lastRoutinesError.clear();
+    }
+
+    routinesLoader.start([this]() { return getRoutinesAsync(); });
+}
+
+std::vector<Routine> MySQLDatabaseNode::getRoutinesAsync() {
+    std::vector<Routine> result;
+
+    if (!routinesLoader.isRunning()) {
+        return result;
+    }
+
+    try {
+        if (!connectionPool) {
+            auto nodeInfo = parentDb->getConnectionInfo();
+            nodeInfo.database = name;
+            initializeConnectionPool(nodeInfo);
+        }
+
+        if (!routinesLoader.isRunning()) {
+            return result;
+        }
+
+        auto session = getSession();
+        MYSQL* conn = session.get();
+
+        const std::string query = std::format(
+            "SELECT ROUTINE_NAME, "
+            "CONCAT(ROUTINE_NAME, '(', IFNULL("
+            "(SELECT GROUP_CONCAT(PARAMETER_NAME, ' ', DATA_TYPE ORDER BY ORDINAL_POSITION) "
+            "FROM information_schema.PARAMETERS p "
+            "WHERE p.SPECIFIC_SCHEMA = r.ROUTINE_SCHEMA "
+            "AND p.SPECIFIC_NAME = r.ROUTINE_NAME "
+            "AND p.PARAMETER_MODE IS NOT NULL), ''), ')') AS signature, "
+            "ROUTINE_TYPE, "
+            "DTD_IDENTIFIER "
+            "FROM information_schema.ROUTINES r "
+            "WHERE ROUTINE_SCHEMA = '{}' "
+            "ORDER BY ROUTINE_TYPE, ROUTINE_NAME",
+            name);
+
+        if (mysql_real_query(conn, query.c_str(), query.size()) == 0) {
+            MysqlResPtr res(mysql_store_result(conn));
+            if (res) {
+                MYSQL_ROW row;
+                while ((row = mysql_fetch_row(res.get())) != nullptr) {
+                    if (!routinesLoader.isRunning()) {
+                        return result;
+                    }
+                    Routine routine;
+                    routine.name = row[0] ? row[0] : "";
+                    routine.signature = row[1] ? row[1] : "";
+                    std::string routineType = row[2] ? row[2] : "";
+                    routine.kind = (routineType == "PROCEDURE") ? RoutineKind::Procedure
+                                                                : RoutineKind::Function;
+                    routine.returnType = row[3] ? row[3] : "";
+                    result.push_back(routine);
+                }
+            }
+        } else {
+            spdlog::error("Error querying routines for database {}: {}", name, mysql_error(conn));
+            lastRoutinesError = mysql_error(conn);
+        }
+        // consume any remaining results
+        while (mysql_next_result(conn) == 0) {
+            MYSQL_RES* extra = mysql_store_result(conn);
+            if (extra)
+                mysql_free_result(extra);
+        }
+
+        spdlog::debug("Found {} routines in database {}", result.size(), name);
+    } catch (const std::exception& e) {
+        spdlog::error("Error getting routines for database {}: {}", name, e.what());
+        lastRoutinesError = e.what();
+    }
+
+    return result;
+}
+
 void MySQLDatabaseNode::startTableRefreshAsync(const std::string& tableName) {
     spdlog::debug("Starting async refresh for table: {}", tableName);
 
@@ -718,6 +820,7 @@ DatabaseType MySQLDatabaseNode::getDatabaseType() const {
 void MySQLDatabaseNode::checkLoadingStatus() {
     checkTablesStatusAsync();
     checkViewsStatusAsync();
+    checkRoutinesStatusAsync();
 }
 
 std::pair<bool, std::string> MySQLDatabaseNode::renameTable(const std::string& oldName,

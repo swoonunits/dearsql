@@ -39,6 +39,35 @@ namespace {
     constexpr const char* NEW_QUERY_EDITOR_LABEL = "New Query Editor";
     constexpr const char* SHOW_DIAGRAM_LABEL = "Show Diagram";
     constexpr const char* LOADING_LABEL = "  Loading...";
+
+    // shared routine rendering for all database types
+    void renderRoutineItems(const std::vector<Routine>& routines) {
+        const auto& colors = Application::getInstance().getCurrentColors();
+        constexpr ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf |
+                                             ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                             ImGuiTreeNodeFlags_FramePadding;
+
+        for (const auto& routine : routines) {
+            const std::string itemId =
+                std::format("routine_{}_{:p}", routine.name, static_cast<const void*>(&routine));
+            const std::string label = std::format("   {}###{}", routine.signature, itemId);
+            ImGui::TreeNodeEx(label.c_str(), flags);
+
+            const bool isProc = routine.kind == RoutineKind::Procedure;
+            const auto iconPos =
+                ImVec2(ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing(),
+                       ImGui::GetItemRectMin().y +
+                           (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::GetWindowDrawList()->AddText(
+                iconPos, ImGui::GetColorU32(isProc ? colors.peach : colors.yellow),
+                isProc ? ICON_FA_GEAR : ICON_FA_CODE);
+
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s %s", isProc ? "PROCEDURE" : "FUNCTION",
+                                  routine.returnType.c_str());
+            }
+        }
+    }
 } // namespace
 
 DatabaseHierarchy::DatabaseHierarchy(std::shared_ptr<DatabaseInterface> dbInterface)
@@ -968,6 +997,49 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
             }
         }
 
+        // Render Routines section
+        {
+            const std::string routineNodeId = std::format(
+                "routines_{}_{:p}", schemaData->name, static_cast<void*>(&schemaData->routines));
+            const bool routineOpen = renderTreeNodeWithIcon("Routines", routineNodeId, ICON_FA_CODE,
+                                                            ImGui::GetColorU32(colors.yellow));
+
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                    ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                if (ImGui::MenuItem(REFRESH_LABEL)) {
+                    schemaData->startRoutinesLoadAsync(true);
+                }
+                ImGui::PopStyleVar();
+                ImGui::EndPopup();
+            }
+
+            if (routineOpen) {
+                if (!schemaData->routinesLoaded && !schemaData->routinesLoader.isRunning()) {
+                    schemaData->startRoutinesLoadAsync();
+                }
+
+                if (schemaData->routinesLoader.isRunning()) {
+                    schemaData->checkRoutinesStatusAsync();
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                    ImGui::TextUnformatted(LOADING_LABEL);
+                    ImGui::SameLine(0, Theme::Spacing::S);
+                    UIUtils::Spinner("##loading_routines", 6.0f, 2,
+                                     ImGui::GetColorU32(colors.peach));
+                    ImGui::PopStyleColor();
+                } else if (schemaData->routinesLoaded) {
+                    if (schemaData->routines.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                        ImGui::Text("  No routines");
+                        ImGui::PopStyleColor();
+                    } else {
+                        renderRoutineItems(schemaData->routines);
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+
         ImGui::TreePop();
     }
 }
@@ -1124,6 +1196,49 @@ void DatabaseHierarchy::renderMySQLDatabaseNode(MySQLDatabaseNode* dbData) {
                         for (auto& view : dbData->views) {
                             renderMySQLViewNode(view, dbData);
                         }
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+
+        // Render Routines section
+        {
+            const std::string routineNodeId = std::format("routines_{}_{:p}", dbData->name,
+                                                          static_cast<void*>(&dbData->routines));
+            const bool routineOpen = renderTreeNodeWithIcon("Routines", routineNodeId, ICON_FA_CODE,
+                                                            ImGui::GetColorU32(colors.yellow));
+
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                    ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                if (ImGui::MenuItem(REFRESH_LABEL)) {
+                    dbData->startRoutinesLoadAsync(true);
+                }
+                ImGui::PopStyleVar();
+                ImGui::EndPopup();
+            }
+
+            if (routineOpen) {
+                if (!dbData->routinesLoaded && !dbData->routinesLoader.isRunning()) {
+                    dbData->startRoutinesLoadAsync();
+                }
+
+                if (dbData->routinesLoader.isRunning()) {
+                    dbData->checkRoutinesStatusAsync();
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                    ImGui::TextUnformatted(LOADING_LABEL);
+                    ImGui::SameLine(0, Theme::Spacing::S);
+                    UIUtils::Spinner("##loading_routines", 6.0f, 2,
+                                     ImGui::GetColorU32(colors.peach));
+                    ImGui::PopStyleColor();
+                } else if (dbData->routinesLoaded) {
+                    if (dbData->routines.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                        ImGui::Text("  No routines");
+                        ImGui::PopStyleColor();
+                    } else {
+                        renderRoutineItems(dbData->routines);
                     }
                 }
                 ImGui::TreePop();
@@ -1991,6 +2106,49 @@ void DatabaseHierarchy::renderMSSQLSchemaNode(const MSSQLDatabaseNode* dbData,
             }
         }
 
+        // Render Routines section
+        {
+            const std::string routineNodeId = std::format(
+                "routines_{}_{:p}", schemaData->name, static_cast<void*>(&schemaData->routines));
+            const bool routineOpen = renderTreeNodeWithIcon("Routines", routineNodeId, ICON_FA_CODE,
+                                                            ImGui::GetColorU32(colors.yellow));
+
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                    ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                if (ImGui::MenuItem(REFRESH_LABEL)) {
+                    schemaData->startRoutinesLoadAsync(true);
+                }
+                ImGui::PopStyleVar();
+                ImGui::EndPopup();
+            }
+
+            if (routineOpen) {
+                if (!schemaData->routinesLoaded && !schemaData->routinesLoader.isRunning()) {
+                    schemaData->startRoutinesLoadAsync();
+                }
+
+                if (schemaData->routinesLoader.isRunning()) {
+                    schemaData->checkRoutinesStatusAsync();
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                    ImGui::TextUnformatted(LOADING_LABEL);
+                    ImGui::SameLine(0, Theme::Spacing::S);
+                    UIUtils::Spinner("##loading_routines", 6.0f, 2,
+                                     ImGui::GetColorU32(colors.peach));
+                    ImGui::PopStyleColor();
+                } else if (schemaData->routinesLoaded) {
+                    if (schemaData->routines.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                        ImGui::Text("  No routines");
+                        ImGui::PopStyleColor();
+                    } else {
+                        renderRoutineItems(schemaData->routines);
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+
         ImGui::TreePop();
     }
 }
@@ -2422,6 +2580,49 @@ void DatabaseHierarchy::renderOracleDatabaseNode(OracleDatabaseNode* dbData) {
                         for (auto& view : dbData->views) {
                             renderOracleViewNode(view, dbData);
                         }
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+
+        // Render Routines section
+        {
+            const std::string routineNodeId = std::format("routines_{}_{:p}", dbData->name,
+                                                          static_cast<void*>(&dbData->routines));
+            const bool routineOpen = renderTreeNodeWithIcon("Routines", routineNodeId, ICON_FA_CODE,
+                                                            ImGui::GetColorU32(colors.yellow));
+
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                    ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+                if (ImGui::MenuItem(REFRESH_LABEL)) {
+                    dbData->startRoutinesLoadAsync(true);
+                }
+                ImGui::PopStyleVar();
+                ImGui::EndPopup();
+            }
+
+            if (routineOpen) {
+                if (!dbData->routinesLoaded && !dbData->routinesLoader.isRunning()) {
+                    dbData->startRoutinesLoadAsync();
+                }
+
+                if (dbData->routinesLoader.isRunning()) {
+                    dbData->checkRoutinesStatusAsync();
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                    ImGui::TextUnformatted(LOADING_LABEL);
+                    ImGui::SameLine(0, Theme::Spacing::S);
+                    UIUtils::Spinner("##loading_routines", 6.0f, 2,
+                                     ImGui::GetColorU32(colors.peach));
+                    ImGui::PopStyleColor();
+                } else if (dbData->routinesLoaded) {
+                    if (dbData->routines.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                        ImGui::Text("  No routines");
+                        ImGui::PopStyleColor();
+                    } else {
+                        renderRoutineItems(dbData->routines);
                     }
                 }
                 ImGui::TreePop();

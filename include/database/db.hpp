@@ -49,6 +49,15 @@ struct Table {
     std::unordered_map<std::string, ForeignKey> foreignKeysByColumn;
 };
 
+enum class RoutineKind { Function, Procedure };
+
+struct Routine {
+    std::string name;      // e.g. "my_func"
+    std::string signature; // e.g. "my_func(integer, text)"
+    RoutineKind kind = RoutineKind::Function;
+    std::string returnType; // e.g. "integer", "void"
+};
+
 struct Schema {
     std::string name;
     std::vector<Table> tables;
