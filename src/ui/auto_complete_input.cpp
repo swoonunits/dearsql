@@ -10,8 +10,6 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
     currentBuffer = buffer;
     currentBufferSize = bufferSize;
 
-    applyPendingAutoComplete();
-
     ImGui::SetNextItemWidth(config.width);
 
     const bool shouldConsumeEnter =
@@ -36,9 +34,10 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
     enterPressed = ImGui::InputTextWithHint(label, config.hint.c_str(), buffer, bufferSize,
                                             inputFlags, inputTextCallback, this);
 
-    const bool isFocused = ImGui::IsItemActive();
+    const bool showFocusedVisual = ImGui::IsItemActive() || showAutoComplete ||
+                                   !pendingAutoComplete.empty() || shouldRefocusInput;
 
-    if (isFocused) {
+    if (showFocusedVisual) {
         // Draw subtle visual emphasis for focused state
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImVec2 min = ImGui::GetItemRectMin();
@@ -67,6 +66,7 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
     if (shouldProcessEnter && config.onSubmit) {
         config.onSubmit();
         hideAutoComplete();
+        shouldRefocusInput = true;
     }
 
     return shouldProcessEnter;
@@ -127,6 +127,10 @@ int AutoCompleteInput::inputTextCallback(ImGuiInputTextCallbackData* data) {
         // Text changed - update suggestions
         input->updateAutoCompleteSuggestions(data);
     } else if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways) {
+        if (!input->pendingAutoComplete.empty()) {
+            input->applyPendingAutoComplete(data);
+        }
+
         // Handle cursor positioning after refocus
         if (input->needsCursorReposition) {
             data->CursorPos = data->BufTextLen;
@@ -261,6 +265,7 @@ void AutoCompleteInput::renderAutoCompletePopup() {
                 pendingAutoCompleteStart = autoCompleteWordStart;
                 pendingAutoCompleteEnd = autoCompleteWordEnd;
                 hideAutoComplete();
+                shouldRefocusInput = true;
                 // Mark that Enter was consumed by auto-complete
                 autoCompleteConsumedEnter = true;
             }
@@ -278,6 +283,7 @@ void AutoCompleteInput::renderAutoCompletePopup() {
                 pendingAutoCompleteStart = autoCompleteWordStart;
                 pendingAutoCompleteEnd = autoCompleteWordEnd;
                 hideAutoComplete();
+                shouldRefocusInput = true;
             }
 
             if (isSelected) {
@@ -290,27 +296,23 @@ void AutoCompleteInput::renderAutoCompletePopup() {
     ImGui::End();
 }
 
-void AutoCompleteInput::applyPendingAutoComplete() {
-    if (pendingAutoComplete.empty() || !currentBuffer) {
+void AutoCompleteInput::applyPendingAutoComplete(ImGuiInputTextCallbackData* data) {
+    if (pendingAutoComplete.empty() || !data) {
         return;
     }
 
-    // Build the new text
-    const std::string currentText(currentBuffer);
-    const std::string newText = currentText.substr(0, pendingAutoCompleteStart) +
-                                pendingAutoComplete + " " +
-                                currentText.substr(pendingAutoCompleteEnd);
+    data->DeleteChars(pendingAutoCompleteStart, pendingAutoCompleteEnd - pendingAutoCompleteStart);
 
-    // Update the buffer
-    strncpy(currentBuffer, newText.c_str(), currentBufferSize - 1);
-    currentBuffer[currentBufferSize - 1] = '\0';
+    const std::string completedText = pendingAutoComplete + " ";
+    data->InsertChars(pendingAutoCompleteStart, completedText.c_str());
+
+    data->CursorPos = pendingAutoCompleteStart + static_cast<int>(completedText.size());
+    data->SelectionStart = data->SelectionEnd = data->CursorPos;
 
     // Clear pending
     pendingAutoComplete.clear();
     pendingAutoCompleteStart = 0;
     pendingAutoCompleteEnd = 0;
 
-    // Request focus for the input field and cursor repositioning
-    shouldRefocusInput = true;
-    needsCursorReposition = true;
+    needsCursorReposition = false;
 }

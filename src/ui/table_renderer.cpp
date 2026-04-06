@@ -62,7 +62,8 @@ void TableRenderer::render(const char* tableId) {
     if (config.allowEditing && selectedRow >= 0 && selectedCol >= 0 && editingRow == -1 &&
         editingCol == -1 && !config.nonEditableColumns.contains(selectedCol) &&
         (!cellEditableCb || cellEditableCb(selectedRow, selectedCol))) {
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput) {
             if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
                 enterEditMode(selectedRow, selectedCol);
             } else if (!config.columnDropdownOptions.contains(selectedCol)) {

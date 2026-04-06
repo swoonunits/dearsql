@@ -10,7 +10,6 @@
 #include "database/oracle.hpp"
 #include "database/postgresql.hpp"
 #include "database/redis.hpp"
-#include "database/sql_builder.hpp"
 #include "database/sqlite.hpp"
 #include "imgui.h"
 #include "platform/alert.hpp"
@@ -19,7 +18,6 @@
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
 
-#include "ui/text_editor.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"

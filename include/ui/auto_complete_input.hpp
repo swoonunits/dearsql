@@ -61,5 +61,5 @@ private:
     void updateAutoCompleteSuggestions(const ImGuiInputTextCallbackData* data);
     void triggerAutoComplete(ImGuiInputTextCallbackData* data);
     void renderAutoCompletePopup();
-    void applyPendingAutoComplete();
+    void applyPendingAutoComplete(ImGuiInputTextCallbackData* data);
 };

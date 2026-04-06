@@ -616,6 +616,11 @@ void TableViewerTab::checkAsyncLoadStatus() {
             initialSelectionDone = true;
         }
 
+        // update filter autocomplete with column names
+        if (!columnNames.empty() && filterAutoComplete) {
+            filterAutoComplete->addKeywords(columnNames);
+        }
+
         // Add to query history if load was successful
         if (!hasLoadingError && !tableData.empty()) {
             const int offset = currentPage * rowsPerPage;
