@@ -29,6 +29,7 @@ void TableViewerTab::render() {
 
     ImGui::Text("Table: %s", tableName.c_str());
     ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
     // Style for buttons and inputs in this tab
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
@@ -41,9 +42,9 @@ void TableViewerTab::render() {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
 
     // Filter input with auto-completion
-    ImGui::AlignTextToFramePadding(); // Center the label vertically with the input field
-    ImGui::Text("Filters:");
-    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text(ICON_FA_FILTER);
+    ImGui::SameLine(0, Theme::Spacing::M);
 
     // Use the AutoCompleteInput component
     if (filterAutoComplete &&
@@ -110,6 +111,7 @@ void TableViewerTab::render() {
     // Pop button/input styles
     ImGui::PopStyleColor(7);
     ImGui::PopStyleVar();
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
     // Show loading error if any
     if (hasLoadingError) {
@@ -182,7 +184,7 @@ void TableViewerTab::render() {
     renderRightPanelToggleStrip(toggleStripWidth, availableHeight);
 
     // Pagination controls at the bottom
-    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
