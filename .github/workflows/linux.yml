@@ -75,15 +75,13 @@ jobs:
       - name: Create version metadata file
         run: |
           SHA256=$(cut -d' ' -f1 "build_release/${APPIMAGE_NAME}.sha256")
-          TAG="${GITHUB_REF_NAME}"
-          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${APPIMAGE_NAME}"
-          RELEASE_NOTES="Linux AppImage update with fixes and improvements."
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${APPIMAGE_NAME}"
           METADATA_PATH="build_release/${VERSION_METADATA_NAME}"
 
           cat > "$METADATA_PATH" <<EOF
           {
             "version": "${VERSION}",
-            "release_notes": "${RELEASE_NOTES}",
+            "release_notes": "",
             "downloads": {
               "appimage-x86_64": {
                 "url": "${DOWNLOAD_URL}",
