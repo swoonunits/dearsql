@@ -4,6 +4,7 @@
 #include "ui/auto_complete_input.hpp"
 #include "ui/tab/tab.hpp"
 #include "ui/table_renderer.hpp"
+#include "ui/text_editor.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -73,6 +74,7 @@ private:
     bool showSaveDialog = false;
     bool dialogOpened = false;
     std::vector<std::string> pendingUpdateSQL;
+    dearsql::TextEditor saveDialogEditor_;
 
     // Async SQL execution state
     AsyncOperation<std::pair<bool, std::string>> sqlExecutionOp;

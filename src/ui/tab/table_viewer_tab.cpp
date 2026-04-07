@@ -27,6 +27,13 @@ void TableViewerTab::render() {
 
     checkAsyncLoadStatus();
 
+    // Cmd/Ctrl+S to save — only when no cell input is active
+    if (hasChanges && !tableRenderer->isEditing() &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        (ImGui::GetIO().KeyMods & ImGuiMod_Shortcut) && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+        saveChanges();
+    }
+
     ImGui::Text("Table: %s", tableName.c_str());
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
@@ -104,7 +111,7 @@ void TableViewerTab::render() {
     }
 
     if (hasChanges) {
-        ImGui::SameLine();
+        ImGui::SameLine(0, Theme::Spacing::L);
         ImGui::TextColored(colors.peach, "Unsaved changes");
     }
 
@@ -726,104 +733,123 @@ void TableViewerTab::showSaveConfirmationDialog() {
         return;
     }
 
+    const auto& colors = Application::getInstance().getCurrentColors();
+    const bool dark = Application::getInstance().isDarkTheme();
+
     // Only open popup once when dialog first shows
     if (!dialogOpened) {
-        ImGui::SetNextWindowSize(ImVec2(800, 600));
+        // Join all statements into one editable block
+        std::string combined;
+        for (size_t i = 0; i < pendingUpdateSQL.size(); i++) {
+            if (i > 0)
+                combined += "\n\n";
+            combined += pendingUpdateSQL[i];
+        }
+        saveDialogEditor_.SetLanguage(dearsql::TextEditor::Language::SQL);
+        saveDialogEditor_.SetShowLineNumbers(true);
+        saveDialogEditor_.SetText(combined);
+
+        ImGui::SetNextWindowSize(ImVec2(760, 520), ImGuiCond_Always);
         ImGui::OpenPopup("Confirm Save Changes");
         dialogOpened = true;
     }
 
-    if (ImGui::BeginPopupModal("Confirm Save Changes", nullptr)) {
-        ImGui::Text("The following SQL statements will be executed:");
-        ImGui::Separator();
+    // Sync palette with current theme every frame
+    saveDialogEditor_.SetPalette(
+        dearsql::TextEditor::FromTheme(dark ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT));
 
-        // Show SQL statements in a scrollable area
-        if (ImGui::BeginChild("SQLPreview", ImVec2(0, -50), true)) {
-            for (int i = 0; i < pendingUpdateSQL.size(); i++) {
-                ImGui::Text("%d.", i + 1);
-                ImGui::SameLine();
-                ImGui::TextWrapped("%s", pendingUpdateSQL[i].c_str());
-                if (i < pendingUpdateSQL.size() - 1) {
-                    ImGui::Separator();
-                }
-            }
-        }
-        ImGui::EndChild();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 16));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.base);
+    ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0, 0, 0, 0.55f));
 
+    if (ImGui::BeginPopupModal("Confirm Save Changes", nullptr,
+                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        // Header
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+        ImGui::TextUnformatted("Review and edit the SQL before executing.");
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, Theme::Spacing::S));
+
+        // Editor area
+        const float footerH = ImGui::GetFrameHeightWithSpacing() + Theme::Spacing::M * 2;
+        const float editorH = ImGui::GetContentRegionAvail().y - footerH;
+        saveDialogEditor_.Render("##save_sql_editor", ImVec2(-1, editorH), true);
+
+        ImGui::Dummy(ImVec2(0, Theme::Spacing::M));
         ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, Theme::Spacing::S));
 
         // Buttons
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                            ImVec2(Theme::Spacing::L, Theme::Spacing::S));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+
         if (sqlExecutionOp.isRunning()) {
-            // Show spinner and disable buttons during execution
             ImGui::BeginDisabled();
-            ImGui::Button("Execute", ImVec2(120, 0));
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.4f));
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.base);
+            ImGui::Button(ICON_FA_PLAY " Execute");
+            ImGui::PopStyleColor(2);
             ImGui::EndDisabled();
 
-            ImGui::SameLine();
-            const auto& colors = Application::getInstance().getCurrentColors();
-            UIUtils::Spinner("##spinner", 8.0f, 2, ImGui::GetColorU32(colors.blue));
-
-            ImGui::SameLine();
-            ImGui::Text("Executing...");
+            ImGui::SameLine(0, Theme::Spacing::M);
+            UIUtils::Spinner("##spinner", 7.0f, 2, ImGui::GetColorU32(colors.blue));
+            ImGui::SameLine(0, Theme::Spacing::S);
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+            ImGui::TextUnformatted("Executing...");
+            ImGui::PopStyleColor();
         } else {
-            if (ImGui::Button("Execute", ImVec2(120, 0))) {
-                auto sqlStatements = pendingUpdateSQL;
-
-                sqlExecutionOp.start([node = node_,
-                                      sqlStatements]() -> std::pair<bool, std::string> {
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                  ImVec4(colors.green.x, colors.green.y, colors.green.z, 1.0f));
+            ImGui::PushStyleColor(
+                ImGuiCol_ButtonActive,
+                ImVec4(colors.green.x * 0.8f, colors.green.y * 0.8f, colors.green.z * 0.8f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.base);
+            if (ImGui::Button(ICON_FA_PLAY " Execute")) {
+                const std::string editedSQL = saveDialogEditor_.GetText();
+                sqlExecutionOp.start([node = node_, editedSQL]() -> std::pair<bool, std::string> {
                     if (!node) {
-                        return std::make_pair(false,
-                                              "Error: Database does not support query execution");
+                        return {false, "Error: Database does not support query execution"};
                     }
-
-                    bool allSuccess = true;
-                    std::string errorMessage;
-
-                    for (const auto& sql : sqlStatements) {
-                        std::cout << "Executing SQL: " << sql << std::endl;
-                        const auto result = node->executeQuery(sql);
-                        const auto& r =
-                            result.empty() ? StatementResult{} : result.statements.back();
-                        std::cout << "SQL Result: " << (r.success ? r.message : r.errorMessage)
-                                  << std::endl;
-
-                        if (!r.success) {
-                            allSuccess = false;
-                            errorMessage = "Error: " + r.errorMessage;
-                            std::cerr << "SQL execution failed: " << r.errorMessage << std::endl;
-                            return std::make_pair(allSuccess, errorMessage);
-                        }
+                    spdlog::debug("Executing SQL: {}", editedSQL);
+                    const auto result = node->executeQuery(editedSQL);
+                    if (!result.success()) {
+                        spdlog::error("SQL execution failed: {}", result.errorMessage());
+                        return {false, "Error: " + result.errorMessage()};
                     }
-
-                    if (allSuccess) {
-                        std::cout << "All SQL statements executed successfully" << std::endl;
-                    }
-
-                    return std::make_pair(allSuccess, errorMessage);
+                    return {true, {}};
                 });
             }
-        }
+            ImGui::PopStyleColor(4);
 
-        ImGui::SameLine();
-        if (sqlExecutionOp.isRunning()) {
-            ImGui::BeginDisabled();
-            ImGui::Button("Cancel", ImVec2(120, 0));
-            ImGui::EndDisabled();
-        } else {
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::SameLine(0, Theme::Spacing::M);
+
+            ImGui::PushStyleColor(ImGuiCol_Button, colors.surface1);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface2);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.overlay0);
+            if (ImGui::Button(ICON_FA_XMARK " Cancel")) {
                 showSaveDialog = false;
                 pendingUpdateSQL.clear();
                 dialogOpened = false;
             }
+            ImGui::PopStyleColor(3);
         }
 
+        ImGui::PopStyleVar(3);
         ImGui::EndPopup();
     } else if (!ImGui::IsPopupOpen("Confirm Save Changes")) {
-        // Dialog was closed by clicking outside or ESC
         showSaveDialog = false;
         pendingUpdateSQL.clear();
         dialogOpened = false;
     }
+
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(2);
 }
 
 void TableViewerTab::checkSQLExecutionStatus() {
