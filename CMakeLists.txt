@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.23)
 
 # vcpkg toolchain - must be set before project() call
-set(CMAKE_TOOLCHAIN_FILE
-    "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
-    CACHE STRING
-    ""
-    FORCE
-)
+if(DEFINED ENV{VCPKG_ROOT})
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+          CACHE STRING "vcpkg toolchain")
+else()
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          CACHE STRING "vcpkg toolchain")
+endif()
 
 if(NOT DEFINED VCPKG_TARGET_TRIPLET)
   if(APPLE)
