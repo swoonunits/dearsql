@@ -169,7 +169,11 @@ private:
 
 public:
     void renderMainUI();
+    static ImFont* getTabFont() {
+        return tabFont_;
+    }
 
 private:
     [[nodiscard]] bool hasPendingAsyncWork() const;
+    static ImFont* tabFont_;
 };

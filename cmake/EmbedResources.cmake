@@ -1,14 +1,15 @@
-# EmbedResources.cmake
-# Embeds fonts and images as C++ byte arrays
+# EmbedResources.cmake Embeds fonts and images as C++ byte arrays
 
 function(embed_fonts)
-    # Embed font files as resources
-    file(GLOB FONT_FILES "assets/fonts/*.ttf" "assets/fonts/*.otf")
-    set(RESOURCE_FILE "${CMAKE_CURRENT_BINARY_DIR}/embedded_fonts.cpp")
-    set(GENERATOR_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/generate_fonts.cmake")
+  # Embed font files as resources
+  file(GLOB FONT_FILES "assets/fonts/*.ttf" "assets/fonts/*.otf")
+  set(RESOURCE_FILE "${CMAKE_CURRENT_BINARY_DIR}/embedded_fonts.cpp")
+  set(GENERATOR_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/generate_fonts.cmake")
 
-    # create a generator script that will be executed only when fonts change
-    file(WRITE ${GENERATOR_SCRIPT} "
+  # create a generator script that will be executed only when fonts change
+  file(
+        WRITE ${GENERATOR_SCRIPT}
+        "
 file(GLOB FONT_FILES \"${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/*.ttf\" \"${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/*.otf\")
 set(RESOURCE_FILE \"${RESOURCE_FILE}\")
 
@@ -45,10 +46,11 @@ else()
     file(APPEND \${RESOURCE_FILE} \"extern \\\"C\\\" const EmbeddedFont* getEmbeddedFonts() { return nullptr; }\\n\")
     file(APPEND \${RESOURCE_FILE} \"extern \\\"C\\\" size_t getEmbeddedFontCount() { return 0; }\\n\")
 endif()
-")
+"
+    )
 
-    # add custom command that only runs when font files change
-    add_custom_command(
+  # add custom command that only runs when font files change
+  add_custom_command(
         OUTPUT ${RESOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -P ${GENERATOR_SCRIPT}
         DEPENDS ${FONT_FILES}
@@ -56,18 +58,25 @@ endif()
         VERBATIM
     )
 
-    # make the resource file available to parent scope
-    set(EMBEDDED_FONTS_FILE ${RESOURCE_FILE} PARENT_SCOPE)
+  # make the resource file available to parent scope
+  set(EMBEDDED_FONTS_FILE ${RESOURCE_FILE} PARENT_SCOPE)
 endfunction()
 
 function(embed_images)
-    # Embed image files as resources
-    file(GLOB IMAGE_FILES "assets/images/*.png" "assets/images/*.jpg" "assets/images/*.jpeg")
-    set(IMAGE_RESOURCE_FILE "${CMAKE_CURRENT_BINARY_DIR}/embedded_images.cpp")
-    set(GENERATOR_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/generate_images.cmake")
+  # Embed image files as resources
+  file(
+        GLOB IMAGE_FILES
+        "assets/images/*.png"
+        "assets/images/*.jpg"
+        "assets/images/*.jpeg"
+    )
+  set(IMAGE_RESOURCE_FILE "${CMAKE_CURRENT_BINARY_DIR}/embedded_images.cpp")
+  set(GENERATOR_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/generate_images.cmake")
 
-    # create a generator script that will be executed only when images change
-    file(WRITE ${GENERATOR_SCRIPT} "
+  # create a generator script that will be executed only when images change
+  file(
+        WRITE ${GENERATOR_SCRIPT}
+        "
 file(GLOB IMAGE_FILES \"${CMAKE_CURRENT_SOURCE_DIR}/assets/images/*.png\" \"${CMAKE_CURRENT_SOURCE_DIR}/assets/images/*.jpg\" \"${CMAKE_CURRENT_SOURCE_DIR}/assets/images/*.jpeg\")
 set(IMAGE_RESOURCE_FILE \"${IMAGE_RESOURCE_FILE}\")
 
@@ -104,10 +113,11 @@ else()
     file(APPEND \${IMAGE_RESOURCE_FILE} \"extern \\\"C\\\" const EmbeddedImage* getEmbeddedImages() { return nullptr; }\\n\")
     file(APPEND \${IMAGE_RESOURCE_FILE} \"extern \\\"C\\\" size_t getEmbeddedImageCount() { return 0; }\\n\")
 endif()
-")
+"
+    )
 
-    # add custom command that only runs when image files change
-    add_custom_command(
+  # add custom command that only runs when image files change
+  add_custom_command(
         OUTPUT ${IMAGE_RESOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -P ${GENERATOR_SCRIPT}
         DEPENDS ${IMAGE_FILES}
@@ -115,6 +125,6 @@ endif()
         VERBATIM
     )
 
-    # make the resource file available to parent scope
-    set(EMBEDDED_IMAGES_FILE ${IMAGE_RESOURCE_FILE} PARENT_SCOPE)
+  # make the resource file available to parent scope
+  set(EMBEDDED_IMAGES_FILE ${IMAGE_RESOURCE_FILE} PARENT_SCOPE)
 endfunction()

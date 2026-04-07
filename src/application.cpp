@@ -60,7 +60,11 @@ namespace {
     constexpr double kMinimumWaitSeconds = 1.0 / 120.0; // keep responsive when active
     constexpr double kMaximumWaitSeconds = 0.2;         // cap sleep to keep UI responsive
 
+#ifdef NDEBUG
     constexpr std::size_t kFreeConnectionLimit = 3;
+#else
+    constexpr std::size_t kFreeConnectionLimit = 20;
+#endif
     constexpr std::size_t kFreeWorkspaceLimit = 2;
 
     bool isImGuiUserActive() {
@@ -545,8 +549,77 @@ bool Application::initializeImGui() const {
 }
 #endif
 
+ImFont* Application::tabFont_ = nullptr;
+
+namespace {
+    const ImWchar kFontAwesomeRanges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
+    const ImWchar kForkAwesomeRanges[] = {ICON_MIN_FK, ICON_MAX_16_FK, 0};
+
+    // probe common system locations for a CJK-capable font; first hit wins
+    std::string findSystemCjkFontPath() {
+        static const char* candidates[] = {
+#if defined(__APPLE__)
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+#elif defined(_WIN32)
+            "C:\\Windows\\Fonts\\msyh.ttc",    // microsoft yahei (SC)
+            "C:\\Windows\\Fonts\\YuGothM.ttc", // yu gothic (JP)
+            "C:\\Windows\\Fonts\\meiryo.ttc",
+            "C:\\Windows\\Fonts\\msgothic.ttc",
+#else
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+            "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+#endif
+        };
+        for (const char* path : candidates) {
+            if (std::filesystem::exists(path)) {
+                return path;
+            }
+        }
+        return {};
+    }
+
+    struct EmbeddedFontSpec {
+        const ImWchar* ranges = nullptr;
+        bool isIconFont = false;
+        bool isPrimaryTextFont = false;
+    };
+
+    EmbeddedFontSpec classifyEmbeddedFont(const std::string& fontName, ImGuiIO& io) {
+        if (fontName.find("fa-solid") != std::string::npos ||
+            fontName.find("fa-regular") != std::string::npos) {
+            return {.ranges = kFontAwesomeRanges, .isIconFont = true, .isPrimaryTextFont = false};
+        }
+        if (fontName.find("forkawesome") != std::string::npos) {
+            return {.ranges = kForkAwesomeRanges, .isIconFont = true, .isPrimaryTextFont = false};
+        }
+        if (fontName.find("Cyrillic") != std::string::npos) {
+            return {.ranges = io.Fonts->GetGlyphRangesCyrillic(),
+                    .isIconFont = false,
+                    .isPrimaryTextFont = false};
+        }
+        return {.ranges = io.Fonts->GetGlyphRangesDefault(),
+                .isIconFont = false,
+                .isPrimaryTextFont = true};
+    }
+
+    void configureEmbeddedFont(ImFontConfig& config, const bool isIconFont) {
+        config.FontDataOwnedByAtlas = false;
+        if (isIconFont) {
+            config.OversampleH = 1;
+            config.OversampleV = 1;
+            config.PixelSnapH = true;
+        }
+    }
+} // namespace
+
 void Application::setupFonts() {
-    const ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO& io = ImGui::GetIO();
 
     const size_t embeddedFontCount = getEmbeddedFontCount();
     if (embeddedFontCount == 0)
@@ -555,40 +628,22 @@ void Application::setupFonts() {
     const EmbeddedFont* embeddedFonts = getEmbeddedFonts();
     ImFontConfig fontConfig;
 
-    static const ImWchar faRanges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
-    static const ImWchar fkRanges[] = {ICON_MIN_FK, ICON_MAX_16_FK, 0};
+    const EmbeddedFont* primaryFontEntry = nullptr;
+    tabFont_ = nullptr;
 
     for (size_t i = 0; i < embeddedFontCount; ++i) {
         const EmbeddedFont& font = embeddedFonts[i];
         std::string fontName = font.name;
-
-        const ImWchar* ranges = nullptr;
-        bool isIconFont = false;
-
-        if (fontName.find("fa-solid") != std::string::npos ||
-            fontName.find("fa-regular") != std::string::npos) {
-            ranges = faRanges;
-            isIconFont = true;
-        } else if (fontName.find("forkawesome") != std::string::npos) {
-            ranges = fkRanges;
-            isIconFont = true;
-        } else if (fontName.find("Cyrillic") != std::string::npos) {
-            ranges = io.Fonts->GetGlyphRangesCyrillic();
-        } else {
-            ranges = io.Fonts->GetGlyphRangesDefault();
+        const EmbeddedFontSpec spec = classifyEmbeddedFont(fontName, io);
+        if (spec.isPrimaryTextFont && !primaryFontEntry) {
+            primaryFontEntry = &font;
         }
 
         ImFontConfig embeddedFontConfig = fontConfig;
-        embeddedFontConfig.FontDataOwnedByAtlas = false;
-
-        if (isIconFont) {
-            embeddedFontConfig.OversampleH = 1;
-            embeddedFontConfig.OversampleV = 1;
-            embeddedFontConfig.PixelSnapH = true;
-        }
+        configureEmbeddedFont(embeddedFontConfig, spec.isIconFont);
 
         const ImFont* loadedFont = io.Fonts->AddFontFromMemoryTTF(
-            (void*)font.data, static_cast<int>(font.size), 16.0f, &embeddedFontConfig, ranges);
+            (void*)font.data, static_cast<int>(font.size), 16.0f, &embeddedFontConfig, spec.ranges);
         if (!fontConfig.MergeMode) {
             fontConfig.MergeMode = true;
         }
@@ -596,6 +651,54 @@ void Application::setupFonts() {
         if (loadedFont) {
             spdlog::debug("loaded embedded font: {}", fontName);
         }
+    }
+
+    // tab font: same monospace base + system CJK font merged in. pushed only
+    // inside tab content (sql editor, table viewer) so unexpected unicode in
+    // user data renders, while the rest of the UI atlas stays small.
+    const std::string cjkPath = findSystemCjkFontPath();
+    if (primaryFontEntry && !cjkPath.empty()) {
+        ImFontConfig baseConfig;
+        configureEmbeddedFont(baseConfig, false);
+        tabFont_ = io.Fonts->AddFontFromMemoryTTF((void*)primaryFontEntry->data,
+                                                  static_cast<int>(primaryFontEntry->size), 16.0f,
+                                                  &baseConfig, io.Fonts->GetGlyphRangesDefault());
+
+        if (tabFont_) {
+            for (size_t i = 0; i < embeddedFontCount; ++i) {
+                const EmbeddedFont& font = embeddedFonts[i];
+                if (&font == primaryFontEntry) {
+                    continue;
+                }
+
+                std::string fontName = font.name;
+                const EmbeddedFontSpec spec = classifyEmbeddedFont(fontName, io);
+
+                ImFontConfig mergeConfig;
+                mergeConfig.MergeMode = true;
+                mergeConfig.DstFont = tabFont_;
+                configureEmbeddedFont(mergeConfig, spec.isIconFont);
+                io.Fonts->AddFontFromMemoryTTF((void*)font.data, static_cast<int>(font.size), 16.0f,
+                                               &mergeConfig, spec.ranges);
+            }
+
+            ImFontConfig cjkConfig;
+            cjkConfig.MergeMode = true;
+            cjkConfig.DstFont = tabFont_;
+            const ImFont* cjk = io.Fonts->AddFontFromFileTTF(cjkPath.c_str(), 16.0f, &cjkConfig,
+                                                             io.Fonts->GetGlyphRangesJapanese());
+            if (cjk) {
+                spdlog::info("loaded system cjk font: {}", cjkPath);
+            } else {
+                spdlog::warn("failed to load system cjk font at {}, tab font will lack cjk",
+                             cjkPath);
+                tabFont_ = nullptr;
+            }
+        }
+    } else if (!primaryFontEntry) {
+        spdlog::debug("no primary font found, skipping tab font");
+    } else {
+        spdlog::info("no system cjk font found, tab content will not render cjk");
     }
 }
 

@@ -1,46 +1,96 @@
 cmake_minimum_required(VERSION 3.23)
 
 # vcpkg toolchain - must be set before project() call
-set(CMAKE_TOOLCHAIN_FILE "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "" FORCE)
+set(CMAKE_TOOLCHAIN_FILE
+    "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    CACHE STRING
+    ""
+    FORCE
+)
 
-# Auto-detect vcpkg triplet based on platform and architecture
 if(NOT DEFINED VCPKG_TARGET_TRIPLET)
-    if(APPLE)
-        execute_process(COMMAND uname -m OUTPUT_VARIABLE ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
-        if(ARCH STREQUAL "arm64")
-            set(VCPKG_TARGET_TRIPLET "arm64-osx" CACHE STRING "vcpkg triplet" FORCE)
-        else()
-            set(VCPKG_TARGET_TRIPLET "x64-osx" CACHE STRING "vcpkg triplet" FORCE)
-        endif()
-    elseif(UNIX)
-        execute_process(COMMAND uname -m OUTPUT_VARIABLE ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
-        if(ARCH STREQUAL "x86_64")
-            set(VCPKG_TARGET_TRIPLET "x64-linux" CACHE STRING "vcpkg triplet" FORCE)
-        else()
-            set(VCPKG_TARGET_TRIPLET "arm64-linux" CACHE STRING "vcpkg triplet" FORCE)
-        endif()
-    elseif(WIN32)
-        set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "vcpkg triplet" FORCE)
+  if(APPLE)
+    execute_process(
+            COMMAND uname -m
+            OUTPUT_VARIABLE ARCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    if(ARCH STREQUAL "arm64")
+      set(VCPKG_TARGET_TRIPLET
+                "arm64-osx"
+                CACHE STRING
+                "vcpkg triplet"
+                FORCE
+            )
+    else()
+      set(VCPKG_TARGET_TRIPLET
+                "x64-osx"
+                CACHE STRING
+                "vcpkg triplet"
+                FORCE
+            )
     endif()
+  elseif(UNIX)
+    execute_process(
+            COMMAND uname -m
+            OUTPUT_VARIABLE ARCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    if(ARCH STREQUAL "x86_64")
+      set(VCPKG_TARGET_TRIPLET
+                "x64-linux"
+                CACHE STRING
+                "vcpkg triplet"
+                FORCE
+            )
+    else()
+      set(VCPKG_TARGET_TRIPLET
+                "arm64-linux"
+                CACHE STRING
+                "vcpkg triplet"
+                FORCE
+            )
+    endif()
+  elseif(WIN32)
+    set(VCPKG_TARGET_TRIPLET
+            "x64-windows-static"
+            CACHE STRING
+            "vcpkg triplet"
+            FORCE
+        )
+  endif()
 endif()
 
-# macOS deployment target
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS version" FORCE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET
+        "14.0"
+        CACHE STRING
+        "Minimum macOS version"
+        FORCE
+    )
 endif()
 
-# Use project-local triplet overlay for deployment target
-set(VCPKG_OVERLAY_TRIPLETS "${CMAKE_SOURCE_DIR}/cmake/triplets" CACHE STRING "" FORCE)
+set(VCPKG_OVERLAY_TRIPLETS
+    "${CMAKE_SOURCE_DIR}/cmake/triplets"
+    CACHE STRING
+    ""
+    FORCE
+)
 
 project(dearsql)
 
 if(UNIX AND NOT APPLE)
-    set(LINUX TRUE)
+  set(LINUX TRUE)
 endif()
 
-# Use static runtime on Windows to match vcpkg x64-windows-static triplet
+# match vcpkg x64-windows-static triplet
 if(WIN32)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        CACHE STRING
+        ""
+        FORCE
+    )
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -48,23 +98,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(APPLE)
-    # Enable experimental C++20 features (jthread, stop_token) in libc++
-    add_compile_options(-fexperimental-library)
-    add_link_options(-fexperimental-library)
+  # jthread, stop_token require experimental libc++ on Apple
+  add_compile_options(-fexperimental-library)
+  add_link_options(-fexperimental-library)
 endif()
 
-# APP_METADATA
 file(STRINGS "${CMAKE_SOURCE_DIR}/APP_METADATA" _metadata_lines)
 foreach(_line IN LISTS _metadata_lines)
-    if(_line MATCHES "^([A-Z_]+)=(.+)$")
-        set(${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
-    endif()
+  if(_line MATCHES "^([A-Z_]+)=(.+)$")
+    set(${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
+  endif()
 endforeach()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(SENTRY_ENVIRONMENT "production")
+  set(SENTRY_ENVIRONMENT "production")
 else()
-    set(SENTRY_ENVIRONMENT "development")
+  set(SENTRY_ENVIRONMENT "development")
 endif()
 
 configure_file(
@@ -73,7 +122,6 @@ configure_file(
     @ONLY
 )
 
-# vcpkg packages (cross-platform)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(PostgreSQL REQUIRED)
@@ -94,129 +142,32 @@ include(cmake/OracleOCI.cmake)
 
 enable_testing()
 
-# Platform-specific windowing
 if(LINUX)
-    # Linux uses GTK4 for windowing
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GTK4 REQUIRED gtk4)
-    pkg_check_modules(EPOXY REQUIRED epoxy)
-    find_package(X11 REQUIRED)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK4 REQUIRED gtk4)
+  pkg_check_modules(EPOXY REQUIRED epoxy)
+  find_package(X11 REQUIRED)
 else()
-    # macOS and Windows use GLFW
-    find_package(glfw3 CONFIG REQUIRED)
+  find_package(glfw3 CONFIG REQUIRED)
 endif()
 
-# Sparkle auto-update (macOS only)
 if(APPLE)
-    set(SPARKLE_FRAMEWORK_PATH "${CMAKE_SOURCE_DIR}/external/Sparkle/Sparkle.framework")
-    if(NOT EXISTS "${SPARKLE_FRAMEWORK_PATH}")
-        message(FATAL_ERROR "Sparkle.framework not found at ${SPARKLE_FRAMEWORK_PATH}. "
-            "Download from https://sparkle-project.org and extract into external/Sparkle/")
-    endif()
-    if(NOT DEFINED SPARKLE_ED_PUBLIC_KEY)
-        set(SPARKLE_ED_PUBLIC_KEY "" CACHE STRING "Sparkle EdDSA public key for update verification")
-    endif()
+  include(cmake/Sparkle.cmake)
 endif()
 
-# WinSparkle auto-update (Windows only)
 if(WIN32)
-    include(cmake/WinSparkle.cmake)
+  include(cmake/WinSparkle.cmake)
 endif()
 
-# tree-sitter grammars (core library from vcpkg)
-add_library(tree-sitter-sql-grammar STATIC
-    external/tree-sitter-sql/src/parser.c
-    external/tree-sitter-sql/src/scanner.c
-)
-target_include_directories(tree-sitter-sql-grammar PRIVATE external/tree-sitter-sql/src)
-target_link_libraries(tree-sitter-sql-grammar PRIVATE unofficial::tree-sitter::tree-sitter)
-set_target_properties(tree-sitter-sql-grammar PROPERTIES C_STANDARD 11)
+include(cmake/TreeSitterGrammars.cmake)
+include(cmake/HsqlParser.cmake)
+include(cmake/Imgui.cmake)
 
-add_library(tree-sitter-json-grammar STATIC
-    external/tree-sitter-json/src/parser.c
-)
-target_include_directories(tree-sitter-json-grammar PRIVATE external/tree-sitter-json/src)
-target_link_libraries(tree-sitter-json-grammar PRIVATE unofficial::tree-sitter::tree-sitter)
-set_target_properties(tree-sitter-json-grammar PROPERTIES C_STANDARD 11)
-
-# Hyrise SQL Parser (from submodule)
-add_library(hsql-parser STATIC
-    external/sql-parser/src/SQLParser.cpp
-    external/sql-parser/src/SQLParserResult.cpp
-    external/sql-parser/src/sql/CreateStatement.cpp
-    external/sql-parser/src/sql/Expr.cpp
-    external/sql-parser/src/sql/PrepareStatement.cpp
-    external/sql-parser/src/sql/SQLStatement.cpp
-    external/sql-parser/src/sql/statements.cpp
-    external/sql-parser/src/util/sqlhelper.cpp
-    external/sql-parser/src/parser/bison_parser.cpp
-    external/sql-parser/src/parser/flex_lexer.cpp
-)
-target_include_directories(hsql-parser PUBLIC external/sql-parser/src)
-set_target_properties(hsql-parser PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-set_source_files_properties(
-    external/sql-parser/src/parser/bison_parser.cpp
-    PROPERTIES COMPILE_OPTIONS "-Wno-unused-but-set-variable"
-)
-set_source_files_properties(
-    external/sql-parser/src/parser/flex_lexer.cpp
-    PROPERTIES COMPILE_OPTIONS "-Wno-sign-compare;-Wno-unneeded-internal-declaration;-Wno-register"
-)
-
-# ImGui (from submodule - tightly integrated with platform backends)
-set(IMGUI_SOURCES
-    external/imgui/imgui.cpp
-    external/imgui/imgui_draw.cpp
-    external/imgui/imgui_tables.cpp
-    external/imgui/imgui_widgets.cpp
-)
-
-# Platform-specific ImGui backend
-if(LINUX)
-    list(APPEND IMGUI_SOURCES external/imgui/backends/imgui_impl_opengl3.cpp)
-else()
-    list(APPEND IMGUI_SOURCES external/imgui/backends/imgui_impl_glfw.cpp)
-endif()
-
-# ImGui Node Editor sources (from submodule)
-set(IMGUI_NODE_EDITOR_SOURCES
-    external/imgui-node-editor/imgui_node_editor.cpp
-    external/imgui-node-editor/imgui_node_editor_api.cpp
-    external/imgui-node-editor/crude_json.cpp
-    external/imgui-node-editor/imgui_canvas.cpp
-)
-
-# Platform-specific backend configuration
-if(APPLE)
-    find_library(METAL_LIBRARY Metal REQUIRED)
-    find_library(QUARTZCORE_LIBRARY QuartzCore REQUIRED)
-    find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
-    find_library(APPKIT_LIBRARY AppKit REQUIRED)
-
-    message(STATUS "Using Metal backend for macOS")
-    list(APPEND IMGUI_SOURCES external/imgui/backends/imgui_impl_metal.mm)
-elseif(LINUX)
-    message(STATUS "Using GTK4 + OpenGL backend for Linux")
-elseif(WIN32)
-    message(STATUS "Using DirectX 11 backend for Windows")
-    list(APPEND IMGUI_SOURCES
-        external/imgui/backends/imgui_impl_dx11.cpp
-        external/imgui/backends/imgui_impl_win32.cpp
-    )
-else()
-    find_package(OpenGL REQUIRED)
-    message(STATUS "Using OpenGL backend for ${CMAKE_SYSTEM_NAME}")
-    list(APPEND IMGUI_SOURCES external/imgui/backends/imgui_impl_opengl3.cpp)
-endif()
-
-# app source files
 set(APP_SOURCES
     src/main.cpp
     src/app_state.cpp
     src/embedded_images.cpp
     src/embedded_fonts.cpp
-
-    # Database
     src/database/sqlite.cpp
     src/database/postgresql.cpp
     src/database/postgres/postgres_database_node.cpp
@@ -235,38 +186,29 @@ set(APP_SOURCES
     src/database/db_factory.cpp
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
-
     src/database/ssh_config_parser.cpp
-
-    # UI
     src/ui/query_history.cpp
     src/ui/table_renderer.cpp
     src/ui/auto_complete_input.cpp
     src/ui/database_node.cpp
     src/ui/db_sidebar.cpp
-    # Tabs
     src/ui/tab_manager.cpp
     src/ui/tab/tab.cpp
     src/ui/tab/sql_editor_tab.cpp
     src/ui/tab/table_viewer_tab.cpp
     src/ui/tab/table_editor_tab.cpp
     src/ui/tab/diagram_tab.cpp
-    # Text Editor
     src/ui/text_editor.cpp
     src/ui/text_editor_input.cpp
     src/ui/text_editor_highlight.cpp
     src/ui/text_editor_format.cpp
     src/ui/tab/csv_editor_tab.cpp
     src/ui/tab/routine_viewer_tab.cpp
-    # Redis
     src/ui/tab/redis_editor_tab.cpp
     src/ui/tab/redis_key_viewer_tab.cpp
     src/ui/tab/redis_pubsub_tab.cpp
     src/ui/tab/redis_status_panel.cpp
-    # MongoDB
     src/ui/tab/mongo_editor_tab.cpp
-
-    # Utils
     src/utils/file_dialog.cpp
     src/utils/table_exporter.cpp
     src/utils/table_importer.cpp
@@ -275,39 +217,35 @@ set(APP_SOURCES
     src/utils/crypto.cpp
     src/utils/sentry_init.cpp
     src/utils/texture_manager.cpp
-
-    # AI
     src/ai/ai_client.cpp
     src/ai/ai_chat.cpp
     src/ui/ai_chat_panel.cpp
     src/ui/ai_settings_dialog.cpp
-
-    # License
     src/license/license_manager.cpp
 )
 
-# application.cpp and platform-specific files
 list(APPEND APP_SOURCES src/application.cpp)
 if(APPLE)
-    list(APPEND APP_SOURCES src/platform/macos_platform.mm)
-    list(APPEND APP_SOURCES src/platform/metal_backend.mm)
-    list(APPEND APP_SOURCES src/platform/macos_titlebar.mm)
-    list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
-    list(APPEND APP_SOURCES src/platform/macos_updater.mm)
-    list(APPEND APP_SOURCES src/platform/macos_alert.mm)
-    list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
-    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+  list(APPEND APP_SOURCES src/platform/macos_platform.mm)
+  list(APPEND APP_SOURCES src/platform/metal_backend.mm)
+  list(APPEND APP_SOURCES src/platform/macos_titlebar.mm)
+  list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
+  list(APPEND APP_SOURCES src/platform/macos_updater.mm)
+  list(APPEND APP_SOURCES src/platform/macos_alert.mm)
+  list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
+  list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(LINUX)
-    list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
-    list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_titlebar.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
-    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
+  list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_titlebar.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
+  list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
+  list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(WIN32)
-    list(APPEND APP_SOURCES
+  list(
+        APPEND APP_SOURCES
         src/platform/windows_platform.cpp
         src/platform/dx11_backend.cpp
         src/platform/windows_titlebar.cpp
@@ -320,161 +258,179 @@ elseif(WIN32)
     )
 endif()
 
-# Include resource embedding functions
 include(cmake/EmbedResources.cmake)
-
-# Embed fonts and images
 embed_fonts()
 embed_images()
 
 list(APPEND APP_SOURCES ${EMBEDDED_FONTS_FILE} ${EMBEDDED_IMAGES_FILE})
 
-# main app target
-add_executable(${PROJECT_NAME}
+add_executable(
+    ${PROJECT_NAME}
     ${APP_SOURCES}
     ${IMGUI_SOURCES}
     ${IMGUI_NODE_EDITOR_SOURCES}
 )
 
-# On Windows release builds, hide the console window while keeping main() entry point
+# hide console on release, keep main() entry point
 if(WIN32)
-    target_link_options(${PROJECT_NAME} PRIVATE
-        $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
-        $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>)
+  target_link_options(
+        ${PROJECT_NAME}
+        PRIVATE
+            $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
+            $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
+    )
 endif()
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-    include
-    external/imgui
-    external/imgui/backends
-    external/imgui-node-editor
-    external/imgui-node-editor/external/stb_image
-    external/IconFontCppHeaders
-    external/csv2/include
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}/include
+target_include_directories(
+    ${PROJECT_NAME}
+    PRIVATE
+        include
+        external/imgui
+        external/imgui/backends
+        external/imgui-node-editor
+        external/imgui-node-editor/external/stb_image
+        external/IconFontCppHeaders
+        external/csv2/include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/include
 )
 
-# Windows: prevent min/max macros from <windows.h> clashing with std::min/std::max
 if(WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    # Embed manifest to activate Common Controls v6 (needed for TaskDialogIndirect)
-    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_FLAGS
-        "/MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/assets/app.manifest")
+  target_compile_definitions(
+        ${PROJECT_NAME}
+        PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+    )
+  # Common Controls v6 manifest (needed for TaskDialogIndirect)
+  set_property(
+        TARGET ${PROJECT_NAME}
+        APPEND
+        PROPERTY
+            LINK_FLAGS
+                "/MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/assets/app.manifest"
+    )
 endif()
 
-# platform-specific include directories
 if(LINUX)
-    target_include_directories(${PROJECT_NAME} PRIVATE ${GTK4_INCLUDE_DIRS} ${EPOXY_INCLUDE_DIRS})
+  target_include_directories(
+        ${PROJECT_NAME}
+        PRIVATE ${GTK4_INCLUDE_DIRS} ${EPOXY_INCLUDE_DIRS}
+    )
 endif()
-# FreeTDS include dir (SYSTEM to avoid shadowing vcpkg MySQL/OpenSSL headers)
+# SYSTEM to avoid shadowing vcpkg MySQL/OpenSSL headers
 if(SYBDB_INCLUDE_DIR AND NOT SYBDB_INCLUDE_DIR STREQUAL "")
-    target_include_directories(${PROJECT_NAME} SYSTEM AFTER PRIVATE ${SYBDB_INCLUDE_DIR})
+  target_include_directories(
+        ${PROJECT_NAME}
+        SYSTEM
+        AFTER
+        PRIVATE ${SYBDB_INCLUDE_DIR}
+    )
 endif()
 
-# Sparkle includes (macOS)
 if(APPLE)
-    target_include_directories(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}/Headers")
+  target_include_directories(
+        ${PROJECT_NAME}
+        PRIVATE "${SPARKLE_FRAMEWORK_PATH}/Headers"
+    )
 endif()
 
-# link libraries (common - vcpkg packages)
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    unofficial::sqlite3::sqlite3
-    nlohmann_json::nlohmann_json
-    PostgreSQL::PostgreSQL
-    unofficial::libmariadb
-    hiredis::hiredis
-    hiredis::hiredis_ssl
-    $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
-    $<IF:$<TARGET_EXISTS:mongo::bsoncxx_static>,mongo::bsoncxx_static,mongo::bsoncxx_shared>
-    nfd::nfd
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    sentry::sentry
-    ${SYBDB_LIBRARY}
-    ${SYBDB_DEPS}
-    odpi
-    httplib::httplib
-    unofficial::tree-sitter::tree-sitter
-    tree-sitter-sql-grammar
-    tree-sitter-json-grammar
-    spdlog::spdlog
-    hsql-parser
+target_link_libraries(
+    ${PROJECT_NAME}
+    PRIVATE
+        unofficial::sqlite3::sqlite3
+        nlohmann_json::nlohmann_json
+        PostgreSQL::PostgreSQL
+        unofficial::libmariadb
+        hiredis::hiredis
+        hiredis::hiredis_ssl
+        $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
+        $<IF:$<TARGET_EXISTS:mongo::bsoncxx_static>,mongo::bsoncxx_static,mongo::bsoncxx_shared>
+        nfd::nfd
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        sentry::sentry
+        ${SYBDB_LIBRARY}
+        ${SYBDB_DEPS}
+        odpi
+        httplib::httplib
+        unofficial::tree-sitter::tree-sitter
+        tree-sitter-sql-grammar
+        tree-sitter-json-grammar
+        spdlog::spdlog
+        sql-parser
 )
 
-# platform-specific linking
 if(APPLE)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        glfw
-        ${METAL_LIBRARY}
-        ${QUARTZCORE_LIBRARY}
-        ${FOUNDATION_LIBRARY}
-        ${APPKIT_LIBRARY}
+  target_link_libraries(
+        ${PROJECT_NAME}
+        PRIVATE
+            glfw
+            ${METAL_LIBRARY}
+            ${QUARTZCORE_LIBRARY}
+            ${FOUNDATION_LIBRARY}
+            ${APPKIT_LIBRARY}
     )
-    target_link_libraries(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}")
+  target_link_libraries(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}")
 elseif(LINUX)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        ${GTK4_LIBRARIES}
-        ${EPOXY_LIBRARIES}
-        ${X11_LIBRARIES}
+  target_link_libraries(
+        ${PROJECT_NAME}
+        PRIVATE ${GTK4_LIBRARIES} ${EPOXY_LIBRARIES} ${X11_LIBRARIES}
     )
-    target_link_directories(${PROJECT_NAME} PRIVATE ${GTK4_LIBRARY_DIRS} ${EPOXY_LIBRARY_DIRS})
+  target_link_directories(
+        ${PROJECT_NAME}
+        PRIVATE ${GTK4_LIBRARY_DIRS} ${EPOXY_LIBRARY_DIRS}
+    )
 elseif(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        glfw
-        d3d11
-        dxgi
-        dwmapi
-        comctl32
-        uxtheme
-        ws2_32
-        WinSparkle
+  target_link_libraries(
+        ${PROJECT_NAME}
+        PRIVATE glfw d3d11 dxgi dwmapi comctl32 uxtheme ws2_32 WinSparkle
     )
-    # Copy WinSparkle.dll next to the exe so it can be found at runtime
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${WINSPARKLE_DLL}"
+  add_custom_command(
+        TARGET ${PROJECT_NAME}
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different "${WINSPARKLE_DLL}"
             "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
         COMMENT "Copying WinSparkle.dll to output directory"
     )
 else()
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        glfw
-        OpenGL::GL
-    )
+  target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL)
 endif()
 
-# Set macOS specific properties
 if(APPLE)
-    # Pre-process Info.plist to substitute SPARKLE_ED_PUBLIC_KEY
-    configure_file(
+  configure_file(
         "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in"
         "${CMAKE_BINARY_DIR}/Info.plist.in"
         @ONLY
     )
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_BINARY_DIR}/Info.plist.in"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "${APP_IDENTIFIER}"
-        MACOSX_BUNDLE_BUNDLE_NAME "${APP_NAME}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${APP_VERSION}"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "${APP_VERSION}"
-        MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
-        OUTPUT_NAME "${APP_NAME}"
-        BUILD_RPATH "@loader_path/../Frameworks"
-        INSTALL_RPATH "@loader_path/../Frameworks"
+  set_target_properties(
+        ${PROJECT_NAME}
+        PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_BINARY_DIR}/Info.plist.in"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${APP_IDENTIFIER}"
+            MACOSX_BUNDLE_BUNDLE_NAME "${APP_NAME}"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${APP_VERSION}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${APP_VERSION}"
+            MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
+            OUTPUT_NAME "${APP_NAME}"
+            BUILD_RPATH "@loader_path/../Frameworks"
+            INSTALL_RPATH "@loader_path/../Frameworks"
     )
 
-    # Copy the icon file to the Resources directory
-    set_source_files_properties(assets/AppIcon.icns PROPERTIES
-        MACOSX_PACKAGE_LOCATION "Resources"
+  set_source_files_properties(
+        assets/AppIcon.icns
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
     )
-    target_sources(${PROJECT_NAME} PRIVATE assets/AppIcon.icns)
+  target_sources(${PROJECT_NAME} PRIVATE assets/AppIcon.icns)
 
-    # Embed Sparkle.framework into the app bundle and fix framework symlink structure
-    set(_SPARKLE_DEST "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks/Sparkle.framework")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory
+  set(_SPARKLE_DEST
+        "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks/Sparkle.framework"
+    )
+  add_custom_command(
+        TARGET ${PROJECT_NAME}
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks"
         COMMAND ${CMAKE_COMMAND} -E rm -rf "${_SPARKLE_DEST}"
         COMMAND ditto "${SPARKLE_FRAMEWORK_PATH}" "${_SPARKLE_DEST}"
@@ -484,117 +440,32 @@ if(APPLE)
         COMMENT "Embedding Sparkle.framework into app bundle"
     )
 
-    # Embed sentry dylib into the app bundle
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  add_custom_command(
+        TARGET ${PROJECT_NAME}
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:sentry::sentry>"
             "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks/"
         COMMENT "Embedding sentry dylib into app bundle"
     )
 endif()
 
-# =============================================================================
-# Test target
-# =============================================================================
-add_executable(database_tests
-    tests/database/async_helper_test.cpp
-    tests/database/sqlite_database_test.cpp
-    tests/database/postgres_database_test.cpp
-    tests/database/mysql_database_test.cpp
-    tests/database/redis_database_test.cpp
-    tests/database/mongodb_database_test.cpp
-    tests/database/mssql_database_test.cpp
-    tests/database/oracle_database_test.cpp
-    tests/database/ssl_connection_test.cpp
-    tests/database/ssh_tunnel_test.cpp
-    tests/database/sql_builder_test.cpp
-    src/database/db_factory.cpp
-    src/database/sqlite.cpp
-    src/database/postgresql.cpp
-    src/database/postgres/postgres_database_node.cpp
-    src/database/postgres/postgres_schema_node.cpp
-    src/database/mysql.cpp
-    src/database/mysql/mysql_database_node.cpp
-    src/database/redis.cpp
-    src/database/mongodb.cpp
-    src/database/mongodb/mongodb_database_node.cpp
-    src/database/mssql.cpp
-    src/database/mssql/mssql_database_node.cpp
-    src/database/mssql/mssql_schema_node.cpp
-    src/database/oracle.cpp
-    src/database/oracle/oracle_database_node.cpp
-    src/database/oracle/oracle_client_installer.cpp
-    src/database/db_utils.cpp
-    src/database/sql_builder.cpp
+include(cmake/Tests.cmake)
 
-    src/database/ssh_config_parser.cpp
-)
-
-# platform-specific ssh tunnel for tests
-if(WIN32)
-    target_sources(database_tests PRIVATE src/platform/windows_ssh_tunnel.cpp)
-else()
-    target_sources(database_tests PRIVATE src/platform/posix_ssh_tunnel.cpp)
-endif()
-
-target_include_directories(database_tests PRIVATE
-    include
-    tests/database
-)
-if(SYBDB_INCLUDE_DIR AND NOT SYBDB_INCLUDE_DIR STREQUAL "")
-    target_include_directories(database_tests SYSTEM AFTER PRIVATE ${SYBDB_INCLUDE_DIR})
-endif()
-
-target_link_libraries(database_tests PRIVATE
-    GTest::gtest_main
-    unofficial::sqlite3::sqlite3
-    PostgreSQL::PostgreSQL
-    unofficial::libmariadb
-    hiredis::hiredis
-    hiredis::hiredis_ssl
-    $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
-    $<IF:$<TARGET_EXISTS:mongo::bsoncxx_static>,mongo::bsoncxx_static,mongo::bsoncxx_shared>
-    ${SYBDB_LIBRARY}
-    ${SYBDB_DEPS}
-    odpi
-    spdlog::spdlog
-)
-
-add_test(NAME database_tests COMMAND database_tests)
-
-# =============================================================================
-# SQL format test target
-# =============================================================================
-add_executable(sql_format_tests
-    tests/ui/sql_format_test.cpp
-    tests/ui/csv_parser_test.cpp
-    src/ui/text_editor_format.cpp
-)
-
-target_include_directories(sql_format_tests PRIVATE
-    include
-    external/imgui
-    external/csv2/include
-)
-
-target_link_libraries(sql_format_tests PRIVATE
-    GTest::gtest_main
-    unofficial::tree-sitter::tree-sitter
-    tree-sitter-sql-grammar
-)
-
-add_test(NAME sql_format_tests COMMAND sql_format_tests)
-
-# =============================================================================
-# Install rules for Linux packaging
-# =============================================================================
 if(LINUX)
-    install(TARGETS ${PROJECT_NAME} DESTINATION bin)
-    install(FILES packaging/io.gitlab.dunkbing.dearsql.desktop
-            DESTINATION share/applications)
-    install(FILES packaging/io.gitlab.dunkbing.dearsql.metainfo.xml
-            DESTINATION share/metainfo)
-    install(FILES assets/appicon.png
-            DESTINATION share/icons/hicolor/256x256/apps
-            RENAME io.gitlab.dunkbing.dearsql.png)
+  install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+  install(
+        FILES packaging/io.gitlab.dunkbing.dearsql.desktop
+        DESTINATION share/applications
+    )
+  install(
+        FILES packaging/io.gitlab.dunkbing.dearsql.metainfo.xml
+        DESTINATION share/metainfo
+    )
+  install(
+        FILES assets/appicon.png
+        DESTINATION share/icons/hicolor/256x256/apps
+        RENAME io.gitlab.dunkbing.dearsql.png
+    )
 endif()

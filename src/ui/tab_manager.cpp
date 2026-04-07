@@ -317,7 +317,14 @@ void TabManager::renderTabs() {
         ImGui::PopID();
 
         if (beginOpen) {
+            ImFont* tabFont = Application::getTabFont();
+            if (tabFont) {
+                ImGui::PushFont(tabFont);
+            }
             tab->render();
+            if (tabFont) {
+                ImGui::PopFont();
+            }
         }
 
         ImGui::End();
