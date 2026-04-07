@@ -66,7 +66,7 @@ jobs:
         run: |
           VERSION=$(grep '^APP_VERSION=' APP_METADATA | cut -d= -f2)
           APP_NAME=$(grep '^APP_NAME=' APP_METADATA | cut -d= -f2)
-          APPIMAGE_NAME="${APP_NAME}-${VERSION}-x86_64.AppImage"
+          APPIMAGE_NAME="${APP_NAME}-x86_64.AppImage"
           VERSION_METADATA_NAME="version.json"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "APPIMAGE_NAME=${APPIMAGE_NAME}" >> "$GITHUB_ENV"
