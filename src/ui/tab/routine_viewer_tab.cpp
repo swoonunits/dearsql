@@ -42,7 +42,8 @@ void RoutineViewerTab::render() {
     const auto& colors = Application::getInstance().getCurrentColors();
 
     // header: kind badge + signature + return type
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Theme::Spacing::S);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Theme::Spacing::M - Theme::Spacing::S);
+    ImGui::AlignTextToFramePadding();
 
     const bool isProc = routine_.kind == RoutineKind::Procedure;
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(isProc ? colors.peach : colors.yellow));
@@ -59,7 +60,13 @@ void RoutineViewerTab::render() {
         ImGui::PopStyleColor();
     }
 
-    ImGui::Separator();
+    // save button inline with header once definition is loaded
+    if (definitionLoaded_ && !loadError_) {
+        ImGui::SameLine(0, Theme::Spacing::L);
+        renderToolbar();
+    }
+
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::S));
 
     if (fetchOp_.isRunning()) {
         const ImVec2 available = ImGui::GetContentRegionAvail();
@@ -81,8 +88,6 @@ void RoutineViewerTab::render() {
         ImGui::PopStyleColor();
         return;
     }
-
-    renderToolbar();
 
     if (wantSave && !saveOp_.isRunning()) {
         saveDefinitionAsync();
@@ -134,8 +139,6 @@ void RoutineViewerTab::renderToolbar() {
 
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
-
-    ImGui::Separator();
 }
 
 void RoutineViewerTab::fetchDefinitionAsync() {
