@@ -19,9 +19,9 @@ namespace {
     using StmtPtr = std::unique_ptr<sqlite3_stmt, StmtDeleter>;
 
     // Helper to get column value as string
-    std::string columnText(sqlite3_stmt* stmt, int col) {
+    std::string columnText(sqlite3_stmt* stmt, int col, bool sentinelNull = false) {
         if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
-            return "NULL";
+            return sentinelNull ? std::string(NULL_SENTINEL) : "NULL";
         }
         const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
         return text ? text : "";
@@ -126,7 +126,7 @@ SQLiteDatabase::executeQueryStructured(const std::string& query, const int rowLi
         std::vector<std::string> rowData;
         rowData.reserve(colCount);
         for (int i = 0; i < colCount; ++i) {
-            rowData.push_back(columnText(raw, i));
+            rowData.push_back(columnText(raw, i, true));
         }
         data.push_back(std::move(rowData));
         ++rowCount;
@@ -409,7 +409,7 @@ SQLiteDatabase::getTableData(const std::string& tableName, int limit, int offset
             std::vector<std::string> rowData;
             rowData.reserve(colCount);
             for (int i = 0; i < colCount; ++i) {
-                rowData.push_back(columnText(raw, i));
+                rowData.push_back(columnText(raw, i, true));
             }
             data.push_back(std::move(rowData));
         }
@@ -492,7 +492,7 @@ QueryResult SQLiteDatabase::executeQuery(const std::string& query, int rowLimit)
                 std::vector<std::string> rowData;
                 rowData.reserve(colCount);
                 for (int i = 0; i < colCount; ++i) {
-                    rowData.push_back(columnText(raw, i));
+                    rowData.push_back(columnText(raw, i, true));
                 }
                 r.tableData.push_back(std::move(rowData));
                 ++rowCount;

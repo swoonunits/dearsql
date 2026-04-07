@@ -48,7 +48,7 @@ namespace {
             return std::string(buf);
         }
         case bsoncxx::type::k_null:
-            return "null";
+            return std::string(NULL_SENTINEL);
         case bsoncxx::type::k_decimal128:
             return elem.get_decimal128().value.to_string();
         case bsoncxx::type::k_document:

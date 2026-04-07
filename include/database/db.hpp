@@ -1,8 +1,16 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
+
+// sentinel prefix to distinguish real SQL NULL from the literal string "NULL"
+inline constexpr std::string_view NULL_SENTINEL = "dearsql__null";
+
+inline bool isNullSentinel(const std::string& v) {
+    return v == NULL_SENTINEL;
+}
 
 struct Column {
     std::string name;

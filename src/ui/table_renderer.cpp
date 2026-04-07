@@ -1,6 +1,7 @@
 #include "ui/table_renderer.hpp"
 #include "IconsFontAwesome6.h"
 #include "application.hpp"
+#include "database/db.hpp"
 #include "imgui.h"
 #include "themes.hpp"
 #include <cstring>
@@ -327,7 +328,11 @@ void TableRenderer::renderCell(int row, int col) {
         if (config.allowSelection) {
             handleCellInteraction(row, col, isSelected);
         } else {
-            ImGui::Text("%s", cellValue.c_str());
+            if (isNullSentinel(cellValue)) {
+                ImGui::TextColored(colors.overlay1, "NULL");
+            } else {
+                ImGui::Text("%s", cellValue.c_str());
+            }
 
             if (ImGui::IsItemHovered() && cellValue.length() > 50) {
                 ImGui::SetTooltip("%s", cellValue.c_str());
@@ -344,13 +349,18 @@ void TableRenderer::renderCell(int row, int col) {
 void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
     const auto& colors = Application::getInstance().getCurrentColors();
     const std::string& cellValue = data[row][col];
+    const bool isNull = isNullSentinel(cellValue);
+    const char* displayText = isNull ? "NULL" : cellValue.c_str();
 
     // Make Selectable transparent - cell bg is handled by TableSetBgColor
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
 
-    if (ImGui::Selectable(cellValue.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick)) {
+    if (isNull)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(colors.overlay1));
+
+    if (ImGui::Selectable(displayText, isSelected, ImGuiSelectableFlags_AllowDoubleClick)) {
         selectedRow = row;
         selectedCol = col;
 
@@ -369,6 +379,9 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         }
     }
 
+    if (isNull)
+        ImGui::PopStyleColor();
+
     ImGui::PopStyleColor(3);
 
     if (ImGui::IsItemHovered() && !isSelected && !config.nonEditableColumns.contains(col) &&
@@ -376,8 +389,25 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(colors.surface1));
     }
 
-    if (ImGui::IsItemHovered() && cellValue.length() > 50) {
+    if (ImGui::IsItemHovered() && !isNull && cellValue.length() > 50) {
         ImGui::SetTooltip("%s", cellValue.c_str());
+    }
+
+    // right-click context menu — only when there's something to show
+    if (config.allowEditing && onSetNull && !isNull && columnNullableCb && columnNullableCb(col)) {
+        const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
+        if (ImGui::BeginPopupContextItem(menuId.c_str())) {
+            if (selectedRow != row || selectedCol != col) {
+                selectedRow = row;
+                selectedCol = col;
+                if (onCellSelect)
+                    onCellSelect(row, col);
+            }
+            if (ImGui::MenuItem("Set NULL")) {
+                onSetNull(row, col);
+            }
+            ImGui::EndPopup();
+        }
     }
 }
 
@@ -393,8 +423,12 @@ void TableRenderer::enterEditMode(int row, int col) {
         editingCol = col;
 
         const std::string& currentValue = data[row][col];
-        strncpy(editBuffer, currentValue.c_str(), sizeof(editBuffer) - 1);
-        editBuffer[sizeof(editBuffer) - 1] = '\0';
+        if (isNullSentinel(currentValue)) {
+            editBuffer[0] = '\0';
+        } else {
+            strncpy(editBuffer, currentValue.c_str(), sizeof(editBuffer) - 1);
+            editBuffer[sizeof(editBuffer) - 1] = '\0';
+        }
 
         if (config.columnDropdownOptions.contains(col)) {
             comboNeedsOpen = true;

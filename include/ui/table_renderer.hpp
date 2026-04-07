@@ -44,6 +44,10 @@ public:
         std::function<unsigned int(int row, int col, const std::string& value)>;
     // returns false to block editing a specific cell
     using CellEditableCallback = std::function<bool(int row, int col)>;
+    // returns true if a column is nullable (enables "Set NULL" context menu)
+    using ColumnNullableCallback = std::function<bool(int col)>;
+    // called when user selects "Set NULL" from context menu
+    using OnSetNullCallback = std::function<void(int row, int col)>;
 
     TableRenderer();
     explicit TableRenderer(const Config& config);
@@ -75,6 +79,12 @@ public:
     }
     void setCellEditableCallback(CellEditableCallback callback) {
         cellEditableCb = callback;
+    }
+    void setColumnNullableCallback(ColumnNullableCallback callback) {
+        columnNullableCb = callback;
+    }
+    void setOnSetNull(OnSetNullCallback callback) {
+        onSetNull = callback;
     }
 
     // Sorting
@@ -142,6 +152,8 @@ private:
     OnSortChangedCallback onSortChanged;
     CellColorCallback cellColorCb;
     CellEditableCallback cellEditableCb;
+    ColumnNullableCallback columnNullableCb;
+    OnSetNullCallback onSetNull;
 
     // Sorting state
     int sortColumn = -1;

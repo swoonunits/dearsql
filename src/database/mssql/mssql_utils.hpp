@@ -27,7 +27,7 @@ inline std::string colToString(DBPROCESS* dbproc, int col) {
     BYTE* data = dbdata(dbproc, col);
     int len = dbdatlen(dbproc, col);
     if (!data || len < 0)
-        return "NULL";
+        return std::string(NULL_SENTINEL);
 
     int type = dbcoltype(dbproc, col);
 

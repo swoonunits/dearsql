@@ -676,7 +676,7 @@ MySQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
             rowData.reserve(nFields);
             for (unsigned int i = 0; i < nFields; i++) {
                 if (row[i] == nullptr) {
-                    rowData.emplace_back("NULL");
+                    rowData.emplace_back(NULL_SENTINEL);
                 } else {
                     rowData.emplace_back(row[i], lengths[i]);
                 }

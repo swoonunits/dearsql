@@ -653,7 +653,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                 }
                 cols += std::format(R"("{}")", columnNames[colIdx]);
                 const std::string& val = tableData[rowIdx][colIdx];
-                if (val.empty() || val == "NULL") {
+                if (val.empty() || isNullSentinel(val)) {
                     vals += "NULL";
                 } else {
                     vals += "'" + val + "'";
@@ -676,7 +676,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
             std::string sql = std::format(R"(UPDATE {} SET "{}" = )", tableRef, columnName);
 
             // Add quoted value
-            if (newValue == "NULL") {
+            if (isNullSentinel(newValue)) {
                 sql += "NULL";
             } else {
                 sql += "'" + newValue + "'"; // Simple escaping - could be improved
@@ -702,7 +702,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                 // For Postgres without primary key, use all columns as condition
                 for (int condColIdx = 0; condColIdx < columnNames.size(); condColIdx++) {
                     const std::string& condValue = originalData[rowIdx][condColIdx];
-                    if (condValue == "NULL") {
+                    if (isNullSentinel(condValue)) {
                         whereConditions.push_back(
                             std::format("\"{}\" IS NULL", columnNames[condColIdx]));
                     } else {
@@ -912,6 +912,10 @@ void TableViewerTab::initializeTableRenderer() {
 
     // Set up callbacks
     tableRenderer->setOnCellEdit([this](int row, int col, const std::string& newValue) {
+        // empty edit on a null cell means no change
+        if (newValue.empty() && isNullSentinel(tableData[row][col])) {
+            return;
+        }
         if (newValue != tableData[row][col]) {
             tableData[row][col] = newValue;
             hasChanges = true;
@@ -942,6 +946,47 @@ void TableViewerTab::initializeTableRenderer() {
             // Reload data with new sort
             loadDataAsync();
         });
+
+    // nullable check for "Set NULL" context menu
+    tableRenderer->setColumnNullableCallback([this](int col) -> bool {
+        if (col < 0 || col >= static_cast<int>(columnNames.size()))
+            return false;
+        const std::string& colName = columnNames[col];
+
+        // look up column metadata
+        auto findColumn = [&](const std::vector<Table>& tables) -> const Column* {
+            for (const auto& t : tables) {
+                if (t.name == tableName || t.fullName.ends_with("." + tableName)) {
+                    for (const auto& c : t.columns) {
+                        if (c.name == colName)
+                            return &c;
+                    }
+                }
+            }
+            return nullptr;
+        };
+
+        if (const auto* c = findColumn(node_->getTables()))
+            return !c->isNotNull;
+        if (const auto* c = findColumn(node_->getViews()))
+            return !c->isNotNull;
+        // if metadata unavailable, allow it
+        return true;
+    });
+
+    tableRenderer->setOnSetNull([this](int row, int col) {
+        if (row < 0 || row >= static_cast<int>(tableData.size()))
+            return;
+        if (isNullSentinel(tableData[row][col]))
+            return;
+
+        tableData[row][col] = std::string(NULL_SENTINEL);
+        hasChanges = true;
+        if (row < static_cast<int>(editedCells.size()) &&
+            col < static_cast<int>(editedCells[row].size())) {
+            editedCells[row][col] = true;
+        }
+    });
 }
 
 void TableViewerTab::initializeFilterAutoComplete() {
@@ -1091,7 +1136,10 @@ void TableViewerTab::syncValuePanelBuffer() {
         selectedRow < static_cast<int>(tableData.size()) &&
         selectedCol < static_cast<int>(columnNames.size())) {
         const std::string& currentValue = tableData[selectedRow][selectedCol];
-        if (!valuePanelBufferDirty && std::string(valuePanelBuffer) != currentValue) {
+        const std::string bufStr(valuePanelBuffer);
+        // empty buffer matches null sentinel
+        bool matches = (bufStr == currentValue) || (bufStr.empty() && isNullSentinel(currentValue));
+        if (!valuePanelBufferDirty && !matches) {
             valueChanged = true;
         }
     }
@@ -1105,8 +1153,12 @@ void TableViewerTab::syncValuePanelBuffer() {
             selectedRow < static_cast<int>(tableData.size()) &&
             selectedCol < static_cast<int>(columnNames.size())) {
             const std::string& value = tableData[selectedRow][selectedCol];
-            std::strncpy(valuePanelBuffer, value.c_str(), sizeof(valuePanelBuffer) - 1);
-            valuePanelBuffer[sizeof(valuePanelBuffer) - 1] = '\0';
+            if (isNullSentinel(value)) {
+                valuePanelBuffer[0] = '\0';
+            } else {
+                std::strncpy(valuePanelBuffer, value.c_str(), sizeof(valuePanelBuffer) - 1);
+                valuePanelBuffer[sizeof(valuePanelBuffer) - 1] = '\0';
+            }
         } else {
             valuePanelBuffer[0] = '\0';
         }
@@ -1137,7 +1189,13 @@ void TableViewerTab::renderValueTab() {
                                   ImVec2(-1, availH))) {
         // Check if user modified the buffer
         const std::string& currentValue = tableData[selectedRow][selectedCol];
-        valuePanelBufferDirty = (std::string(valuePanelBuffer) != currentValue);
+        const std::string bufStr(valuePanelBuffer);
+        // empty buffer on a null cell means no change
+        if (bufStr.empty() && isNullSentinel(currentValue)) {
+            valuePanelBufferDirty = false;
+        } else {
+            valuePanelBufferDirty = (bufStr != currentValue);
+        }
     }
 
     // Apply / Revert buttons when buffer is dirty
@@ -1168,8 +1226,12 @@ void TableViewerTab::renderValueTab() {
         if (ImGui::Button("Revert")) {
             // Restore from current cell value
             const std::string& currentValue = tableData[selectedRow][selectedCol];
-            std::strncpy(valuePanelBuffer, currentValue.c_str(), sizeof(valuePanelBuffer) - 1);
-            valuePanelBuffer[sizeof(valuePanelBuffer) - 1] = '\0';
+            if (isNullSentinel(currentValue)) {
+                valuePanelBuffer[0] = '\0';
+            } else {
+                std::strncpy(valuePanelBuffer, currentValue.c_str(), sizeof(valuePanelBuffer) - 1);
+                valuePanelBuffer[sizeof(valuePanelBuffer) - 1] = '\0';
+            }
             valuePanelBufferDirty = false;
         }
         ImGui::PopStyleColor(2);

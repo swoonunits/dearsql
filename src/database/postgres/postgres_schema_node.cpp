@@ -37,7 +37,7 @@ namespace {
 
     std::string pgValue(PGresult* res, int row, int col) {
         if (PQgetisnull(res, row, col)) {
-            return "NULL";
+            return std::string(NULL_SENTINEL);
         }
         return PQgetvalue(res, row, col);
     }

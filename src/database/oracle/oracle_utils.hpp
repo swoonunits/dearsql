@@ -27,7 +27,7 @@ inline std::string dpiGetConnError(dpiConn* conn) {
 // convert a dpiData value to string
 inline std::string dpiDataToString(dpiNativeTypeNum nativeType, dpiData* data) {
     if (data->isNull)
-        return "NULL";
+        return std::string(NULL_SENTINEL);
 
     switch (nativeType) {
     case DPI_NATIVE_TYPE_BYTES:
