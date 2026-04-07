@@ -10,7 +10,9 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
     currentBuffer = buffer;
     currentBufferSize = bufferSize;
 
-    ImGui::SetNextItemWidth(config.width);
+    const bool hasEndIcon = !config.endIcon.empty();
+    const float iconAreaW = hasEndIcon ? ImGui::GetFrameHeight() : 0.0f;
+    ImGui::SetNextItemWidth(config.width - iconAreaW);
 
     const bool shouldConsumeEnter =
         showAutoComplete &&
@@ -37,18 +39,52 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
     const bool showFocusedVisual = ImGui::IsItemActive() || showAutoComplete ||
                                    !pendingAutoComplete.empty() || shouldRefocusInput;
 
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImVec2 inputMin = ImGui::GetItemRectMin();
+    const ImVec2 inputMax = ImGui::GetItemRectMax();
+
     if (showFocusedVisual) {
         // Draw subtle visual emphasis for focused state
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 min = ImGui::GetItemRectMin();
-        const ImVec2 max = ImGui::GetItemRectMax();
-
-        // Use theme's blue color with reduced opacity for subtle effect
         const ImU32 focusColor =
             ImGui::GetColorU32(ImVec4(colors.blue.x, colors.blue.y, colors.blue.z, 0.3f));
+        const ImVec2 fullMax = hasEndIcon ? ImVec2(inputMax.x + iconAreaW, inputMax.y) : inputMax;
+        drawList->AddRect(inputMin, fullMax, focusColor, 3.0f, 0, 1.5f);
+    }
 
-        // Single subtle border highlight
-        drawList->AddRect(min, max, focusColor, 3.0f, 0, 1.5f);
+    // Draw icon area fused to the right edge of the input
+    bool endIconClicked = false;
+    if (hasEndIcon) {
+        const ImVec2 iconMin(inputMax.x, inputMin.y);
+        const ImVec2 iconMax(inputMax.x + iconAreaW, inputMax.y);
+
+        // background matching the input
+        const bool iconHovered = ImGui::IsMouseHoveringRect(iconMin, iconMax);
+        const ImU32 bgColor =
+            ImGui::GetColorU32(iconHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+        drawList->AddRectFilled(iconMin, iconMax, bgColor, 0.0f);
+
+        // right + top + bottom border segments to complete the outline
+        const ImU32 borderColor = ImGui::GetColorU32(ImGuiCol_Border);
+        drawList->AddLine(iconMin, ImVec2(iconMax.x, iconMin.y), borderColor); // top
+        drawList->AddLine(ImVec2(iconMax.x, iconMin.y), iconMax, borderColor); // right
+        drawList->AddLine(ImVec2(iconMin.x, iconMax.y), iconMax, borderColor); // bottom
+
+        // icon text centered
+        const ImVec2 textSize = ImGui::CalcTextSize(config.endIcon.c_str());
+        const ImVec2 textPos(iconMin.x + (iconAreaW - textSize.x) * 0.5f,
+                             iconMin.y + (iconMax.y - iconMin.y - textSize.y) * 0.5f);
+        const ImU32 iconColor =
+            ImGui::GetColorU32(iconHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        drawList->AddText(textPos, iconColor, config.endIcon.c_str());
+
+        // click detection via invisible button
+        ImGui::SetCursorScreenPos(iconMin);
+        if (ImGui::InvisibleButton("##endIcon", ImVec2(iconAreaW, iconMax.y - iconMin.y))) {
+            endIconClicked = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Apply filters");
+        }
     }
 
     renderAutoCompletePopup();
@@ -69,7 +105,11 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
         shouldRefocusInput = true;
     }
 
-    return shouldProcessEnter;
+    if (endIconClicked && config.onEndIconClick) {
+        config.onEndIconClick();
+    }
+
+    return shouldProcessEnter || endIconClicked;
 }
 
 void AutoCompleteInput::setKeywords(const std::vector<std::string>& keywords) {

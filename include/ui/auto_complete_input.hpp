@@ -14,6 +14,8 @@ public:
         ImGuiInputTextFlags flags =
             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackEdit |
             ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackAlways;
+        std::string endIcon;                  // optional icon drawn inside the right edge
+        std::function<void()> onEndIconClick; // called when the end icon is clicked
     };
 
     explicit AutoCompleteInput(Config config);

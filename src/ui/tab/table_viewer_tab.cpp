@@ -52,53 +52,61 @@ void TableViewerTab::render() {
         applyFilter();
     }
 
-    // Apply Filter button with green tint
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button,
-                          ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.25f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                          ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.4f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                          ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.55f));
-    if (ImGui::Button("Apply")) {
-        applyFilter();
+    // Refresh, Save, Reject buttons next to filter
+    ImGui::SameLine(0, Theme::Spacing::M);
+    ImGui::PushStyleColor(ImGuiCol_Text, colors.blue);
+    if (ImGui::Button(ICON_FA_ARROWS_ROTATE)) {
+        refreshData();
     }
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Refresh");
+    }
 
-    // Clear Filter button with red tint
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(colors.red.x, colors.red.y, colors.red.z, 0.25f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                          ImVec4(colors.red.x, colors.red.y, colors.red.z, 0.4f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                          ImVec4(colors.red.x, colors.red.y, colors.red.z, 0.55f));
-    if (ImGui::Button("Clear")) {
-        memset(filterBuffer, 0, sizeof(filterBuffer));
-        if (filterAutoComplete) {
-            filterAutoComplete->hideAutoComplete();
+    if (hasChanges) {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.green);
+        if (ImGui::Button(ICON_FA_FLOPPY_DISK)) {
+            saveChanges();
         }
-        if (!currentFilter.empty()) {
-            spdlog::debug("Clearing filter for table: {}", tableName);
-            // Clear the filter FIRST, then reload
-            currentFilter.clear();
-            filterChanged = true;
-            // Reset to first page when filter is cleared
-            currentPage = 0;
-            // Clear selection when filter changes
-            selectedRow = -1;
-            selectedCol = -1;
-            // Clear any error states
-            hasLoadingError = false;
-            loadingError.clear();
-            // Clear any existing table data to force fresh load
-            tableData.clear();
-            columnNames.clear();
-            totalRows = 0;
-            // Reload data without filter
-            loadDataAsync();
-        }
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::Button(ICON_FA_FLOPPY_DISK);
+        ImGui::EndDisabled();
     }
-    ImGui::PopStyleColor(3);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Save");
+    }
+
+    ImGui::SameLine();
+    if (hasChanges) {
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.red);
+        if (ImGui::Button(ICON_FA_XMARK)) {
+            cancelChanges();
+        }
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::Button(ICON_FA_XMARK);
+        ImGui::EndDisabled();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Reject changes");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_PLUS)) {
+        addRow();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Add row");
+    }
+
+    if (hasChanges) {
+        ImGui::SameLine();
+        ImGui::TextColored(colors.peach, "Unsaved changes");
+    }
 
     // Show current filter if active
     if (!currentFilter.empty()) {
@@ -273,79 +281,10 @@ void TableViewerTab::render() {
         ImGui::EndCombo();
     }
 
-    // Action buttons
-    ImGui::SameLine();
-    ImGui::Dummy(ImVec2(20, 0)); // Add some spacing
-    ImGui::SameLine();
-
-    // Refresh button with blue color
-    ImGui::PushStyleColor(ImGuiCol_Text, colors.blue);
-    if (ImGui::Button(ICON_FA_ARROWS_ROTATE)) {
-        refreshData();
-    }
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Refresh");
-    }
-
     // Show loading indicator
     if (dataLoadOp.isRunning()) {
         ImGui::SameLine();
         ImGui::Text("Loading...");
-    }
-    ImGui::SameLine();
-
-    if (hasChanges) {
-        // Save button with green color when enabled
-        ImGui::PushStyleColor(ImGuiCol_Text, colors.green);
-        if (ImGui::Button(ICON_FA_FLOPPY_DISK)) {
-            saveChanges();
-        }
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Save");
-        }
-    } else {
-        ImGui::BeginDisabled();
-        ImGui::Button(ICON_FA_FLOPPY_DISK);
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("Save");
-        }
-    }
-
-    ImGui::SameLine();
-    if (hasChanges) {
-        // Cancel button with red color when enabled
-        ImGui::PushStyleColor(ImGuiCol_Text, colors.red);
-        if (ImGui::Button(ICON_FA_XMARK)) {
-            cancelChanges();
-        }
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Reject changes");
-        }
-    } else {
-        ImGui::BeginDisabled();
-        ImGui::Button(ICON_FA_XMARK);
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("Reject changes");
-        }
-    }
-
-    // Add row button
-    ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_PLUS)) {
-        addRow();
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Add row");
-    }
-
-    if (hasChanges) {
-        ImGui::SameLine();
-        ImGui::TextColored(colors.peach, "Unsaved changes");
     }
 
     ImGui::PopStyleColor(4);
@@ -984,6 +923,8 @@ void TableViewerTab::initializeFilterAutoComplete() {
     config.hint = "e.g. id = 1 and name LIKE 'john%'";
     config.width = 400.0f;
     config.onSubmit = [this]() { applyFilter(); };
+    config.endIcon = ICON_FA_MAGNIFYING_GLASS;
+    config.onEndIconClick = [this]() { applyFilter(); };
 
     // Initialize with SQL keywords
     config.keywords = {"AND", "OR",  "NOT",  "IN",   "LIKE",  "BETWEEN", "IS",   "NULL",  "EXISTS",
