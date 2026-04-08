@@ -80,7 +80,7 @@ if ($wixExtOutput -notmatch "WixToolset.UI.wixext") {
 }
 
 $WxsFile = "$RootDir\packaging\windows\DearSQL.wxs"
-$OutputMsi = "$BuildDir\${AppName}-${AppVersion}-x64.msi"
+$OutputMsi = "$BuildDir\${AppName}-x64.msi"
 
 wix build $WxsFile `
     -ext WixToolset.UI.wixext `
