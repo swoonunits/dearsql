@@ -18,12 +18,14 @@
 #include "utils/spinner.hpp"
 #include "utils/splitter.hpp"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <ranges>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -102,35 +104,37 @@ namespace {
 
     SqlCompletionContext
     detectSqlCompletionContext(const dearsql::TextEditor::CompletionRequest& request) {
+        auto isWordCh = [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+        };
+
+        // Walk backward from cursor through the current statement, scanning
+        // for the nearest clause keyword. Skip over identifiers/commas/etc.
         const int wordStartPos = request.cursorIndex - static_cast<int>(request.currentWord.size());
         int p = wordStartPos;
-        while (p > 0 && (request.content[static_cast<size_t>(p - 1)] == ' ' ||
-                         request.content[static_cast<size_t>(p - 1)] == '\n' ||
-                         request.content[static_cast<size_t>(p - 1)] == '\t' ||
-                         request.content[static_cast<size_t>(p - 1)] == ',' ||
-                         request.content[static_cast<size_t>(p - 1)] == '\r')) {
-            --p;
-        }
-
-        const int kwEnd = p;
         while (p > 0) {
-            const char ch = request.content[static_cast<size_t>(p - 1)];
-            if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_')
-                break;
-            --p;
-        }
+            const char c = request.content[static_cast<size_t>(p - 1)];
+            if (c == ';')
+                break; // previous statement; give up
+            if (!isWordCh(c)) {
+                --p;
+                continue;
+            }
+            // Read this word (we're walking backward, so find its start first)
+            int wordEnd = p;
+            while (p > 0 && isWordCh(request.content[static_cast<size_t>(p - 1)])) {
+                --p;
+            }
+            const std::string kw = toLowerCopy(
+                request.content.substr(static_cast<size_t>(p), static_cast<size_t>(wordEnd - p)));
 
-        if (kwEnd <= p)
-            return SqlCompletionContext::Other;
-
-        const std::string kw = toLowerCopy(
-            request.content.substr(static_cast<size_t>(p), static_cast<size_t>(kwEnd - p)));
-        if (kw == "from" || kw == "join" || kw == "table" || kw == "into" || kw == "update")
-            return SqlCompletionContext::FromJoin;
-        if (kw == "select" || kw == "where" || kw == "and" || kw == "or" || kw == "on" ||
-            kw == "having" || kw == "by" || kw == "set" || kw == "case" || kw == "when" ||
-            kw == "then") {
-            return SqlCompletionContext::SelectWhereOn;
+            if (kw == "from" || kw == "join" || kw == "table" || kw == "into" || kw == "update")
+                return SqlCompletionContext::FromJoin;
+            if (kw == "select" || kw == "where" || kw == "and" || kw == "or" || kw == "on" ||
+                kw == "having" || kw == "by" || kw == "set" || kw == "case" || kw == "when" ||
+                kw == "then")
+                return SqlCompletionContext::SelectWhereOn;
+            // Not a clause keyword — keep walking.
         }
         return SqlCompletionContext::Other;
     }
@@ -255,6 +259,199 @@ namespace {
         return referencedTables;
     }
 
+    // Alias resolution built by parsing the current statement with hsql.
+    // `aliasToTable` maps a lowercased alias (or bare table name used as its
+    // own alias) to the schema-qualified parts, e.g. `u -> ["public", "users"]`.
+    // Empty on parse failure.
+    struct SqlAliasInfo {
+        std::set<std::string> tables;
+        std::map<std::string, std::vector<std::string>> aliasToTable;
+    };
+
+    void collectTableRefs(const hsql::TableRef* tr, SqlAliasInfo& info) {
+        if (!tr)
+            return;
+        switch (tr->type) {
+        case hsql::kTableName: {
+            if (!tr->name)
+                break;
+            std::string name = toLowerCopy(tr->name);
+            std::vector<std::string> parts;
+            if (tr->schema)
+                parts.push_back(toLowerCopy(tr->schema));
+            parts.push_back(name);
+            info.tables.insert(name);
+            // table name is its own implicit alias
+            info.aliasToTable[name] = parts;
+            if (tr->alias && tr->alias->name)
+                info.aliasToTable[toLowerCopy(tr->alias->name)] = std::move(parts);
+            break;
+        }
+        case hsql::kTableJoin:
+            if (tr->join) {
+                collectTableRefs(tr->join->left, info);
+                collectTableRefs(tr->join->right, info);
+            }
+            break;
+        case hsql::kTableCrossProduct:
+            if (tr->list) {
+                for (auto* sub : *tr->list)
+                    collectTableRefs(sub, info);
+            }
+            break;
+        case hsql::kTableSelect:
+            // subquery: alias resolves to columns we don't know — skip
+            break;
+        }
+    }
+
+    SqlAliasInfo extractAliasInfo(const dearsql::TextEditor::CompletionRequest& request) {
+        SqlAliasInfo info;
+
+        // Bound the current statement around the cursor.
+        int stmtStart = 0;
+        for (int p = request.cursorIndex - 1; p >= 0; --p) {
+            if (request.content[static_cast<size_t>(p)] == ';') {
+                stmtStart = p + 1;
+                break;
+            }
+        }
+        int stmtEnd = static_cast<int>(request.content.size());
+        for (int p = request.cursorIndex; p < stmtEnd; ++p) {
+            if (request.content[static_cast<size_t>(p)] == ';') {
+                stmtEnd = p;
+                break;
+            }
+        }
+        if (stmtEnd <= stmtStart)
+            return info;
+
+        std::string stmt = std::string(request.content.substr(
+            static_cast<size_t>(stmtStart), static_cast<size_t>(stmtEnd - stmtStart)));
+
+        // Replace the in-progress token at the cursor with a placeholder so the
+        // parser can succeed even mid-typing.
+        constexpr const char* kPlaceholder = "dsq_x";
+        int relCursor = request.cursorIndex - stmtStart;
+        int wordStart = relCursor;
+        while (wordStart > 0 && (std::isalnum(static_cast<unsigned char>(
+                                     stmt[static_cast<size_t>(wordStart - 1)])) ||
+                                 stmt[static_cast<size_t>(wordStart - 1)] == '_')) {
+            --wordStart;
+        }
+        int wordEnd = relCursor;
+        while (wordEnd < static_cast<int>(stmt.size()) &&
+               (std::isalnum(static_cast<unsigned char>(stmt[static_cast<size_t>(wordEnd)])) ||
+                stmt[static_cast<size_t>(wordEnd)] == '_')) {
+            ++wordEnd;
+        }
+        const size_t placeholderLen = std::strlen(kPlaceholder);
+        stmt.replace(static_cast<size_t>(wordStart), static_cast<size_t>(wordEnd - wordStart),
+                     kPlaceholder);
+        // Position of the end of the placeholder in the rewritten buffer.
+        const size_t cursorWordEnd = static_cast<size_t>(wordStart) + placeholderLen;
+
+        // Build candidate truncation points: the earliest clause keyword
+        // after the cursor whose tail might be half-written. We try each
+        // from earliest to latest so a broken WHERE/GROUP/ORDER tail can be
+        // dropped while the FROM clause (which we need) is preserved.
+        std::vector<size_t> truncationPoints;
+        {
+            static const std::array<std::string_view, 10> kTailClauses = {
+                "where",     "group", "order",  "having", "limit",
+                "intersect", "union", "except", "fetch",  "offset"};
+            const std::string lowerStmt = toLowerCopy(stmt);
+            auto isWordBoundary = [&](size_t pos) {
+                if (pos == 0 || pos >= lowerStmt.size())
+                    return true;
+                const char ch = lowerStmt[pos];
+                return !std::isalnum(static_cast<unsigned char>(ch)) && ch != '_';
+            };
+            for (const auto kw : kTailClauses) {
+                size_t pos = cursorWordEnd;
+                while ((pos = lowerStmt.find(kw, pos)) != std::string::npos) {
+                    if (isWordBoundary(pos) && isWordBoundary(pos + kw.size()))
+                        truncationPoints.push_back(pos);
+                    pos += kw.size();
+                }
+            }
+            std::ranges::sort(truncationPoints);
+            auto dup = std::ranges::unique(truncationPoints);
+            truncationPoints.erase(dup.begin(), dup.end());
+        }
+
+        auto tryParse = [](const std::string& s, hsql::SQLParserResult& out) {
+            return hsql::SQLParser::parse(s, &out) && out.isValid();
+        };
+
+        hsql::SQLParserResult result;
+        bool parsed = tryParse(stmt, result);
+        if (!parsed) {
+            // Append a placeholder column in case cursor sits in a
+            // half-written FROM/JOIN/SELECT-list spot the first pass missed.
+            hsql::SQLParserResult result2;
+            if (tryParse(stmt + " " + kPlaceholder, result2)) {
+                result = std::move(result2);
+                parsed = true;
+            }
+        }
+        if (!parsed) {
+            // Progressive tail truncation: drop everything from the earliest
+            // broken clause keyword after the cursor and reparse. This keeps
+            // the FROM clause intact while editing the SELECT list above a
+            // half-written WHERE/GROUP/ORDER tail.
+            for (size_t cut : truncationPoints) {
+                const std::string truncated = stmt.substr(0, cut);
+                hsql::SQLParserResult r1;
+                if (tryParse(truncated, r1)) {
+                    result = std::move(r1);
+                    parsed = true;
+                    break;
+                }
+                hsql::SQLParserResult r2;
+                if (tryParse(truncated + " " + kPlaceholder, r2)) {
+                    result = std::move(r2);
+                    parsed = true;
+                    break;
+                }
+            }
+        }
+        if (!parsed)
+            return info;
+
+        for (size_t i = 0; i < result.size(); ++i) {
+            const hsql::SQLStatement* st = result.getStatement(i);
+            if (!st)
+                continue;
+            if (st->isType(hsql::kStmtSelect)) {
+                const auto* sel = static_cast<const hsql::SelectStatement*>(st);
+                collectTableRefs(sel->fromTable, info);
+                if (sel->withDescriptions) {
+                    for (auto* w : *sel->withDescriptions) {
+                        if (w && w->select)
+                            collectTableRefs(w->select->fromTable, info);
+                    }
+                }
+            } else if (st->isType(hsql::kStmtUpdate)) {
+                const auto* upd = static_cast<const hsql::UpdateStatement*>(st);
+                collectTableRefs(upd->table, info);
+            } else if (st->isType(hsql::kStmtDelete)) {
+                const auto* del = static_cast<const hsql::DeleteStatement*>(st);
+                if (del->tableName) {
+                    std::string n = toLowerCopy(del->tableName);
+                    std::vector<std::string> parts;
+                    if (del->schema)
+                        parts.push_back(toLowerCopy(del->schema));
+                    parts.push_back(n);
+                    info.tables.insert(n);
+                    info.aliasToTable[n] = std::move(parts);
+                }
+            }
+        }
+
+        return info;
+    }
+
     std::vector<CompletionItem>
     filterSqlCompletions(const dearsql::TextEditor::CompletionRequest& request,
                          const std::vector<CompletionItem>& items) {
@@ -265,8 +462,29 @@ namespace {
             lowerQualifierParts.push_back(toLowerCopy(part));
 
         const auto ctx = detectSqlCompletionContext(request);
-        const auto referencedTables = extractReferencedTables(request);
+        auto referencedTables = extractReferencedTables(request);
+
+        // Try hsql first to get accurate alias resolution; fall back to the
+        // regex-based extractor on parse failure (the early-typing case).
+        const auto aliasInfo = extractAliasInfo(request);
+        for (const auto& t : aliasInfo.tables)
+            referencedTables.insert(t);
+
+        // If the user typed a single-segment qualifier (`u.col`) and `u` is a
+        // known alias, rewrite it to the schema-qualified parts so the
+        // matching logic resolves to the exact table (not any same-named
+        // table in another schema).
+        if (lowerQualifierParts.size() == 1) {
+            auto it = aliasInfo.aliasToTable.find(lowerQualifierParts[0]);
+            if (it != aliasInfo.aliasToTable.end())
+                lowerQualifierParts = it->second;
+        }
+
         const bool hasTableContext = !referencedTables.empty();
+
+        std::set<std::string> lowerReferencedTables;
+        for (const auto& t : referencedTables)
+            lowerReferencedTables.insert(toLowerCopy(t));
 
         auto qualifiersMatch = [&](const CompletionItem& ci) {
             if (lowerQualifierParts.empty())
@@ -388,6 +606,9 @@ namespace {
                 else if (item.kind == CompletionKind::Keyword)
                     score -= 40;
             } else if (ctx == SqlCompletionContext::SelectWhereOn) {
+                if (item.kind == CompletionKind::Table || item.kind == CompletionKind::View ||
+                    item.kind == CompletionKind::Sequence)
+                    continue; // bare tables/views don't belong in SELECT/WHERE/ON
                 if (item.kind == CompletionKind::Column)
                     score += 80;
                 else if (item.kind == CompletionKind::Function)
@@ -400,12 +621,21 @@ namespace {
                 score += 5;
 
             if (item.kind == CompletionKind::Column && !referencedTables.empty()) {
-                for (const auto& tableName : referencedTables) {
-                    if (lowerMatchText.find(toLowerCopy(tableName)) != std::string::npos) {
-                        score += 100;
-                        break;
-                    }
+                // Extract the owning table from matchText ("schema.table.col"
+                // or "table.col") and only keep columns whose table is
+                // referenced in the current statement.
+                std::string ownerTable;
+                const auto lastDot = lowerMatchText.rfind('.');
+                if (lastDot != std::string::npos && lastDot > 0) {
+                    const auto prevDot = lowerMatchText.rfind('.', lastDot - 1);
+                    ownerTable = (prevDot == std::string::npos)
+                                     ? lowerMatchText.substr(0, lastDot)
+                                     : lowerMatchText.substr(prevDot + 1, lastDot - prevDot - 1);
                 }
+
+                if (ownerTable.empty() || !lowerReferencedTables.contains(ownerTable))
+                    continue;
+                score += 100;
             }
 
             scored.push_back({item, score});
