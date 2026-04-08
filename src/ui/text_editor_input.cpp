@@ -499,9 +499,14 @@ namespace dearsql {
             if (line > 0) {
                 int targetLine = line - 1;
                 cursorIndex_ = getPosFromLineColumn(targetLine, preferredColumn_);
+            } else {
+                // already on first line: jump to start
+                cursorIndex_ = 0;
+                preferredColumn_ = 0;
             }
             finishMove();
             ensureCursorVisibleV_ = true;
+            ensureCursorVisibleH_ = true;
         }
 
         // Down
@@ -513,9 +518,14 @@ namespace dearsql {
             if (line < static_cast<int>(lineStarts_.size()) - 1) {
                 int targetLine = line + 1;
                 cursorIndex_ = getPosFromLineColumn(targetLine, preferredColumn_);
+            } else {
+                // already on last line: jump to end
+                cursorIndex_ = static_cast<int>(content_.size());
+                preferredColumn_ = getColumnFromPos(cursorIndex_);
             }
             finishMove();
             ensureCursorVisibleV_ = true;
+            ensureCursorVisibleH_ = true;
         }
     }
 
