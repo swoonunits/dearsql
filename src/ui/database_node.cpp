@@ -1292,7 +1292,7 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
 
     // Double-click to open table viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(schemaNode, table.name);
+        app.getTabManager()->createTableViewerTab(schemaNode, table);
     }
 
     // Context menu
@@ -1306,7 +1306,7 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
                 [schemaNode](const std::string& n) { schemaNode->dropTable(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(schemaNode, table.name);
+                app.getTabManager()->createTableViewerTab(schemaNode, table);
             }
             if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
                 app.getTabManager()->createTableEditorTab(schemaNode, table, schemaNode->name);
@@ -1557,7 +1557,7 @@ void DatabaseHierarchy::renderViewNode(Table& view, PostgresSchemaNode* schemaDa
 
     // Double-click to open view viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(schemaData, view.name);
+        app.getTabManager()->createTableViewerTab(schemaData, view);
     }
 
     // Context menu
@@ -1565,7 +1565,7 @@ void DatabaseHierarchy::renderViewNode(Table& view, PostgresSchemaNode* schemaDa
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(schemaData, view.name);
+            app.getTabManager()->createTableViewerTab(schemaData, view);
         }
         ImGui::Separator();
         if (ImGui::MenuItem(DELETE_LABEL)) {
@@ -1630,7 +1630,7 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
 
     // Double-click to open table viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, table.name);
+        app.getTabManager()->createTableViewerTab(dbData, table);
     }
 
     // Context menu
@@ -1643,7 +1643,7 @@ void DatabaseHierarchy::renderMySQLTableNode(Table& table, MySQLDatabaseNode* db
                                          [dbData](const std::string& n) { dbData->dropTable(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(dbData, table.name);
+                app.getTabManager()->createTableViewerTab(dbData, table);
             }
             if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
                 app.getTabManager()->createTableEditorTab(dbData, table);
@@ -1891,7 +1891,7 @@ void DatabaseHierarchy::renderMySQLViewNode(Table& view, MySQLDatabaseNode* dbDa
 
     // Double-click to open view viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, view.name);
+        app.getTabManager()->createTableViewerTab(dbData, view);
     }
 
     // Context menu
@@ -1899,7 +1899,7 @@ void DatabaseHierarchy::renderMySQLViewNode(Table& view, MySQLDatabaseNode* dbDa
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(dbData, view.name);
+            app.getTabManager()->createTableViewerTab(dbData, view);
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
@@ -2192,7 +2192,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLSchemaNode* sche
     }
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(schemaData, table.name);
+        app.getTabManager()->createTableViewerTab(schemaData, table);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
@@ -2205,7 +2205,7 @@ void DatabaseHierarchy::renderMSSQLTableNode(Table& table, MSSQLSchemaNode* sche
                 [schemaData](const std::string& n) { schemaData->dropTable(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(schemaData, table.name);
+                app.getTabManager()->createTableViewerTab(schemaData, table);
             }
             if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
                 app.getTabManager()->createTableEditorTab(schemaData, table);
@@ -2426,14 +2426,14 @@ void DatabaseHierarchy::renderMSSQLViewNode(Table& view, MSSQLSchemaNode* schema
     ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(colors.teal), ICON_FK_EYE);
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(schemaData, view.name);
+        app.getTabManager()->createTableViewerTab(schemaData, view);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(schemaData, view.name);
+            app.getTabManager()->createTableViewerTab(schemaData, view);
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
@@ -2672,7 +2672,7 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
     }
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, table.name);
+        app.getTabManager()->createTableViewerTab(dbData, table);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
@@ -2684,7 +2684,7 @@ void DatabaseHierarchy::renderOracleTableNode(Table& table, OracleDatabaseNode* 
                                          [dbData](const std::string& n) { dbData->dropTable(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(dbData, table.name);
+                app.getTabManager()->createTableViewerTab(dbData, table);
             }
             if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
                 app.getTabManager()->createTableEditorTab(dbData, table);
@@ -2904,14 +2904,14 @@ void DatabaseHierarchy::renderOracleViewNode(Table& view, OracleDatabaseNode* db
     ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(colors.teal), ICON_FK_EYE);
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, view.name);
+        app.getTabManager()->createTableViewerTab(dbData, view);
     }
 
     if (ImGui::BeginPopupContextItem(nullptr)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(dbData, view.name);
+            app.getTabManager()->createTableViewerTab(dbData, view);
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
@@ -3063,7 +3063,7 @@ void DatabaseHierarchy::renderMongoDBCollectionNode(Table& collection,
 
     // Double-click to open collection viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(dbData, collection.name);
+        app.getTabManager()->createTableViewerTab(dbData, collection);
     }
 
     // Context menu
@@ -3078,7 +3078,7 @@ void DatabaseHierarchy::renderMongoDBCollectionNode(Table& collection,
                 [dbData](const std::string& n) { dbData->dropCollection(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(dbData, collection.name);
+                app.getTabManager()->createTableViewerTab(dbData, collection);
             }
             if (ImGui::MenuItem(REFRESH_LABEL)) {
                 dbData->startTableRefreshAsync(collection.name);
@@ -3206,7 +3206,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
 
     // Double-click to open table viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(sqliteDb, table.name);
+        app.getTabManager()->createTableViewerTab(sqliteDb, table);
     }
 
     // Context menu
@@ -3220,7 +3220,7 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
                 [sqliteDb](const std::string& n) { sqliteDb->dropTable(n); });
         } else {
             if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-                app.getTabManager()->createTableViewerTab(sqliteDb, table.name);
+                app.getTabManager()->createTableViewerTab(sqliteDb, table);
             }
             if (ImGui::MenuItem(EDIT_TABLE_LABEL)) {
                 app.getTabManager()->createTableEditorTab(sqliteDb, table);
@@ -3626,7 +3626,7 @@ void DatabaseHierarchy::renderSQLiteViewNode(Table& view, SQLiteDatabase* sqlite
 
     // Double-click to open view viewer
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        app.getTabManager()->createTableViewerTab(sqliteDb, view.name);
+        app.getTabManager()->createTableViewerTab(sqliteDb, view);
     }
 
     // Context menu
@@ -3634,7 +3634,7 @@ void DatabaseHierarchy::renderSQLiteViewNode(Table& view, SQLiteDatabase* sqlite
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
         if (ImGui::MenuItem(VIEW_DATA_LABEL)) {
-            app.getTabManager()->createTableViewerTab(sqliteDb, view.name);
+            app.getTabManager()->createTableViewerTab(sqliteDb, view);
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();

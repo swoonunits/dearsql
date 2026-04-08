@@ -57,7 +57,12 @@ namespace {
                 for (size_t i = 0; i < columns.size() && i < row.size(); ++i) {
                     if (i > 0)
                         file << ',';
-                    file << (isNullSentinel(row[i]) ? "" : escapeCsvField(row[i]));
+                    if (isNullSentinel(row[i]))
+                        file << "";
+                    else if (isBoolSentinel(row[i]))
+                        file << (boolSentinelValue(row[i]) ? "true" : "false");
+                    else
+                        file << escapeCsvField(row[i]);
                 }
                 file << '\n';
             }
@@ -96,6 +101,8 @@ namespace {
                 for (size_t i = 0; i < columns.size() && i < row.size(); ++i) {
                     if (isNullSentinel(row[i])) {
                         obj[columns[i]] = nullptr;
+                    } else if (isBoolSentinel(row[i])) {
+                        obj[columns[i]] = boolSentinelValue(row[i]);
                     } else {
                         obj[columns[i]] = row[i];
                     }
@@ -112,6 +119,8 @@ namespace {
     std::string quoteSqlValue(const std::string& value) {
         if (isNullSentinel(value))
             return "NULL";
+        if (isBoolSentinel(value))
+            return boolSentinelValue(value) ? "TRUE" : "FALSE";
         return "'" + ddl_utils::escapeSingleQuotes(value) + "'";
     }
 

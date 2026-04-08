@@ -235,8 +235,8 @@ std::vector<Table> PostgresSchemaNode::getTablesAsync() {
             Table table;
             table.name = tableName;
             table.fullName = parentDbNode->name + "." + name + "." + tableName;
-            table.columns = tableColumns[tableName];
-            table.foreignKeys = tableForeignKeys[tableName];
+            table.columns = std::move(tableColumns[tableName]);
+            table.foreignKeys = std::move(tableForeignKeys[tableName]);
 
             result.push_back(table);
             spdlog::debug("Loaded table: {} with {} columns and {} foreign keys", tableName,
@@ -384,7 +384,7 @@ std::vector<Table> PostgresSchemaNode::getViewsWithColumnsAsync() {
             Table view;
             view.name = viewName;
             view.fullName = parentDbNode->name + "." + name + "." + viewName;
-            view.columns = viewColumns[viewName];
+            view.columns = std::move(viewColumns[viewName]);
 
             result.push_back(view);
             spdlog::debug("Loaded view: {} with {} columns", viewName, view.columns.size());
@@ -527,7 +527,7 @@ std::vector<Table> PostgresSchemaNode::getMaterializedViewsWithColumnsAsync() {
             Table mv;
             mv.name = mvName;
             mv.fullName = parentDbNode->name + "." + name + "." + mvName;
-            mv.columns = matviewColumns[mvName];
+            mv.columns = std::move(matviewColumns[mvName]);
 
             result.push_back(mv);
             spdlog::debug("Loaded materialized view: {} with {} columns", mvName,

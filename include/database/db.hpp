@@ -12,6 +12,18 @@ inline bool isNullSentinel(const std::string& v) {
     return v == NULL_SENTINEL;
 }
 
+// sentinels for boolean values so the UI can render checkboxes
+inline constexpr std::string_view BOOL_TRUE_SENTINEL = "dearsql__bool_true";
+inline constexpr std::string_view BOOL_FALSE_SENTINEL = "dearsql__bool_false";
+
+inline bool isBoolSentinel(const std::string& v) {
+    return v == BOOL_TRUE_SENTINEL || v == BOOL_FALSE_SENTINEL;
+}
+
+inline bool boolSentinelValue(const std::string& v) {
+    return v == BOOL_TRUE_SENTINEL;
+}
+
 struct Column {
     std::string name;
     std::string type;

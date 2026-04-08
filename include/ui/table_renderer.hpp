@@ -1,22 +1,11 @@
 #pragma once
 
+#include "database/db.hpp"
 #include <functional>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
-
-struct TableColumn {
-    std::string name;
-    float width = 120.0f;
-    bool resizable = true;
-};
-
-struct TableCell {
-    std::string value;
-    bool isEdited = false;
-    bool isSelected = false;
-};
 
 enum class SortDirection { None, Ascending, Descending };
 
@@ -53,8 +42,10 @@ public:
     explicit TableRenderer(const Config& config);
 
     // Set table data
-    void setColumns(const std::vector<std::string>& columnNames);
+    void setColumns(const std::vector<Column>& cols);
+    void setColumns(const std::vector<std::string>& columnNames); // convenience overload
     void setData(const std::vector<std::vector<std::string>>& tableData);
+    void setData(std::vector<std::vector<std::string>>&& tableData);
     void setCellEditedStatus(const std::vector<std::vector<bool>>& editedCells);
     void setSelectedCell(int row, int col);
     void setRowNumberOffset(int offset) {
@@ -122,7 +113,7 @@ public:
 
 private:
     Config config;
-    std::vector<std::string> columns;
+    std::vector<Column> columns;
     std::vector<std::vector<std::string>> data;
     std::vector<std::vector<bool>> editedCells;
 
@@ -132,7 +123,7 @@ private:
     int editingCol = -1;
     int rowNumberOffset = 0;
 
-    char editBuffer[1024] = {0};
+    char editBuffer[16384] = {0};
 
     // Scrolling state
     bool shouldScrollToCell = false;
@@ -144,6 +135,13 @@ private:
     int initialCursorPos = 0;
     bool comboNeedsOpen = false;
     bool comboHasOpened = false;
+
+    // edit overlay state
+    bool pendingEditOverlay = false;
+    int editOverlayFrames = 0;
+    float editOverlayPosX = 0;
+    float editOverlayPosY = 0;
+    float editOverlayWidth = 0;
 
     // Callbacks
     OnCellEditCallback onCellEdit;
@@ -162,4 +160,5 @@ private:
     void renderCell(int row, int col);
     void handleCellInteraction(int row, int col, bool isSelected);
     void renderColumnHeader(int colIdx, const std::string& colName);
+    void renderEditOverlay();
 };

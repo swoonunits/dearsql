@@ -13,10 +13,10 @@
 #include <spdlog/spdlog.h>
 #include <utility>
 
-TableViewerTab::TableViewerTab(const std::string& name, std::string databasePath,
-                               std::string tableName, IDatabaseNode* node)
+TableViewerTab::TableViewerTab(const std::string& name, std::string databasePath, Table table,
+                               IDatabaseNode* node)
     : Tab(name, TabType::TABLE_VIEWER), databasePath(std::move(databasePath)),
-      tableName(std::move(tableName)), node_(node) {
+      table_(std::move(table)), node_(node) {
     initializeTableRenderer();
     initializeFilterAutoComplete();
     loadDataAsync();
@@ -34,7 +34,7 @@ void TableViewerTab::render() {
         saveChanges();
     }
 
-    ImGui::Text("Table: %s", tableName.c_str());
+    ImGui::Text("Table: %s", table_.name.c_str());
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
@@ -158,9 +158,9 @@ void TableViewerTab::render() {
                           ImGuiChildFlags_None)) {
         if (dataLoadOp.isRunning()) {
             ImGui::Text("Loading table data...");
-        } else if (!columnNames.empty() && !tableData.empty()) {
+        } else if (!table_.columns.empty() && !tableData.empty()) {
             // Update table renderer with current data
-            tableRenderer->setColumns(columnNames);
+            tableRenderer->setColumns(table_.columns);
             tableRenderer->setData(tableData);
             tableRenderer->setCellEditedStatus(editedCells);
             tableRenderer->setSelectedCell(selectedRow, selectedCol);
@@ -410,20 +410,20 @@ void TableViewerTab::cancelChanges() {
 }
 
 void TableViewerTab::addRow() {
-    if (columnNames.empty())
+    if (table_.columns.empty())
         return;
 
     // Insert below selected row, or at end
     int insertIdx = (selectedRow >= 0) ? selectedRow + 1 : static_cast<int>(tableData.size());
 
     // Create empty row
-    std::vector<std::string> newRow(columnNames.size(), "");
+    std::vector<std::string> newRow(table_.columns.size(), "");
 
     tableData.insert(tableData.begin() + insertIdx, newRow);
     originalData.insert(originalData.begin() + insertIdx,
-                        std::vector<std::string>(columnNames.size(), ""));
+                        std::vector<std::string>(table_.columns.size(), ""));
     editedCells.insert(editedCells.begin() + insertIdx,
-                       std::vector<bool>(columnNames.size(), true));
+                       std::vector<bool>(table_.columns.size(), true));
     isNewRow.insert(isNewRow.begin() + insertIdx, true);
 
     hasChanges = true;
@@ -435,7 +435,7 @@ void TableViewerTab::addRow() {
 
 void TableViewerTab::selectCell(const int row, const int col) {
     const int tableSize = static_cast<int>(tableData.size());
-    const int totalCols = static_cast<int>(columnNames.size());
+    const int totalCols = static_cast<int>(table_.columns.size());
     if (row >= 0 && row < tableSize && col >= 0 && col < totalCols) {
         selectedRow = row;
         selectedCol = col;
@@ -444,7 +444,7 @@ void TableViewerTab::selectCell(const int row, const int col) {
 
 void TableViewerTab::handleKeyboardNavigation() {
     // Basic validation
-    if (selectedRow < 0 || selectedCol < 0 || tableData.empty() || columnNames.empty()) {
+    if (selectedRow < 0 || selectedCol < 0 || tableData.empty() || table_.columns.empty()) {
         return;
     }
 
@@ -459,7 +459,7 @@ void TableViewerTab::handleKeyboardNavigation() {
     }
 
     const int maxRows = static_cast<int>(tableData.size());
-    const int maxCols = static_cast<int>(columnNames.size());
+    const int maxCols = static_cast<int>(table_.columns.size());
 
     int newRow = selectedRow;
     int newCol = selectedCol;
@@ -518,7 +518,6 @@ void TableViewerTab::loadDataAsync() {
     // Clear current data to show loading state if filter changed
     if (filterChanged) {
         tableData.clear();
-        columnNames.clear();
         totalRows = 0;
         filterChanged = false;
         spdlog::debug("Cleared previous filtered data, starting fresh load");
@@ -533,17 +532,16 @@ void TableViewerTab::loadDataAsync() {
 
     dataLoadOp.start([this, orderByClause]() -> bool {
         try {
-            totalRows = node_->getRowCount(tableName, currentFilter);
-            columnNames = node_->getColumnNames(tableName);
+            totalRows = node_->getRowCount(table_.name, currentFilter);
             const int offset = currentPage * rowsPerPage;
             tableData =
-                node_->getTableData(tableName, rowsPerPage, offset, currentFilter, orderByClause);
+                node_->getTableData(table_.name, rowsPerPage, offset, currentFilter, orderByClause);
 
             originalData = tableData;
             hasChanges = false;
 
             editedCells = std::vector<std::vector<bool>>(
-                tableData.size(), std::vector<bool>(columnNames.size(), false));
+                tableData.size(), std::vector<bool>(table_.columns.size(), false));
             isNewRow = std::vector<bool>(tableData.size(), false);
         } catch (const std::exception& e) {
             hasLoadingError = true;
@@ -556,21 +554,25 @@ void TableViewerTab::loadDataAsync() {
 void TableViewerTab::checkAsyncLoadStatus() {
     dataLoadOp.check([this](bool) {
         // Auto-select first cell on initial load
-        if (!initialSelectionDone && !tableData.empty() && !columnNames.empty()) {
+        if (!initialSelectionDone && !tableData.empty() && !table_.columns.empty()) {
             selectedRow = 0;
             selectedCol = 0;
             initialSelectionDone = true;
         }
 
         // update filter autocomplete with column names
-        if (!columnNames.empty() && filterAutoComplete) {
-            filterAutoComplete->addKeywords(columnNames);
+        if (!table_.columns.empty() && filterAutoComplete) {
+            std::vector<std::string> colNames;
+            colNames.reserve(table_.columns.size());
+            for (const auto& c : table_.columns)
+                colNames.push_back(c.name);
+            filterAutoComplete->addKeywords(colNames);
         }
 
         // Add to query history if load was successful
         if (!hasLoadingError && !tableData.empty()) {
             const int offset = currentPage * rowsPerPage;
-            std::string query = std::format("SELECT * FROM {}", tableName);
+            std::string query = std::format("SELECT * FROM {}", table_.name);
             if (!currentFilter.empty()) {
                 query += std::format(" WHERE {}", currentFilter);
             }
@@ -587,35 +589,13 @@ void TableViewerTab::checkAsyncLoadStatus() {
 }
 
 std::vector<std::string> TableViewerTab::getPrimaryKeyColumns() const {
-    // Find table columns in node (check both tables and views)
-    for (const auto& table : node_->getTables()) {
-        bool matches = (table.name == tableName) || (table.fullName.ends_with("." + tableName));
-        if (matches) {
-            std::vector<std::string> pkColumns;
-            for (const auto& column : table.columns) {
-                if (column.isPrimaryKey) {
-                    pkColumns.push_back(column.name);
-                }
-            }
-            return pkColumns;
+    std::vector<std::string> pkColumns;
+    for (const auto& column : table_.columns) {
+        if (column.isPrimaryKey) {
+            pkColumns.push_back(column.name);
         }
     }
-
-    // Check views as well
-    for (const auto& view : node_->getViews()) {
-        bool matches = (view.name == tableName) || (view.fullName.ends_with("." + tableName));
-        if (matches) {
-            std::vector<std::string> pkColumns;
-            for (const auto& column : view.columns) {
-                if (column.isPrimaryKey) {
-                    pkColumns.push_back(column.name);
-                }
-            }
-            return pkColumns;
-        }
-    }
-
-    return {};
+    return pkColumns;
 }
 
 std::vector<std::string> TableViewerTab::generateUpdateSQL() {
@@ -623,7 +603,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
 
     const std::vector<std::string> pkColumns = getPrimaryKeyColumns();
 
-    std::cout << "Generating UPDATE SQL for table: " << tableName << std::endl;
+    std::cout << "Generating UPDATE SQL for table: " << table_.name << std::endl;
     std::cout << "Primary key columns: ";
     for (const auto& pk : pkColumns) {
         std::cout << pk << " ";
@@ -632,12 +612,12 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
 
     // Build table reference once
     std::string tableRef;
-    if (const auto dotPos = tableName.find('.'); dotPos != std::string::npos) {
-        const std::string schemaName = tableName.substr(0, dotPos);
-        const std::string tableNameOnly = tableName.substr(dotPos + 1);
+    if (const auto dotPos = table_.name.find('.'); dotPos != std::string::npos) {
+        const std::string schemaName = table_.name.substr(0, dotPos);
+        const std::string tableNameOnly = table_.name.substr(dotPos + 1);
         tableRef = std::format(R"("{}"."{}")", schemaName, tableNameOnly);
     } else {
-        tableRef = std::format(R"("{}")", tableName);
+        tableRef = std::format(R"("{}")", table_.name);
     }
 
     // Process each edited cell
@@ -646,15 +626,17 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
         if (rowIdx < static_cast<int>(isNewRow.size()) && isNewRow[rowIdx]) {
             std::string cols;
             std::string vals;
-            for (int colIdx = 0; colIdx < static_cast<int>(columnNames.size()); colIdx++) {
+            for (int colIdx = 0; colIdx < static_cast<int>(table_.columns.size()); colIdx++) {
                 if (colIdx > 0) {
                     cols += ", ";
                     vals += ", ";
                 }
-                cols += std::format(R"("{}")", columnNames[colIdx]);
+                cols += std::format(R"("{}")", table_.columns[colIdx].name);
                 const std::string& val = tableData[rowIdx][colIdx];
                 if (val.empty() || isNullSentinel(val)) {
                     vals += "NULL";
+                } else if (isBoolSentinel(val)) {
+                    vals += boolSentinelValue(val) ? "TRUE" : "FALSE";
                 } else {
                     vals += "'" + val + "'";
                 }
@@ -669,7 +651,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                 continue; // Cell not edited
             }
 
-            const std::string& columnName = columnNames[colIdx];
+            const std::string& columnName = table_.columns[colIdx].name;
             const std::string& newValue = tableData[rowIdx][colIdx];
 
             // Build UPDATE statement
@@ -678,6 +660,8 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
             // Add quoted value
             if (isNullSentinel(newValue)) {
                 sql += "NULL";
+            } else if (isBoolSentinel(newValue)) {
+                sql += boolSentinelValue(newValue) ? "TRUE" : "FALSE";
             } else {
                 sql += "'" + newValue + "'"; // Simple escaping - could be improved
             }
@@ -690,24 +674,34 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
             if (!pkColumns.empty()) {
                 // Use primary key columns
                 for (const auto& pkCol : pkColumns) {
-                    auto pkColIt = std::ranges::find(columnNames, pkCol);
-                    if (pkColIt != columnNames.end()) {
+                    auto pkColIt = std::ranges::find(table_.columns, pkCol, &Column::name);
+                    if (pkColIt != table_.columns.end()) {
                         const int pkColIdx =
-                            static_cast<int>(std::distance(columnNames.begin(), pkColIt));
+                            static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
                         const std::string& pkValue = originalData[rowIdx][pkColIdx];
-                        whereConditions.push_back(std::format("\"{}\" = '{}'", pkCol, pkValue));
+                        if (isBoolSentinel(pkValue)) {
+                            whereConditions.push_back(
+                                std::format("\"{}\" = {}", pkCol,
+                                            boolSentinelValue(pkValue) ? "TRUE" : "FALSE"));
+                        } else {
+                            whereConditions.push_back(std::format("\"{}\" = '{}'", pkCol, pkValue));
+                        }
                     }
                 }
             } else {
                 // For Postgres without primary key, use all columns as condition
-                for (int condColIdx = 0; condColIdx < columnNames.size(); condColIdx++) {
+                for (int condColIdx = 0; condColIdx < table_.columns.size(); condColIdx++) {
                     const std::string& condValue = originalData[rowIdx][condColIdx];
                     if (isNullSentinel(condValue)) {
                         whereConditions.push_back(
-                            std::format("\"{}\" IS NULL", columnNames[condColIdx]));
-                    } else {
+                            std::format("\"{}\" IS NULL", table_.columns[condColIdx].name));
+                    } else if (isBoolSentinel(condValue)) {
                         whereConditions.push_back(
-                            std::format("\"{}\" = '{}'", columnNames[condColIdx], condValue));
+                            std::format("\"{}\" = {}", table_.columns[condColIdx].name,
+                                        boolSentinelValue(condValue) ? "TRUE" : "FALSE"));
+                    } else {
+                        whereConditions.push_back(std::format(
+                            "\"{}\" = '{}'", table_.columns[condColIdx].name, condValue));
                     }
                 }
             }
@@ -949,29 +943,9 @@ void TableViewerTab::initializeTableRenderer() {
 
     // nullable check for "Set NULL" context menu
     tableRenderer->setColumnNullableCallback([this](int col) -> bool {
-        if (col < 0 || col >= static_cast<int>(columnNames.size()))
+        if (col < 0 || col >= static_cast<int>(table_.columns.size()))
             return false;
-        const std::string& colName = columnNames[col];
-
-        // look up column metadata
-        auto findColumn = [&](const std::vector<Table>& tables) -> const Column* {
-            for (const auto& t : tables) {
-                if (t.name == tableName || t.fullName.ends_with("." + tableName)) {
-                    for (const auto& c : t.columns) {
-                        if (c.name == colName)
-                            return &c;
-                    }
-                }
-            }
-            return nullptr;
-        };
-
-        if (const auto* c = findColumn(node_->getTables()))
-            return !c->isNotNull;
-        if (const auto* c = findColumn(node_->getViews()))
-            return !c->isNotNull;
-        // if metadata unavailable, allow it
-        return true;
+        return !table_.columns[col].isNotNull;
     });
 
     tableRenderer->setOnSetNull([this](int row, int col) {
@@ -1002,8 +976,9 @@ void TableViewerTab::initializeFilterAutoComplete() {
                        "ALL", "ANY", "SOME", "TRUE", "FALSE", "ASC",     "DESC", "LIMIT", "OFFSET"};
 
     // Add column names when they become available
-    if (!columnNames.empty()) {
-        config.keywords.insert(config.keywords.end(), columnNames.begin(), columnNames.end());
+    if (!table_.columns.empty()) {
+        for (const auto& c : table_.columns)
+            config.keywords.push_back(c.name);
     }
 
     filterAutoComplete = std::make_unique<AutoCompleteInput>(config);
@@ -1134,11 +1109,13 @@ void TableViewerTab::syncValuePanelBuffer() {
     bool valueChanged = false;
     if (!selectionChanged && selectedRow >= 0 && selectedCol >= 0 &&
         selectedRow < static_cast<int>(tableData.size()) &&
-        selectedCol < static_cast<int>(columnNames.size())) {
+        selectedCol < static_cast<int>(table_.columns.size())) {
         const std::string& currentValue = tableData[selectedRow][selectedCol];
         const std::string bufStr(valuePanelBuffer);
-        // empty buffer matches null sentinel
-        bool matches = (bufStr == currentValue) || (bufStr.empty() && isNullSentinel(currentValue));
+        // empty buffer matches null sentinel; bool sentinels always match (handled separately)
+        bool matches = (bufStr == currentValue) ||
+                       (bufStr.empty() && isNullSentinel(currentValue)) ||
+                       isBoolSentinel(currentValue);
         if (!valuePanelBufferDirty && !matches) {
             valueChanged = true;
         }
@@ -1151,7 +1128,7 @@ void TableViewerTab::syncValuePanelBuffer() {
 
         if (selectedRow >= 0 && selectedCol >= 0 &&
             selectedRow < static_cast<int>(tableData.size()) &&
-            selectedCol < static_cast<int>(columnNames.size())) {
+            selectedCol < static_cast<int>(table_.columns.size())) {
             const std::string& value = tableData[selectedRow][selectedCol];
             if (isNullSentinel(value)) {
                 valuePanelBuffer[0] = '\0';
@@ -1171,16 +1148,34 @@ void TableViewerTab::renderValueTab() {
     syncValuePanelBuffer();
 
     if (selectedRow < 0 || selectedCol < 0 || selectedRow >= static_cast<int>(tableData.size()) ||
-        selectedCol >= static_cast<int>(columnNames.size())) {
+        selectedCol >= static_cast<int>(table_.columns.size())) {
         ImGui::TextColored(colors.subtext0, "Select a cell to view its value.");
         return;
     }
 
     // Header: column name and row info
-    ImGui::TextColored(colors.blue, "%s", columnNames[selectedCol].c_str());
+    ImGui::TextColored(colors.blue, "%s", table_.columns[selectedCol].name.c_str());
     ImGui::SameLine();
     ImGui::TextColored(colors.subtext0, "(Row %d)", currentPage * rowsPerPage + selectedRow + 1);
     ImGui::Separator();
+
+    // boolean cells: show a checkbox instead of the text editor
+    const std::string& cellValue = tableData[selectedRow][selectedCol];
+    if (isBoolSentinel(cellValue)) {
+        bool checked = boolSentinelValue(cellValue);
+        if (ImGui::Checkbox("##value_panel_bool", &checked)) {
+            tableData[selectedRow][selectedCol] =
+                std::string(checked ? BOOL_TRUE_SENTINEL : BOOL_FALSE_SENTINEL);
+            if (selectedRow < static_cast<int>(editedCells.size()) &&
+                selectedCol < static_cast<int>(editedCells[selectedRow].size())) {
+                editedCells[selectedRow][selectedCol] = true;
+            }
+            hasChanges = true;
+        }
+        ImGui::SameLine();
+        ImGui::Text("%s", checked ? "true" : "false");
+        return;
+    }
 
     // Multiline text editor for the cell value
     const float availH = ImGui::GetContentRegionAvail().y -
@@ -1241,24 +1236,7 @@ void TableViewerTab::renderValueTab() {
 void TableViewerTab::renderMetadataTab() {
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    // Find the table metadata
-    const Table* foundTable = nullptr;
-    for (const auto& table : node_->getTables()) {
-        if (table.name == tableName || table.fullName.ends_with("." + tableName)) {
-            foundTable = &table;
-            break;
-        }
-    }
-    if (!foundTable) {
-        for (const auto& view : node_->getViews()) {
-            if (view.name == tableName || view.fullName.ends_with("." + tableName)) {
-                foundTable = &view;
-                break;
-            }
-        }
-    }
-
-    if (!foundTable) {
+    if (table_.columns.empty()) {
         ImGui::TextColored(colors.subtext0, "No metadata available.");
         return;
     }
@@ -1289,7 +1267,7 @@ void TableViewerTab::renderMetadataTab() {
         std::string filterLower = metadataFilter;
         std::ranges::transform(filterLower, filterLower.begin(), ::tolower);
 
-        for (const auto& col : foundTable->columns) {
+        for (const auto& col : table_.columns) {
             // Apply filter
             if (!filterLower.empty()) {
                 std::string nameLower = col.name;
@@ -1304,8 +1282,8 @@ void TableViewerTab::renderMetadataTab() {
             // Name column - highlight if it matches selected column
             ImGui::TableSetColumnIndex(0);
             bool isSelectedColumn =
-                (selectedCol >= 0 && selectedCol < static_cast<int>(columnNames.size()) &&
-                 columnNames[selectedCol] == col.name);
+                (selectedCol >= 0 && selectedCol < static_cast<int>(table_.columns.size()) &&
+                 table_.columns[selectedCol].name == col.name);
             if (isSelectedColumn) {
                 ImGui::TextColored(colors.blue, "%s", col.name.c_str());
             } else {

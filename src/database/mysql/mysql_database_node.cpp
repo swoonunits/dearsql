@@ -61,8 +61,10 @@ namespace {
             unsigned int nFields = mysql_num_fields(res.get());
             MYSQL_FIELD* fields = mysql_fetch_fields(res.get());
 
+            std::vector<bool> isBoolCol(nFields, false);
             for (unsigned int i = 0; i < nFields; i++) {
                 result.columnNames.emplace_back(fields[i].name);
+                isBoolCol[i] = (fields[i].type == MYSQL_TYPE_TINY && fields[i].length == 1);
             }
 
             int rowCount = 0;
@@ -74,6 +76,9 @@ namespace {
                 for (unsigned int i = 0; i < nFields; i++) {
                     if (row[i] == nullptr) {
                         rowData.emplace_back("NULL");
+                    } else if (isBoolCol[i]) {
+                        rowData.emplace_back(row[i][0] == '1' ? BOOL_TRUE_SENTINEL
+                                                              : BOOL_FALSE_SENTINEL);
                     } else {
                         rowData.emplace_back(row[i], lengths[i]);
                     }
@@ -669,6 +674,14 @@ MySQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
             return result;
 
         unsigned int nFields = mysql_num_fields(res.get());
+
+        // detect boolean columns (TINYINT with length 1)
+        MYSQL_FIELD* fields = mysql_fetch_fields(res.get());
+        std::vector<bool> isBoolCol(nFields, false);
+        for (unsigned int i = 0; i < nFields; i++) {
+            isBoolCol[i] = (fields[i].type == MYSQL_TYPE_TINY && fields[i].length == 1);
+        }
+
         MYSQL_ROW row;
         while ((row = mysql_fetch_row(res.get())) != nullptr) {
             unsigned long* lengths = mysql_fetch_lengths(res.get());
@@ -677,6 +690,9 @@ MySQLDatabaseNode::getTableData(const std::string& tableName, const int limit, c
             for (unsigned int i = 0; i < nFields; i++) {
                 if (row[i] == nullptr) {
                     rowData.emplace_back(NULL_SENTINEL);
+                } else if (isBoolCol[i]) {
+                    rowData.emplace_back(row[i][0] == '1' ? BOOL_TRUE_SENTINEL
+                                                          : BOOL_FALSE_SENTINEL);
                 } else {
                     rowData.emplace_back(row[i], lengths[i]);
                 }

@@ -35,8 +35,10 @@ namespace {
             int nFields = PQnfields(res);
             int nRows = PQntuples(res);
 
+            std::vector<bool> isBoolCol(nFields, false);
             for (int col = 0; col < nFields; col++) {
                 result.columnNames.emplace_back(PQfname(res, col));
+                isBoolCol[col] = (PQftype(res, col) == 16); // BOOLOID
             }
 
             int limit = std::min(nRows, rowLimit);
@@ -44,7 +46,15 @@ namespace {
                 std::vector<std::string> rowData;
                 rowData.reserve(nFields);
                 for (int col = 0; col < nFields; col++) {
-                    rowData.push_back(pgValue(res, row, col));
+                    if (PQgetisnull(res, row, col)) {
+                        rowData.emplace_back(NULL_SENTINEL);
+                    } else if (isBoolCol[col]) {
+                        const char* v = PQgetvalue(res, row, col);
+                        rowData.emplace_back(v[0] == 't' ? BOOL_TRUE_SENTINEL
+                                                         : BOOL_FALSE_SENTINEL);
+                    } else {
+                        rowData.emplace_back(PQgetvalue(res, row, col));
+                    }
                 }
                 result.tableData.push_back(std::move(rowData));
             }

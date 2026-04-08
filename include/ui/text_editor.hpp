@@ -59,6 +59,7 @@ namespace dearsql {
         using CompletionFilter = std::function<std::vector<CompletionItem>(
             const CompletionRequest&, const std::vector<CompletionItem>&)>;
         void SetCompletionItems(const std::vector<CompletionItem>& items);
+        void SetCompletionItems(std::vector<CompletionItem>&& items);
         void SetCompletionKeywords(const std::vector<std::string>& keywords);
         void SetCompletionFilter(CompletionFilter filter);
         [[nodiscard]] static const std::vector<std::string>& GetDefaultCompletionKeywords();

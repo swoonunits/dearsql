@@ -203,15 +203,14 @@ std::shared_ptr<Tab> TabManager::createSQLEditorTab(const std::string& name, IDa
     return tab;
 }
 
-std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
-                                                      const std::string& tableName) {
+std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node, const Table& table) {
     if (!node) {
         std::cout << "Cannot create table viewer tab: node is null" << std::endl;
         return nullptr;
     }
 
-    std::string tableFullName = node->getFullPath() + "." + tableName;
-    std::string tabName = tableName + " (" + node->getName() + ")";
+    std::string tableFullName = node->getFullPath() + "." + table.name;
+    std::string tabName = table.name + " (" + node->getName() + ")";
 
     for (auto& tab : tabs) {
         if (tab->getType() == TabType::TABLE_VIEWER) {
@@ -219,16 +218,16 @@ std::shared_ptr<Tab> TabManager::createTableViewerTab(IDatabaseNode* node,
             if (tableTab && tableTab->getDatabaseNode() == node &&
                 tableTab->getDatabasePath() == tableFullName) {
                 requestTabFocus(tab->getId());
-                std::cout << "Table " << tableName << " is already open, focusing existing tab"
+                std::cout << "Table " << table.name << " is already open, focusing existing tab"
                           << std::endl;
                 return tab;
             }
         }
     }
 
-    auto tab = std::make_shared<TableViewerTab>(tabName, tableFullName, tableName, node);
+    auto tab = std::make_shared<TableViewerTab>(tabName, tableFullName, table, node);
     registerOpenedTab(tab);
-    std::cout << "Created new tab for table: " << tableName << " with fullName: " << tableFullName
+    std::cout << "Created new tab for table: " << table.name << " with fullName: " << tableFullName
               << std::endl;
     return tab;
 }

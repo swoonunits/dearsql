@@ -47,7 +47,7 @@ public:
                                             const std::string& schemaName = "");
     std::shared_ptr<Tab> createSQLEditorTabFromQuery(IDatabaseNode* node, const SqlScript& script);
 
-    std::shared_ptr<Tab> createTableViewerTab(IDatabaseNode* node, const std::string& tableName);
+    std::shared_ptr<Tab> createTableViewerTab(IDatabaseNode* node, const Table& table);
 
     std::shared_ptr<Tab> createTableEditorTab(IDatabaseNode* node, const std::string& schema = "");
     std::shared_ptr<Tab> createTableEditorTab(IDatabaseNode* node, const Table& table,

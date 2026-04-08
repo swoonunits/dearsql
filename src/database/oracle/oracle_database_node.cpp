@@ -572,7 +572,7 @@ std::vector<Table> OracleDatabaseNode::getTablesAsync() {
 
             // columns
             if (auto it = allColumns.find(tblName); it != allColumns.end()) {
-                table.columns = it->second;
+                table.columns = std::move(it->second);
             }
 
             // mark primary keys
@@ -671,7 +671,7 @@ std::vector<Table> OracleDatabaseNode::getViewsForSchemaAsync() {
             view.fullName = connName + "." + name + "." + viewName;
 
             if (auto it = allColumns.find(viewName); it != allColumns.end()) {
-                view.columns = it->second;
+                view.columns = std::move(it->second);
             }
 
             result.push_back(std::move(view));

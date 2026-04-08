@@ -14,7 +14,7 @@ class IDatabaseNode;
 
 class TableViewerTab final : public Tab {
 public:
-    TableViewerTab(const std::string& name, std::string databasePath, std::string tableName,
+    TableViewerTab(const std::string& name, std::string databasePath, Table table,
                    IDatabaseNode* node);
 
     void render() override;
@@ -23,8 +23,8 @@ public:
     [[nodiscard]] const std::string& getDatabasePath() const {
         return databasePath;
     }
-    [[nodiscard]] const std::string& getTableName() const {
-        return tableName;
+    [[nodiscard]] const Table& getTable() const {
+        return table_;
     }
     [[nodiscard]] IDatabaseNode* getDatabaseNode() const {
         return node_;
@@ -48,11 +48,10 @@ public:
 
 private:
     std::string databasePath;
-    std::string tableName;
+    Table table_;
     IDatabaseNode* node_ = nullptr;
     std::vector<std::vector<std::string>> tableData;
     std::vector<std::vector<std::string>> originalData;
-    std::vector<std::string> columnNames;
     std::vector<std::vector<bool>> editedCells;
     std::vector<bool> isNewRow;
     bool initialSelectionDone = false;

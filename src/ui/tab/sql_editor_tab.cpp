@@ -1692,7 +1692,7 @@ void SQLEditorTab::updateCompletionKeywords() {
 
     auto finalizePartialItems = [&]() {
         sortAndDeduplicateCompletionItems(items);
-        sqlEditor.SetCompletionItems(items);
+        sqlEditor.SetCompletionItems(std::move(items));
     };
 
     if (auto* dbNode = dynamic_cast<PostgresDatabaseNode*>(node_); dbNode) {
@@ -1873,7 +1873,7 @@ void SQLEditorTab::updateCompletionKeywords() {
 
     // Sort and deduplicate by text
     sortAndDeduplicateCompletionItems(items);
-    sqlEditor.SetCompletionItems(items);
+    sqlEditor.SetCompletionItems(std::move(items));
     completionKeywordsSet_ = true;
 }
 

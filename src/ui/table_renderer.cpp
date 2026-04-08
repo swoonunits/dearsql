@@ -4,8 +4,20 @@
 #include "database/db.hpp"
 #include "imgui.h"
 #include "themes.hpp"
+#include <algorithm>
 #include <cstring>
 #include <format>
+#include <string_view>
+
+namespace {
+    // truncate at first newline for single-line cell display
+    std::string getFirstLine(const std::string& text) {
+        auto pos = text.find('\n');
+        if (pos == std::string::npos)
+            return text;
+        return text.substr(0, pos);
+    }
+} // namespace
 
 TableRenderer::TableRenderer() {
     config.tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX |
@@ -20,12 +32,26 @@ TableRenderer::TableRenderer(const Config& config) : config(config) {
     }
 }
 
+void TableRenderer::setColumns(const std::vector<Column>& cols) {
+    columns = cols;
+}
+
 void TableRenderer::setColumns(const std::vector<std::string>& columnNames) {
-    columns = columnNames;
+    columns.clear();
+    columns.reserve(columnNames.size());
+    for (const auto& name : columnNames) {
+        Column col;
+        col.name = name;
+        columns.push_back(std::move(col));
+    }
 }
 
 void TableRenderer::setData(const std::vector<std::vector<std::string>>& tableData) {
     data = tableData;
+}
+
+void TableRenderer::setData(std::vector<std::vector<std::string>>&& tableData) {
+    data = std::move(tableData);
 }
 
 void TableRenderer::setCellEditedStatus(const std::vector<std::vector<bool>>& editedCellsStatus) {
@@ -65,7 +91,23 @@ void TableRenderer::render(const char* tableId) {
         (!cellEditableCb || cellEditableCb(selectedRow, selectedCol))) {
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             !ImGui::GetIO().WantTextInput) {
-            if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+            // boolean cells: toggle on Enter/Space, ignore typed chars
+            bool isBoolCell = selectedRow < static_cast<int>(data.size()) &&
+                              selectedCol < static_cast<int>(data[selectedRow].size()) &&
+                              isBoolSentinel(data[selectedRow][selectedCol]);
+
+            if (isBoolCell) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Space)) {
+                    bool cur = boolSentinelValue(data[selectedRow][selectedCol]);
+                    if (onCellEdit) {
+                        onCellEdit(selectedRow, selectedCol,
+                                   std::string(cur ? BOOL_FALSE_SENTINEL : BOOL_TRUE_SENTINEL));
+                    }
+                }
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+                       ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
                 enterEditMode(selectedRow, selectedCol);
             } else if (!config.columnDropdownOptions.contains(selectedCol)) {
                 ImGuiIO& io = ImGui::GetIO();
@@ -100,8 +142,8 @@ void TableRenderer::render(const char* tableId) {
                                     columnWidth);
         }
 
-        for (const auto& colName : columns) {
-            ImGui::TableSetupColumn(colName.c_str(), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        for (const auto& col : columns) {
+            ImGui::TableSetupColumn(col.name.c_str(), ImGuiTableColumnFlags_WidthFixed, 120.0f);
         }
 
         ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
@@ -113,7 +155,7 @@ void TableRenderer::render(const char* tableId) {
 
         for (int colIdx = 0; colIdx < static_cast<int>(columns.size()); colIdx++) {
             ImGui::TableNextColumn();
-            renderColumnHeader(colIdx, columns[colIdx]);
+            renderColumnHeader(colIdx, columns[colIdx].name);
         }
 
         ImGuiListClipper clipper;
@@ -203,6 +245,11 @@ void TableRenderer::render(const char* tableId) {
         ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetStyle().ScrollbarSize);
         ImGui::EndTable();
     }
+
+    if (pendingEditOverlay) {
+        renderEditOverlay();
+        pendingEditOverlay = false;
+    }
 }
 
 void TableRenderer::renderCell(int row, int col) {
@@ -246,54 +293,15 @@ void TableRenderer::renderCell(int row, int col) {
                 exitEditMode(false);
             }
         } else {
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::SetKeyboardFocusHere();
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+            // store position for overlay edit input rendered after EndTable
+            editOverlayPosX = ImGui::GetCursorScreenPos().x;
+            editOverlayPosY = ImGui::GetCursorScreenPos().y;
+            editOverlayWidth = ImGui::GetColumnWidth();
+            pendingEditOverlay = true;
 
-            int extraFlags = 0;
-            if (auto it = config.columnInputFlags.find(col); it != config.columnInputFlags.end()) {
-                extraFlags = it->second;
-            }
-
-            bool shouldExitEditMode = false;
-            if (justEnteredEditWithChar) {
-                shouldExitEditMode = ImGui::InputText(
-                    "##edit", editBuffer, sizeof(editBuffer),
-                    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways |
-                        extraFlags,
-                    [](ImGuiInputTextCallbackData* data) {
-                        TableRenderer* renderer = static_cast<TableRenderer*>(data->UserData);
-                        if (renderer->justEnteredEditWithChar) {
-                            data->CursorPos = renderer->initialCursorPos;
-                            data->SelectionStart = renderer->initialCursorPos;
-                            data->SelectionEnd = renderer->initialCursorPos;
-                            renderer->justEnteredEditWithChar = false;
-                        }
-                        return 0;
-                    },
-                    this);
-            } else {
-                shouldExitEditMode =
-                    ImGui::InputText("##edit", editBuffer, sizeof(editBuffer),
-                                     ImGuiInputTextFlags_EnterReturnsTrue | extraFlags);
-            }
-            ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar(2);
-
-            const bool cancelEdit = ImGui::IsKeyPressed(ImGuiKey_Escape);
-            const bool deactivateEdit = ImGui::IsItemDeactivated();
-
-            if (cancelEdit) {
-                exitEditMode(false);
-            } else if (shouldExitEditMode || deactivateEdit) {
-                // Commit when the editor loses focus so clicking another cell or toolbar action
-                // doesn't leave the edit stuck in the transient buffer.
-                exitEditMode(true);
-            }
+            // single-line placeholder in cell
+            std::string firstLine = getFirstLine(data[row][col]);
+            ImGui::Text("%s", firstLine.empty() ? " " : firstLine.c_str());
         }
     } else {
         ImGui::PushID(row * static_cast<int>(columns.size()) + col);
@@ -328,13 +336,24 @@ void TableRenderer::renderCell(int row, int col) {
         if (config.allowSelection) {
             handleCellInteraction(row, col, isSelected);
         } else {
-            if (isNullSentinel(cellValue)) {
+            if (isBoolSentinel(cellValue)) {
+                bool checked = boolSentinelValue(cellValue);
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
+                float checkboxWidth = ImGui::GetFrameHeight();
+                float columnWidth = ImGui::GetColumnWidth();
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
+                ImGui::BeginDisabled();
+                ImGui::Checkbox("##bool", &checked);
+                ImGui::EndDisabled();
+                ImGui::PopStyleVar();
+            } else if (isNullSentinel(cellValue)) {
                 ImGui::TextColored(colors.overlay1, "NULL");
             } else {
-                ImGui::Text("%s", cellValue.c_str());
+                ImGui::Text("%s", getFirstLine(cellValue).c_str());
             }
 
-            if (ImGui::IsItemHovered() && cellValue.length() > 50) {
+            if (ImGui::IsItemHovered() &&
+                (cellValue.length() > 50 || cellValue.find('\n') != std::string::npos)) {
                 ImGui::SetTooltip("%s", cellValue.c_str());
             }
         }
@@ -350,7 +369,88 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
     const auto& colors = Application::getInstance().getCurrentColors();
     const std::string& cellValue = data[row][col];
     const bool isNull = isNullSentinel(cellValue);
-    const char* displayText = isNull ? "NULL" : cellValue.c_str();
+    const bool isBool = isBoolSentinel(cellValue);
+
+    // boolean cells: render a small centered checkbox
+    if (isBool) {
+        bool checked = boolSentinelValue(cellValue);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
+        float checkboxWidth = ImGui::GetFrameHeight();
+        float columnWidth = ImGui::GetColumnWidth();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
+
+        // make the checkbox background transparent so cell bg shows through
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+
+        bool editable = config.allowEditing && !config.nonEditableColumns.contains(col) &&
+                        (!cellEditableCb || cellEditableCb(row, col));
+        if (!editable)
+            ImGui::BeginDisabled();
+
+        if (ImGui::Checkbox("##bool", &checked)) {
+            selectedRow = row;
+            selectedCol = col;
+            if (onCellSelect)
+                onCellSelect(row, col);
+            if (onCellEdit) {
+                onCellEdit(row, col,
+                           std::string(checked ? BOOL_TRUE_SENTINEL : BOOL_FALSE_SENTINEL));
+            }
+        }
+
+        if (!editable)
+            ImGui::EndDisabled();
+
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+
+        // select on click even if not toggling
+        if (ImGui::IsItemClicked() || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selectedRow = row;
+            selectedCol = col;
+            if (onCellSelect)
+                onCellSelect(row, col);
+        }
+
+        if (ImGui::IsItemHovered() && !isSelected && editable) {
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(colors.surface1));
+        }
+
+        // right-click: allow Set NULL on boolean columns
+        if (config.allowEditing && onSetNull && columnNullableCb && columnNullableCb(col)) {
+            const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
+            if (ImGui::BeginPopupContextItem(menuId.c_str())) {
+                if (selectedRow != row || selectedCol != col) {
+                    selectedRow = row;
+                    selectedCol = col;
+                    if (onCellSelect)
+                        onCellSelect(row, col);
+                }
+                if (ImGui::MenuItem("Set NULL")) {
+                    onSetNull(row, col);
+                }
+                ImGui::EndPopup();
+            }
+        }
+        return;
+    }
+
+    std::string singleLineText;
+    const char* displayText;
+    if (isNull) {
+        displayText = "NULL";
+    } else {
+        auto nlPos = cellValue.find('\n');
+        if (nlPos != std::string::npos) {
+            singleLineText = cellValue.substr(0, nlPos);
+            displayText = singleLineText.c_str();
+        } else {
+            displayText = cellValue.c_str();
+        }
+    }
 
     // Make Selectable transparent - cell bg is handled by TableSetBgColor
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
@@ -389,7 +489,8 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(colors.surface1));
     }
 
-    if (ImGui::IsItemHovered() && !isNull && cellValue.length() > 50) {
+    if (ImGui::IsItemHovered() && !isNull &&
+        (cellValue.length() > 50 || cellValue.find('\n') != std::string::npos)) {
         ImGui::SetTooltip("%s", cellValue.c_str());
     }
 
@@ -434,6 +535,7 @@ void TableRenderer::enterEditMode(int row, int col) {
             comboNeedsOpen = true;
             comboHasOpened = false;
         }
+        editOverlayFrames = 0;
     }
 }
 
@@ -459,6 +561,80 @@ void TableRenderer::scrollToCell(int row, int col) {
     shouldScrollToCell = true;
     scrollTargetRow = row;
     scrollTargetCol = col;
+}
+
+void TableRenderer::renderEditOverlay() {
+    if (editingRow < 0 || editingCol < 0)
+        return;
+
+    const auto& colors = Application::getInstance().getCurrentColors();
+
+    float width = std::max(editOverlayWidth, 250.0f);
+    int lineCount = 1;
+    for (const char* p = editBuffer; *p; ++p) {
+        if (*p == '\n')
+            lineCount++;
+    }
+    float lineHeight = ImGui::GetTextLineHeightWithSpacing();
+    float lines = std::min(std::max(static_cast<float>(lineCount + 1), 3.0f), 15.0f);
+    float height = lineHeight * lines + 12.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(editOverlayPosX, editOverlayPosY));
+    ImGui::SetNextWindowSize(ImVec2(width, height));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoScrollbar;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 4));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, colors.surface0);
+    ImGui::PushStyleColor(ImGuiCol_Border, colors.blue);
+
+    if (ImGui::Begin("##edit_overlay", nullptr, flags)) {
+        if (editOverlayFrames < 3) {
+            ImGui::SetKeyboardFocusHere();
+            editOverlayFrames++;
+        }
+
+        int extraFlags = 0;
+        if (auto it = config.columnInputFlags.find(editingCol);
+            it != config.columnInputFlags.end()) {
+            extraFlags = it->second;
+        }
+
+        if (justEnteredEditWithChar) {
+            ImGui::InputTextMultiline(
+                "##edit_overlay_input", editBuffer, sizeof(editBuffer), ImVec2(-FLT_MIN, -FLT_MIN),
+                ImGuiInputTextFlags_CallbackAlways | extraFlags,
+                [](ImGuiInputTextCallbackData* cbData) {
+                    auto* renderer = static_cast<TableRenderer*>(cbData->UserData);
+                    if (renderer->justEnteredEditWithChar) {
+                        cbData->CursorPos = renderer->initialCursorPos;
+                        cbData->SelectionStart = renderer->initialCursorPos;
+                        cbData->SelectionEnd = renderer->initialCursorPos;
+                        renderer->justEnteredEditWithChar = false;
+                    }
+                    return 0;
+                },
+                this);
+        } else {
+            ImGui::InputTextMultiline("##edit_overlay_input", editBuffer, sizeof(editBuffer),
+                                      ImVec2(-FLT_MIN, -FLT_MIN), extraFlags);
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            exitEditMode(false);
+        } else if (editOverlayFrames >= 3 &&
+                   !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            // commit when clicking outside the overlay
+            exitEditMode(true);
+        }
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(2);
 }
 
 void TableRenderer::renderColumnHeader(int colIdx, const std::string& colName) {

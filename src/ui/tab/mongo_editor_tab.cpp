@@ -456,7 +456,7 @@ void MongoEditorTab::updateCompletionKeywords() {
         std::ranges::unique(items, [](const CI& a, const CI& b) { return a.text == b.text; });
     items.erase(ret.begin(), ret.end());
 
-    editor_.SetCompletionItems(items);
+    editor_.SetCompletionItems(std::move(items));
     completionKeywordsSet_ = true;
 }
 
