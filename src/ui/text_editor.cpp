@@ -581,11 +581,13 @@ namespace dearsql {
         int currentLine = getLineFromPos(cursorIndex_);
 
         for (int i = startLine; i <= endLine; ++i) {
-            float y = textOrigin_.y + i * lineHeight_ - scrollY_;
+            // textOrigin_.y already accounts for scroll (captured inside the
+            // scrolled text_area child), so don't subtract scrollY_ here.
+            float y = textOrigin_.y + i * lineHeight_;
             snprintf(buf, sizeof(buf), "%d", i + 1);
 
             float textW = ImGui::CalcTextSize(buf).x;
-            float x = textOrigin_.x - 8.0f - lineNumberWidth_ + lineNumberWidth_ - textW - 10.0f;
+            float x = textOrigin_.x - 18.0f - textW;
 
             ImU32 color = (i == currentLine) ? palette_.currentLineNumber : palette_.lineNumber;
             drawList->AddText(ImVec2(x, y), color, buf);

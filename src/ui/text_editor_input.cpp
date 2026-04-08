@@ -326,7 +326,10 @@ namespace dearsql {
         cursorBlinkTimer_ = 0.0f;
         ensureCursorVisibleV_ = true;
         ensureCursorVisibleH_ = true;
-        updateAutoComplete();
+        // Don't open a new completion popup on backspace; only refresh one
+        // that's already open so its filter narrows as the user deletes.
+        if (autocompleteVisible_)
+            updateAutoComplete();
     }
 
     void TextEditor::handleDeleteKey() {
@@ -354,7 +357,9 @@ namespace dearsql {
             highlightDirty_ = true;
         }
         cursorBlinkTimer_ = 0.0f;
-        updateAutoComplete();
+        // Same as backspace: don't open a new completion popup on delete.
+        if (autocompleteVisible_)
+            updateAutoComplete();
     }
 
     void TextEditor::handleTabKey() {
@@ -789,8 +794,10 @@ namespace dearsql {
     int TextEditor::getCharIndexFromScreenPos(ImVec2 screenPos) const {
         float spaceWidth = ImGui::CalcTextSize(" ").x;
 
-        // Determine line from Y position
-        int line = static_cast<int>((screenPos.y - textOrigin_.y + scrollY_) / lineHeight_);
+        // Determine line from Y position. textOrigin_.y already accounts for
+        // scroll (captured inside the scrolled text_area child), so compare
+        // directly in screen coordinates.
+        int line = static_cast<int>((screenPos.y - textOrigin_.y) / lineHeight_);
         line = std::clamp(line, 0, static_cast<int>(lineStarts_.size()) - 1);
 
         int lineStart = lineStarts_[line];
