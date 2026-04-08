@@ -62,6 +62,6 @@ private:
     // Internal methods
     void updateAutoCompleteSuggestions(const ImGuiInputTextCallbackData* data);
     void triggerAutoComplete(ImGuiInputTextCallbackData* data);
-    void renderAutoCompletePopup();
+    void renderAutoCompletePopup(const ImVec2& anchorPos, const ImVec2& anchorSize);
     void applyPendingAutoComplete(ImGuiInputTextCallbackData* data);
 };

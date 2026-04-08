@@ -87,7 +87,10 @@ bool AutoCompleteInput::render(const char* label, char* buffer, const size_t buf
         }
     }
 
-    renderAutoCompletePopup();
+    // Anchor the popup to the input rect (not the end-icon rect, which
+    // would otherwise be the "last item" by the time the popup renders).
+    const ImVec2 anchorMax = hasEndIcon ? ImVec2(inputMax.x + iconAreaW, inputMax.y) : inputMax;
+    renderAutoCompletePopup(inputMin, ImVec2(anchorMax.x - inputMin.x, inputMax.y - inputMin.y));
 
     // Only process Enter if not consumed by auto-complete and no pending completion
     const bool shouldProcessEnter =
@@ -260,15 +263,14 @@ void AutoCompleteInput::triggerAutoComplete(ImGuiInputTextCallbackData* data) {
     }
 }
 
-void AutoCompleteInput::renderAutoCompletePopup() {
+void AutoCompleteInput::renderAutoCompletePopup(const ImVec2& anchorPos, const ImVec2& anchorSize) {
     if (!showAutoComplete || autoCompleteSuggestions.empty()) {
         return;
     }
 
-    // Position the popup below the input field
-    const ImVec2 inputPos = ImGui::GetItemRectMin();
-    const ImVec2 inputSize = ImGui::GetItemRectSize();
-    ImGui::SetNextWindowPos(ImVec2(inputPos.x, inputPos.y + inputSize.y));
+    // Position the popup below the input field (anchor is passed in, since
+    // GetItemRect* would otherwise resolve to the end-icon button).
+    ImGui::SetNextWindowPos(ImVec2(anchorPos.x, anchorPos.y + anchorSize.y));
 
     // Calculate popup size
     constexpr float maxWidth = 300.0f;
