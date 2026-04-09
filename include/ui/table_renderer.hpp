@@ -1,6 +1,7 @@
 #pragma once
 
 #include "database/db.hpp"
+#include "ui/datetime_picker.hpp"
 #include <functional>
 #include <map>
 #include <set>
@@ -142,6 +143,11 @@ private:
     float editOverlayPosX = 0;
     float editOverlayPosY = 0;
     float editOverlayWidth = 0;
+
+    // date/datetime picker state
+    DateTimePickerState dtPickerState;
+    bool datePickerNeedsOpen = false;
+    bool datePickerDirty = false;
 
     // Callbacks
     OnCellEditCallback onCellEdit;

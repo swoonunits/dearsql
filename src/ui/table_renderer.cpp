@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
-#include <string_view>
 
 namespace {
     // truncate at first newline for single-line cell display
@@ -109,7 +108,9 @@ void TableRenderer::render(const char* tableId) {
             } else if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
                 enterEditMode(selectedRow, selectedCol);
-            } else if (!config.columnDropdownOptions.contains(selectedCol)) {
+            } else if (!config.columnDropdownOptions.contains(selectedCol) &&
+                       (selectedCol >= static_cast<int>(columns.size()) ||
+                        !DateTimePicker::columnKind(columns[selectedCol].type))) {
                 ImGuiIO& io = ImGui::GetIO();
                 if (io.InputQueueCharacters.Size > 0) {
                     ImWchar c = io.InputQueueCharacters[0];
@@ -288,6 +289,64 @@ void TableRenderer::renderCell(int row, int col) {
                 exitEditMode(false);
             }
             ImGui::PopStyleVar(2);
+
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                exitEditMode(false);
+            }
+        } else if (col < static_cast<int>(columns.size()) &&
+                   DateTimePicker::columnKind(columns[col].type)) {
+            // date/datetime column: show picker popup
+            const bool showNull = editBuffer[0] == '\0' || isNullSentinel(editBuffer);
+            const std::string displayValue = showNull ? "NULL" : getFirstLine(editBuffer);
+            ImGui::Text("%s", displayValue.c_str());
+            const ImVec2 popupPos = ImVec2(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
+
+            if (datePickerNeedsOpen) {
+                ImGui::OpenPopup("##dtp");
+                datePickerNeedsOpen = false;
+            }
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+            ImGui::PushStyleColor(ImGuiCol_PopupBg,
+                                  Application::getInstance().getCurrentColors().base);
+            ImGui::PushStyleColor(ImGuiCol_Border,
+                                  Application::getInstance().getCurrentColors().overlay0);
+
+            // ensure popup is tall enough for 6 calendar rows + header + day labels
+            float rowH = ImGui::GetFrameHeight();
+            float minH =
+                ImGui::GetStyle().WindowPadding.y * 2.0f + ImGui::GetFrameHeightWithSpacing() +
+                ImGui::GetTextLineHeightWithSpacing() + rowH * 6.0f + Theme::Spacing::XS * 5.0f;
+            ImGui::SetNextWindowPos(popupPos, ImGuiCond_Appearing);
+            ImGui::SetNextWindowSizeConstraints(ImVec2(0, minH), ImVec2(FLT_MAX, FLT_MAX));
+
+            if (ImGui::BeginPopup("##dtp")) {
+                auto result = DateTimePicker::render(dtPickerState);
+                if (result.setNull) {
+                    const std::string nullSentinel = std::string(NULL_SENTINEL);
+                    strncpy(editBuffer, nullSentinel.c_str(), sizeof(editBuffer) - 1);
+                    editBuffer[sizeof(editBuffer) - 1] = '\0';
+                    datePickerDirty = true;
+                    exitEditMode(true);
+                    ImGui::CloseCurrentPopup();
+                } else if (result.committed) {
+                    strncpy(editBuffer, result.value.c_str(), sizeof(editBuffer) - 1);
+                    editBuffer[sizeof(editBuffer) - 1] = '\0';
+                    datePickerDirty = true;
+                    exitEditMode(true);
+                    ImGui::CloseCurrentPopup();
+                } else if (result.changed) {
+                    strncpy(editBuffer, result.value.c_str(), sizeof(editBuffer) - 1);
+                    editBuffer[sizeof(editBuffer) - 1] = '\0';
+                    datePickerDirty = true;
+                }
+                ImGui::EndPopup();
+            } else if (editingRow >= 0 && editingCol >= 0) {
+                exitEditMode(datePickerDirty);
+            }
+
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar();
 
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 exitEditMode(false);
@@ -534,6 +593,25 @@ void TableRenderer::enterEditMode(int row, int col) {
         if (config.columnDropdownOptions.contains(col)) {
             comboNeedsOpen = true;
             comboHasOpened = false;
+        } else if (int kind = DateTimePicker::columnKind(columns[col].type); kind > 0) {
+            dtPickerState.kind = kind;
+            dtPickerState.allowNull = !columnNullableCb || columnNullableCb(col);
+            dtPickerState.suffix.clear();
+            if (!DateTimePicker::parse(currentValue, dtPickerState)) {
+                // default to now
+                auto now = std::chrono::system_clock::now();
+                std::time_t t = std::chrono::system_clock::to_time_t(now);
+#ifdef _MSC_VER
+                localtime_s(&dtPickerState.date, &t);
+#else
+                localtime_r(&t, &dtPickerState.date);
+#endif
+                dtPickerState.suffix.clear();
+                dtPickerState.hour = dtPickerState.minute = dtPickerState.second = 0;
+            }
+            dtPickerState.scrollTime = true;
+            datePickerNeedsOpen = true;
+            datePickerDirty = false;
         }
         editOverlayFrames = 0;
     }
@@ -548,6 +626,8 @@ void TableRenderer::exitEditMode(bool saveEdit) {
 
         editingRow = -1;
         editingCol = -1;
+        datePickerNeedsOpen = false;
+        datePickerDirty = false;
         memset(editBuffer, 0, sizeof(editBuffer));
     }
 }

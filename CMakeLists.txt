@@ -190,6 +190,7 @@ set(APP_SOURCES
     src/database/ssh_config_parser.cpp
     src/ui/query_history.cpp
     src/ui/table_renderer.cpp
+    src/ui/datetime_picker.cpp
     src/ui/auto_complete_input.cpp
     src/ui/database_node.cpp
     src/ui/db_sidebar.cpp
