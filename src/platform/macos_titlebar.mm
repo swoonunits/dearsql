@@ -355,7 +355,7 @@
 
         if (!self.app->canAddWorkspace()) {
             Alert::show("Workspace Limit Reached",
-                        "Free tier is limited to 1 workspace. Activate a license to create more.");
+                        "Free tier is limited to 2 workspaces. Activate a license to create more.");
             return;
         }
 
@@ -505,8 +505,11 @@
 
     NSTextField* fontSizeValueLabel = [NSTextField labelWithString:@"100%"];
     fontSizeValueLabel.alignment = NSTextAlignmentCenter;
+    CGFloat fontLabelW = rowW - 2 * (fontBtnW + fontSpacing);
+    CGFloat fontLabelH = 18;
+    CGFloat fontLabelY = y + (28 - fontLabelH) / 2;
     fontSizeValueLabel.frame =
-        NSMakeRect(rowX + fontBtnW + fontSpacing, y, rowW - 2 * (fontBtnW + fontSpacing), 28);
+        NSMakeRect(rowX + fontBtnW + fontSpacing, fontLabelY, fontLabelW, fontLabelH);
     [contentView addSubview:fontSizeValueLabel];
     objc_setAssociatedObject(self, "fontSizeLabel", fontSizeValueLabel, OBJC_ASSOCIATION_RETAIN);
 
@@ -597,17 +600,23 @@
     [self.themeLightButton setContentTintColor:nil];
     [self.themeDarkButton setContentTintColor:nil];
     [self.themeAutoButton setContentTintColor:nil];
-    self.themeLightButton.layer.backgroundColor = nil;
-    self.themeDarkButton.layer.backgroundColor = nil;
-    self.themeAutoButton.layer.backgroundColor = nil;
+    for (NSButton* btn in @[ self.themeLightButton, self.themeDarkButton, self.themeAutoButton ]) {
+        for (CALayer* sub in [btn.layer.sublayers copy]) {
+            if ([sub.name isEqualToString:@"themeHighlight"])
+                [sub removeFromSuperlayer];
+        }
+    }
 
-    // highlight the currently selected theme with accent color background
+    // highlight the currently selected theme with an inset sublayer
     NSButton* selectedButton = isDark ? self.themeDarkButton : self.themeLightButton;
     [selectedButton setContentTintColor:[NSColor controlAccentColor]];
-    selectedButton.layer.backgroundColor =
-        [[NSColor controlAccentColor] colorWithAlphaComponent:0.15].CGColor;
-    selectedButton.layer.cornerRadius = 6;
-    selectedButton.layer.masksToBounds = YES;
+
+    CALayer* highlight = [CALayer layer];
+    highlight.name = @"themeHighlight";
+    highlight.frame = NSInsetRect(selectedButton.bounds, 1, 3);
+    highlight.backgroundColor = [[NSColor controlAccentColor] colorWithAlphaComponent:0.15].CGColor;
+    highlight.cornerRadius = 5;
+    [selectedButton.layer insertSublayer:highlight atIndex:0];
 }
 
 - (void)updateWindowBackgroundColor {

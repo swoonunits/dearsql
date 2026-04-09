@@ -514,7 +514,7 @@ void WindowsTitlebar::renderPopups() {
             if (!app_->canAddWorkspace()) {
                 Alert::show(
                     "Workspace Limit Reached",
-                    "Free tier is limited to 1 workspace. Activate a license to create more.");
+                    "Free tier is limited to 2 workspaces. Activate a license to create more.");
             } else {
                 InputDialog::show("New Workspace", "", "", "Create",
                                   [this](const std::string& name) -> std::string {

@@ -74,7 +74,7 @@ void LinuxTitlebar::setup() {
                          gtk_popover_popdown(GTK_POPOVER(self->workspacePopover_));
                          if (!self->app_->canAddWorkspace()) {
                              Alert::show("Workspace Limit Reached",
-                                         "Free tier is limited to 1 workspace. "
+                                         "Free tier is limited to 2 workspaces. "
                                          "Activate a license to create more.");
                              return;
                          }
