@@ -12,6 +12,22 @@
 
 namespace {
 
+    bool shouldApplySslCA(const DatabaseConnectionInfo& info) {
+        if (info.sslCACertPath.empty()) {
+            return false;
+        }
+
+        switch (info.sslmode) {
+        case SslMode::Require:
+        case SslMode::VerifyCA:
+        case SslMode::VerifyFull:
+        case SslMode::VerifyIdentity:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     // escape a MySQL identifier: double any embedded backticks
     std::string quoteMysqlId(const std::string& id) {
         std::string out = "`";
@@ -39,6 +55,42 @@ namespace {
             if (!conn) {
                 throw std::runtime_error("mysql_init failed");
             }
+
+            constexpr unsigned int connectTimeoutSeconds = 5;
+            mysql_options(conn, MYSQL_OPT_CONNECT_TIMEOUT, &connectTimeoutSeconds);
+
+            if (shouldApplySslCA(info)) {
+                mysql_options(conn, MYSQL_OPT_SSL_CA, info.sslCACertPath.c_str());
+            }
+
+            switch (info.sslmode) {
+            case SslMode::Disable: {
+                my_bool enforce = 0;
+                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
+                break;
+            }
+            case SslMode::Require: {
+                my_bool enforce = 1;
+                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
+                break;
+            }
+            case SslMode::VerifyCA: {
+                my_bool enforce = 1;
+                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
+                break;
+            }
+            case SslMode::VerifyFull:
+            case SslMode::VerifyIdentity: {
+                my_bool enforce = 1;
+                my_bool verify = 1;
+                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
+                mysql_options(conn, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
+                break;
+            }
+            default:
+                break;
+            }
+
             unsigned long flags = CLIENT_MULTI_STATEMENTS;
             if (!mysql_real_connect(conn, info.host.c_str(), info.username.c_str(),
                                     info.password.c_str(), info.database.c_str(), info.port,
@@ -218,6 +270,9 @@ std::vector<Table> MySQLDatabaseNode::getTablesAsync() {
                         col.type = row[1] ? row[1] : "";                           // Type
                         col.isNotNull = row[2] && std::string(row[2]) == "NO";     // Null
                         col.isPrimaryKey = row[3] && std::string(row[3]) == "PRI"; // Key
+                        // row[4] = Default, row[5] = Extra
+                        col.isAutoIncrement = row[5] && std::string(row[5]).find(
+                                                            "auto_increment") != std::string::npos;
                         table.columns.push_back(col);
                     }
                 }
@@ -539,6 +594,8 @@ Table MySQLDatabaseNode::refreshTableAsync(const std::string& tableName) {
                     col.type = row[1] ? row[1] : "";
                     col.isNotNull = row[2] && std::string(row[2]) == "NO";
                     col.isPrimaryKey = row[3] && std::string(row[3]) == "PRI";
+                    col.isAutoIncrement =
+                        row[5] && std::string(row[5]).find("auto_increment") != std::string::npos;
                     refreshedTable.columns.push_back(col);
                 }
             }

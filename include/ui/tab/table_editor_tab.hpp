@@ -2,8 +2,10 @@
 
 #include "database/db.hpp"
 #include "database/db_interface.hpp"
+#include "ui/auto_complete_input.hpp"
 #include "ui/tab/tab.hpp"
 #include "ui/text_editor.hpp"
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,6 +32,7 @@ public:
 private:
     TableEditorMode editorMode = TableEditorMode::Create;
     ColumnEditMode columnEditMode = ColumnEditMode::None;
+    bool focusColumnName = false;
     RightPanelMode rightPanelMode = RightPanelMode::TableProperties;
 
     DatabaseType databaseType = DatabaseType::SQLITE;
@@ -50,10 +53,12 @@ private:
     bool isPrimaryKey = false;
     bool isNotNull = false;
     bool isUnique = false;
+    bool isAutoIncrement = false;
     char defaultValue[256] = "";
 
     std::string errorMessage;
     dearsql::TextEditor previewEditor;
+    std::unique_ptr<AutoCompleteInput> columnTypeAutoComplete;
     bool showPreviewPopup = false;
     bool dirty = false;
     float leftPanelWidth = 300.0f;
@@ -82,6 +87,7 @@ private:
     std::string generateEditColumnSQL() const;
     std::vector<std::string> generateAlterTableStatements() const;
     [[nodiscard]] std::vector<std::string> getCommonDataTypes() const;
+    void initializeColumnTypeAutoComplete();
 
     void markDirty();
     void reset();

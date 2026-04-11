@@ -112,8 +112,11 @@ TableEditorTab::TableEditorTab(IDatabaseNode* node, const std::string& schema)
     }
     schemaName = schema;
     editingTable = Table{};
+    editingTable.name = "New Table";
+    std::strncpy(tableNameBuffer, "New Table", sizeof(tableNameBuffer) - 1);
     editingTable.columns.clear();
     rightPanelMode = RightPanelMode::TableProperties;
+    initializeColumnTypeAutoComplete();
 }
 
 TableEditorTab::TableEditorTab(IDatabaseNode* node, const Table& table, const std::string& schema)
@@ -129,6 +132,7 @@ TableEditorTab::TableEditorTab(IDatabaseNode* node, const Table& table, const st
     tableNameBuffer[sizeof(tableNameBuffer) - 1] = '\0';
     std::memset(tableCommentBuffer, 0, sizeof(tableCommentBuffer));
     rightPanelMode = RightPanelMode::TableProperties;
+    initializeColumnTypeAutoComplete();
 }
 
 void TableEditorTab::render() {
@@ -142,26 +146,24 @@ void TableEditorTab::render() {
 void TableEditorTab::renderContent(bool& closeRequested) {
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    ImGui::PushStyleColor(ImGuiCol_Text, colors.text);
-    ImGui::TextUnformatted(editorMode == TableEditorMode::Edit ? "Table Editor" : "Create Table");
-    ImGui::PopStyleColor();
-    if (!schemaName.empty()) {
-        ImGui::SameLine(0.0f, Theme::Spacing::M);
-        renderStateChip(colors, std::format("Schema: {}", schemaName).c_str(), colors.teal);
-    }
-    ImGui::SameLine(0.0f, Theme::Spacing::S);
-    renderStateChip(colors, dirty ? "Unsaved Changes" : "Ready",
-                    dirty ? colors.yellow : colors.subtext0);
-
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, withAlpha(colors.surface1, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, withAlpha(colors.surface2, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(colors.overlay0, 0.5f));
     ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext1);
-    if (editorMode == TableEditorMode::Edit) {
-        ImGui::Text("Table: %s", originalTable.name.c_str());
-    } else {
-        ImGui::Text("Table: %s", std::strlen(tableNameBuffer) > 0 ? tableNameBuffer : "New Table");
-    }
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Table: ");
     ImGui::PopStyleColor();
-    ImGui::Separator();
-    ImGui::Spacing();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    if (ImGui::InputText("##table_name_header", tableNameBuffer, sizeof(tableNameBuffer))) {
+        editingTable.name = tableNameBuffer;
+        markDirty();
+    }
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar();
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::S));
 
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
@@ -378,6 +380,9 @@ void TableEditorTab::renderColumnsNode() {
             if (column.isUnique) {
                 columnDisplay += ", UNIQUE";
             }
+            if (column.isAutoIncrement) {
+                columnDisplay += ", AI";
+            }
 
             ImGui::PushID(static_cast<int>(i));
             ImGui::TreeNodeEx(columnDisplay.c_str(), columnFlags);
@@ -460,6 +465,7 @@ void TableEditorTab::renderKeysNode() const {
 
 void TableEditorTab::renderColumnEditor() {
     const auto& colors = Application::getInstance().getCurrentColors();
+    ImGui::Dummy(ImVec2(0, Theme::Spacing::S));
     const char* editorTitle =
         (columnEditMode == ColumnEditMode::Add) ? "Add New Column" : "Edit Column";
     renderSectionTitle(colors, colors.blue, ICON_FA_PEN_TO_SQUARE, editorTitle,
@@ -476,6 +482,10 @@ void TableEditorTab::renderColumnEditor() {
     ImGui::Text("Column Name:");
     ImGui::PopStyleColor();
     ImGui::SetNextItemWidth(-Theme::Spacing::M);
+    if (focusColumnName) {
+        ImGui::SetKeyboardFocusHere();
+        focusColumnName = false;
+    }
     if (ImGui::InputText("##column_name", columnName, sizeof(columnName))) {
         updateCurrentColumn();
     }
@@ -485,42 +495,10 @@ void TableEditorTab::renderColumnEditor() {
     ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext1);
     ImGui::Text("Data Type:");
     ImGui::PopStyleColor();
-    ImGui::SetNextItemWidth(-Theme::Spacing::M);
-    if (ImGui::BeginCombo("##column_type", columnType, ImGuiComboFlags_None)) {
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::IsWindowAppearing()) {
-            ImGui::SetKeyboardFocusHere();
-        }
-
-        if (ImGui::InputText("##type_filter", columnType, sizeof(columnType))) {
-            updateCurrentColumn();
-        }
-
-        ImGui::Separator();
-
-        const auto commonTypes = getCommonDataTypes();
-        const auto currentInput = std::string(columnType);
-
-        for (const auto& type : commonTypes) {
-            std::string lowerType = type;
-            std::string lowerInput = currentInput;
-            std::ranges::transform(lowerType, lowerType.begin(), ::tolower);
-            std::ranges::transform(lowerInput, lowerInput.begin(), ::tolower);
-
-            if (lowerInput.empty() || lowerType.find(lowerInput) != std::string::npos) {
-                const bool isSelected = (type == currentInput);
-                if (ImGui::Selectable(type.c_str(), isSelected)) {
-                    std::strncpy(columnType, type.c_str(), sizeof(columnType) - 1);
-                    columnType[sizeof(columnType) - 1] = '\0';
-                    updateCurrentColumn();
-                }
-                if (isSelected) {
-                    ImGui::SetItemDefaultFocus();
-                }
-            }
-        }
-        ImGui::EndCombo();
+    if (columnTypeAutoComplete == nullptr) {
+        initializeColumnTypeAutoComplete();
     }
+    columnTypeAutoComplete->render("##column_type", columnType, sizeof(columnType));
 
     ImGui::Spacing();
 
@@ -537,6 +515,57 @@ void TableEditorTab::renderColumnEditor() {
     ImGui::SameLine();
     if (ImGui::Checkbox("UNIQUE", &isUnique)) {
         updateCurrentColumn();
+    }
+
+    {
+        const char* label = nullptr;
+        const char* tooltip = nullptr;
+        switch (databaseType) {
+        case DatabaseType::MYSQL:
+        case DatabaseType::MARIADB:
+        case DatabaseType::SQLITE:
+            label = "AUTO_INCREMENT";
+            break;
+        case DatabaseType::POSTGRESQL:
+            label = "SERIAL";
+            tooltip = "Uses SERIAL/BIGSERIAL type for auto-incrementing columns";
+            break;
+        case DatabaseType::MSSQL:
+            label = "IDENTITY";
+            tooltip = "IDENTITY(1,1)";
+            break;
+        case DatabaseType::ORACLE:
+            label = "IDENTITY";
+            tooltip = "GENERATED ALWAYS AS IDENTITY";
+            break;
+        default:
+            break;
+        }
+        if (label) {
+            const bool typeSupported = supportsAutoIncrement(databaseType, columnType);
+            // clear flag if the type was changed to something incompatible
+            if (!typeSupported && isAutoIncrement) {
+                isAutoIncrement = false;
+                updateCurrentColumn();
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!typeSupported);
+            if (ImGui::Checkbox(label, &isAutoIncrement)) {
+                updateCurrentColumn();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (!typeSupported) {
+                    if (databaseType == DatabaseType::SQLITE) {
+                        ImGui::SetTooltip("Only INTEGER PRIMARY KEY supports AUTOINCREMENT");
+                    } else {
+                        ImGui::SetTooltip("Only integer types support auto-increment");
+                    }
+                } else if (tooltip) {
+                    ImGui::SetTooltip("%s", tooltip);
+                }
+            }
+        }
     }
 
     ImGui::Spacing();
@@ -567,9 +596,6 @@ void TableEditorTab::renderColumnEditor() {
     ImGui::PopStyleVar();
 
     ImGui::Spacing();
-    renderNoticeBox(colors, "column_editor_note", ICON_FA_WAND_MAGIC_SPARKLES,
-                    "Changes update the selected column entry in the structure tree immediately.",
-                    colors.blue);
 }
 
 void TableEditorTab::renderPreviewPopup(bool& closeRequested) {
@@ -664,13 +690,17 @@ void TableEditorTab::renderPreviewPopup(bool& closeRequested) {
 void TableEditorTab::renderButtons(bool& closeRequested) {
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.blue);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.sky);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.sapphire);
-    ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(colors.blue, 0.55f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                          ImVec4(colors.green.x, colors.green.y, colors.green.z, 1.0f));
+    ImGui::PushStyleColor(
+        ImGuiCol_ButtonActive,
+        ImVec4(colors.green.x * 0.8f, colors.green.y * 0.8f, colors.green.z * 0.8f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, colors.base);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 
-    if (ImGui::Button("Save", ImVec2(120, 0))) {
+    if (ImGui::Button(ICON_FA_FLOPPY_DISK " Save", ImVec2(120, 0))) {
         if (validateTableInput()) {
             errorMessage.clear();
             std::string sql;
@@ -708,18 +738,20 @@ void TableEditorTab::renderButtons(bool& closeRequested) {
 void TableEditorTab::startAddColumn() {
     Column newColumn;
     newColumn.name = "column_name";
-    newColumn.type = "VARCHAR(255)";
+    newColumn.type = getCommonDataTypes().front();
     newColumn.comment.clear();
     newColumn.defaultValue.clear();
     newColumn.isPrimaryKey = false;
     newColumn.isNotNull = false;
     newColumn.isUnique = false;
+    newColumn.isAutoIncrement = false;
 
     editingTable.columns.push_back(newColumn);
     columnEditMode = ColumnEditMode::Add;
     selectedColumnIndex = static_cast<int>(editingTable.columns.size() - 1);
     rightPanelMode = RightPanelMode::ColumnEditor;
     populateColumnFormFromColumn(newColumn);
+    focusColumnName = true;
     errorMessage.clear();
     markDirty();
 }
@@ -751,6 +783,10 @@ void TableEditorTab::resetColumnForm() {
     isPrimaryKey = false;
     isNotNull = false;
     isUnique = false;
+    isAutoIncrement = false;
+    if (columnTypeAutoComplete) {
+        columnTypeAutoComplete->hideAutoComplete();
+    }
 }
 
 void TableEditorTab::populateColumnFormFromColumn(const Column& column) {
@@ -765,6 +801,24 @@ void TableEditorTab::populateColumnFormFromColumn(const Column& column) {
     isPrimaryKey = column.isPrimaryKey;
     isNotNull = column.isNotNull;
     isUnique = column.isUnique;
+    isAutoIncrement = column.isAutoIncrement;
+    if (columnTypeAutoComplete) {
+        columnTypeAutoComplete->hideAutoComplete();
+    }
+}
+
+void TableEditorTab::initializeColumnTypeAutoComplete() {
+    AutoCompleteInput::Config config;
+    config.width = -Theme::Spacing::M;
+    config.keywords = getCommonDataTypes();
+    config.matchMode = AutoCompleteInput::MatchMode::Substring;
+    config.completionMode = AutoCompleteInput::CompletionMode::WholeInput;
+    config.appendSpaceOnComplete = false;
+    config.showSuggestionsOnEmpty = true;
+    config.maxSuggestionsShown = 6;
+    config.refocusOnComplete = false;
+    config.onChange = [this]() { updateCurrentColumn(); };
+    columnTypeAutoComplete = std::make_unique<AutoCompleteInput>(std::move(config));
 }
 
 std::string TableEditorTab::generateAddColumnSQL() const {
@@ -778,11 +832,26 @@ std::string TableEditorTab::generateAddColumnSQL() const {
         }
     }
 
+    std::string colType = std::string(columnType);
+    if (isAutoIncrement && databaseType == DatabaseType::POSTGRESQL) {
+        std::string lower = colType;
+        std::ranges::transform(lower, lower.begin(), ::tolower);
+        if (lower == "bigint")
+            colType = "BIGSERIAL";
+        else if (lower == "smallint")
+            colType = "SMALLSERIAL";
+        else
+            colType = "SERIAL";
+    }
+
     std::string sql = "ALTER TABLE " + qualifiedTableName + " ADD COLUMN " +
-                      std::string(columnName) + " " + std::string(columnType);
+                      std::string(columnName) + " " + colType;
 
     if (isNotNull) {
         sql += " NOT NULL";
+    }
+    if (isAutoIncrement && databaseType != DatabaseType::POSTGRESQL) {
+        sql += autoIncrementClause(databaseType);
     }
     if (isUnique) {
         sql += " UNIQUE";
@@ -861,11 +930,30 @@ std::string TableEditorTab::generateEditColumnSQL() const {
         if (isNotNull) {
             sql += " NOT NULL";
         }
+        if (isAutoIncrement) {
+            sql += autoIncrementClause(databaseType);
+        }
         if (std::strlen(defaultValue) > 0) {
             sql += " DEFAULT " + std::string(defaultValue);
         }
         if (std::strlen(columnComment) > 0) {
             sql += " COMMENT '" + std::string(columnComment) + "'";
+        }
+        break;
+
+    case DatabaseType::MSSQL:
+        sql = "ALTER TABLE " + tableName + " ALTER COLUMN " + std::string(columnName) + " " +
+              std::string(columnType);
+        if (isNotNull) {
+            sql += " NOT NULL";
+        }
+        break;
+
+    case DatabaseType::ORACLE:
+        sql = "ALTER TABLE " + tableName + " MODIFY " + std::string(columnName) + " " +
+              std::string(columnType);
+        if (isNotNull) {
+            sql += " NOT NULL";
         }
         break;
 
@@ -924,16 +1012,6 @@ void TableEditorTab::renderTableProperties() {
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, withAlpha(colors.surface2, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_CheckMark, colors.blue);
 
-    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext1);
-    ImGui::Text("Table Name:");
-    ImGui::PopStyleColor();
-    ImGui::SetNextItemWidth(-Theme::Spacing::M);
-    if (ImGui::InputText("##table_name", tableNameBuffer, sizeof(tableNameBuffer))) {
-        editingTable.name = tableNameBuffer;
-        markDirty();
-    }
-    ImGui::Spacing();
-
     if (databaseType == DatabaseType::MYSQL || databaseType == DatabaseType::MARIADB ||
         databaseType == DatabaseType::POSTGRESQL) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext1);
@@ -954,11 +1032,6 @@ void TableEditorTab::renderTableProperties() {
     ImGui::Spacing();
 
     if (editorMode == TableEditorMode::Create) {
-        renderNoticeBox(colors, "create_table_note", ICON_FA_CIRCLE_INFO,
-                        "Add columns from the tree on the left using the + control or the context "
-                        "menu on the Columns node.",
-                        colors.teal);
-
         if (editingTable.columns.empty()) {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
@@ -996,6 +1069,19 @@ bool TableEditorTab::validateTableInput() {
         return false;
     }
 
+    for (const auto& col : editingTable.columns) {
+        if (!col.isAutoIncrement)
+            continue;
+        if (!supportsAutoIncrement(databaseType, col.type)) {
+            errorMessage = "Column '" + col.name + "' must be an integer type for auto-increment";
+            return false;
+        }
+        if (databaseType == DatabaseType::SQLITE && !col.isPrimaryKey) {
+            errorMessage = "SQLite AUTOINCREMENT requires '" + col.name + "' to be a PRIMARY KEY";
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -1020,59 +1106,17 @@ std::string TableEditorTab::generateCreateTableSQL() const {
         return "";
     }
 
-    std::string qualifiedTableName = std::string(tableNameBuffer);
+    auto builder = createSQLBuilder(databaseType);
+    Table table = editingTable;
+    table.name = std::string(tableNameBuffer);
+    table.comment = std::string(tableCommentBuffer);
+
+    std::string schema;
     if (databaseType == DatabaseType::POSTGRESQL) {
-        if (qualifiedTableName.find('.') == std::string::npos) {
-            const std::string schema = schemaName.empty() ? "public" : schemaName;
-            qualifiedTableName = schema + "." + qualifiedTableName;
-        }
+        schema = schemaName.empty() ? "public" : schemaName;
     }
 
-    std::string sql = "CREATE TABLE " + qualifiedTableName + " (\n";
-
-    for (size_t i = 0; i < editingTable.columns.size(); ++i) {
-        const auto& column = editingTable.columns[i];
-        sql += "    " + column.name + " " + column.type;
-
-        if (column.isNotNull) {
-            sql += " NOT NULL";
-        }
-        if (!column.comment.empty() &&
-            (databaseType == DatabaseType::MYSQL || databaseType == DatabaseType::MARIADB)) {
-            sql += " COMMENT '" + column.comment + "'";
-        }
-        if (i < editingTable.columns.size() - 1) {
-            sql += ",";
-        }
-        sql += "\n";
-    }
-
-    std::vector<std::string> primaryKeyColumns;
-    for (const auto& column : editingTable.columns) {
-        if (column.isPrimaryKey) {
-            primaryKeyColumns.push_back(column.name);
-        }
-    }
-
-    if (!primaryKeyColumns.empty()) {
-        sql += ",\n    PRIMARY KEY (";
-        for (size_t i = 0; i < primaryKeyColumns.size(); ++i) {
-            sql += primaryKeyColumns[i];
-            if (i < primaryKeyColumns.size() - 1) {
-                sql += ", ";
-            }
-        }
-        sql += ")\n";
-    }
-
-    sql += ")";
-
-    if ((databaseType == DatabaseType::MYSQL || databaseType == DatabaseType::MARIADB) &&
-        std::strlen(tableCommentBuffer) > 0) {
-        sql += " COMMENT = '" + std::string(tableCommentBuffer) + "'";
-    }
-
-    return sql;
+    return builder->createTable(table, schema);
 }
 
 std::vector<std::string> TableEditorTab::generateAlterTableStatements() const {
@@ -1124,6 +1168,7 @@ void TableEditorTab::updateCurrentColumn() {
         column.isPrimaryKey = isPrimaryKey;
         column.isNotNull = isNotNull;
         column.isUnique = isUnique;
+        column.isAutoIncrement = isAutoIncrement;
         markDirty();
     }
 }
