@@ -51,38 +51,56 @@ if (Test-Path $WinSparkleDll) {
 # Step 3: Build MSI with WiX
 Write-Host "`n--- Step 3: Building MSI ---"
 
-# Ensure dotnet and wix are available
-if ($env:DOTNET_ROOT) {
-    $env:PATH = "$env:DOTNET_ROOT;$env:USERPROFILE\.dotnet\tools;$env:PATH"
+# Use a pinned WiX toolchain so local builds and CI don't drift to newer major
+# versions with different licensing/runtime behavior.
+$WixVersion = "5.0.2"
+$WixToolDir = "$BuildDir\wix-tool"
+$WixExePath = "$WixToolDir\wix.exe"
+$env:WIX_EXTENSIONS = "$WixToolDir\extensions-cache"
+New-Item -ItemType Directory -Force -Path $env:WIX_EXTENSIONS | Out-Null
+
+# Ensure dotnet is available
+if ($env:DOTNET_ROOT -and (Test-Path "$env:DOTNET_ROOT\dotnet.exe")) {
+    $env:PATH = "$env:DOTNET_ROOT;$env:PATH"
 } elseif (Test-Path "C:\dotnet\dotnet.exe") {
     $env:DOTNET_ROOT = "C:\dotnet"
-    $env:PATH = "C:\dotnet;$env:USERPROFILE\.dotnet\tools;$env:PATH"
+    $env:PATH = "C:\dotnet;$env:PATH"
 }
 
-$wixExe = Get-Command wix -ErrorAction SilentlyContinue
-if (-not $wixExe) {
-    Write-Host "Installing WiX toolset..."
-    & "$env:DOTNET_ROOT\dotnet.exe" tool install --global wix 2>&1 | Out-Null
-    $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-    $wixExe = Get-Command wix -ErrorAction SilentlyContinue
-    if (-not $wixExe) {
-        Write-Error "Failed to install WiX. Ensure .NET SDK is installed."
-        exit 1
-    }
+$dotnetExe = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not $dotnetExe) {
+    Write-Error "dotnet not found. Ensure .NET SDK is installed."
+    exit 1
+}
+
+if (Test-Path $WixExePath) {
+    Write-Host "Updating WiX toolset to $WixVersion..."
+    & $dotnetExe.Source tool update --tool-path $WixToolDir wix --version $WixVersion 2>&1 | Out-Null
+} else {
+    Write-Host "Installing WiX toolset $WixVersion..."
+    & $dotnetExe.Source tool install --tool-path $WixToolDir wix --version $WixVersion 2>&1 | Out-Null
+}
+
+if (-not (Test-Path $WixExePath)) {
+    Write-Error "Failed to install WiX $WixVersion."
+    exit 1
 }
 
 # Ensure UI extension is available
-$wixExtOutput = wix extension list 2>&1 | Out-String
-if ($wixExtOutput -notmatch "WixToolset.UI.wixext") {
+$wixExtOutput = & $WixExePath extension list -g 2>&1 | Out-String
+if ($wixExtOutput -notmatch [regex]::Escape("WixToolset.UI.wixext $WixVersion")) {
     Write-Host "Installing WiX UI extension..."
-    $wixVer = (wix --version) -replace '\+.*', ''
-    wix extension add "WixToolset.UI.wixext/$wixVer"
+    & $WixExePath extension add -g "WixToolset.UI.wixext/$WixVersion"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to install WiX UI extension."
+        exit $LASTEXITCODE
+    }
 }
 
 $WxsFile = "$RootDir\packaging\windows\DearSQL.wxs"
 $OutputMsi = "$BuildDir\${AppName}-x64.msi"
 
-wix build $WxsFile `
+& $WixExePath build $WxsFile `
     -ext WixToolset.UI.wixext `
     -d ProjectDir="$StageDir" `
     -d SourceDir="$RootDir" `
