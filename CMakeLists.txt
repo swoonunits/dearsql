@@ -2,68 +2,68 @@ cmake_minimum_required(VERSION 3.23)
 
 # vcpkg toolchain - must be set before project() call
 if(DEFINED ENV{VCPKG_ROOT})
-  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
           CACHE STRING "vcpkg toolchain")
 else()
-  set(CMAKE_TOOLCHAIN_FILE "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
           CACHE STRING "vcpkg toolchain")
 endif()
 
 if(NOT DEFINED VCPKG_TARGET_TRIPLET)
-  if(APPLE)
-    execute_process(
+    if(APPLE)
+        execute_process(
             COMMAND uname -m
             OUTPUT_VARIABLE ARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
-    if(ARCH STREQUAL "arm64")
-      set(VCPKG_TARGET_TRIPLET
+        if(ARCH STREQUAL "arm64")
+            set(VCPKG_TARGET_TRIPLET
                 "arm64-osx"
                 CACHE STRING
                 "vcpkg triplet"
                 FORCE
             )
-    else()
-      set(VCPKG_TARGET_TRIPLET
+        else()
+            set(VCPKG_TARGET_TRIPLET
                 "x64-osx"
                 CACHE STRING
                 "vcpkg triplet"
                 FORCE
             )
-    endif()
-  elseif(UNIX)
-    execute_process(
+        endif()
+    elseif(UNIX)
+        execute_process(
             COMMAND uname -m
             OUTPUT_VARIABLE ARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
-    if(ARCH STREQUAL "x86_64")
-      set(VCPKG_TARGET_TRIPLET
+        if(ARCH STREQUAL "x86_64")
+            set(VCPKG_TARGET_TRIPLET
                 "x64-linux"
                 CACHE STRING
                 "vcpkg triplet"
                 FORCE
             )
-    else()
-      set(VCPKG_TARGET_TRIPLET
+        else()
+            set(VCPKG_TARGET_TRIPLET
                 "arm64-linux"
                 CACHE STRING
                 "vcpkg triplet"
                 FORCE
             )
-    endif()
-  elseif(WIN32)
-    set(VCPKG_TARGET_TRIPLET
+        endif()
+    elseif(WIN32)
+        set(VCPKG_TARGET_TRIPLET
             "x64-windows-static"
             CACHE STRING
             "vcpkg triplet"
             FORCE
         )
-  endif()
+    endif()
 endif()
 
 if(APPLE)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET
+    set(CMAKE_OSX_DEPLOYMENT_TARGET
         "14.0"
         CACHE STRING
         "Minimum macOS version"
@@ -81,12 +81,12 @@ set(VCPKG_OVERLAY_TRIPLETS
 project(dearsql)
 
 if(UNIX AND NOT APPLE)
-  set(LINUX TRUE)
+    set(LINUX TRUE)
 endif()
 
 # match vcpkg x64-windows-static triplet
 if(WIN32)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY
+    set(CMAKE_MSVC_RUNTIME_LIBRARY
         "MultiThreaded$<$<CONFIG:Debug>:Debug>"
         CACHE STRING
         ""
@@ -99,22 +99,31 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(APPLE)
-  # jthread, stop_token require experimental libc++ on Apple
-  add_compile_options(-fexperimental-library)
-  add_link_options(-fexperimental-library)
+    # jthread, stop_token require experimental libc++ on Apple
+    add_compile_options(-fexperimental-library)
+    add_link_options(-fexperimental-library)
 endif()
 
 file(STRINGS "${CMAKE_SOURCE_DIR}/APP_METADATA" _metadata_lines)
 foreach(_line IN LISTS _metadata_lines)
-  if(_line MATCHES "^([A-Z_]+)=(.+)$")
-    set(${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
-  endif()
+    if(_line MATCHES "^([A-Z_]+)=(.+)$")
+        set(${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
+    endif()
 endforeach()
 
+# extract APP_VERSION from the current git tag
+execute_process(
+  COMMAND git describe --tags --abbrev=0
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE _git_tag
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+string(REGEX REPLACE "^v" "" APP_VERSION "${_git_tag}")
+
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(SENTRY_ENVIRONMENT "production")
+    set(SENTRY_ENVIRONMENT "production")
 else()
-  set(SENTRY_ENVIRONMENT "development")
+    set(SENTRY_ENVIRONMENT "development")
 endif()
 
 configure_file(
@@ -144,20 +153,20 @@ include(cmake/OracleOCI.cmake)
 enable_testing()
 
 if(LINUX)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(GTK4 REQUIRED gtk4)
-  pkg_check_modules(EPOXY REQUIRED epoxy)
-  find_package(X11 REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GTK4 REQUIRED gtk4)
+    pkg_check_modules(EPOXY REQUIRED epoxy)
+    find_package(X11 REQUIRED)
 else()
-  find_package(glfw3 CONFIG REQUIRED)
+    find_package(glfw3 CONFIG REQUIRED)
 endif()
 
 if(APPLE)
-  include(cmake/Sparkle.cmake)
+    include(cmake/Sparkle.cmake)
 endif()
 
 if(WIN32)
-  include(cmake/WinSparkle.cmake)
+    include(cmake/WinSparkle.cmake)
 endif()
 
 include(cmake/TreeSitterGrammars.cmake)
@@ -228,25 +237,25 @@ set(APP_SOURCES
 
 list(APPEND APP_SOURCES src/application.cpp)
 if(APPLE)
-  list(APPEND APP_SOURCES src/platform/macos_platform.mm)
-  list(APPEND APP_SOURCES src/platform/metal_backend.mm)
-  list(APPEND APP_SOURCES src/platform/macos_titlebar.mm)
-  list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
-  list(APPEND APP_SOURCES src/platform/macos_updater.mm)
-  list(APPEND APP_SOURCES src/platform/macos_alert.mm)
-  list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
-  list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+    list(APPEND APP_SOURCES src/platform/macos_platform.mm)
+    list(APPEND APP_SOURCES src/platform/metal_backend.mm)
+    list(APPEND APP_SOURCES src/platform/macos_titlebar.mm)
+    list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
+    list(APPEND APP_SOURCES src/platform/macos_updater.mm)
+    list(APPEND APP_SOURCES src/platform/macos_alert.mm)
+    list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
+    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(LINUX)
-  list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
-  list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
-  list(APPEND APP_SOURCES src/platform/linux_titlebar.cpp)
-  list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
-  list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
-  list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
-  list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
-  list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
+    list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_titlebar.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
+    list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
+    list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
 elseif(WIN32)
-  list(
+    list(
         APPEND APP_SOURCES
         src/platform/windows_platform.cpp
         src/platform/dx11_backend.cpp
@@ -275,7 +284,7 @@ add_executable(
 
 # hide console on release, keep main() entry point
 if(WIN32)
-  target_link_options(
+    target_link_options(
         ${PROJECT_NAME}
         PRIVATE
             $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
@@ -298,12 +307,12 @@ target_include_directories(
 )
 
 if(WIN32)
-  target_compile_definitions(
+    target_compile_definitions(
         ${PROJECT_NAME}
         PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
     )
-  # Common Controls v6 manifest (needed for TaskDialogIndirect)
-  set_property(
+    # Common Controls v6 manifest (needed for TaskDialogIndirect)
+    set_property(
         TARGET ${PROJECT_NAME}
         APPEND
         PROPERTY
@@ -313,14 +322,14 @@ if(WIN32)
 endif()
 
 if(LINUX)
-  target_include_directories(
+    target_include_directories(
         ${PROJECT_NAME}
         PRIVATE ${GTK4_INCLUDE_DIRS} ${EPOXY_INCLUDE_DIRS}
     )
 endif()
 # SYSTEM to avoid shadowing vcpkg MySQL/OpenSSL headers
 if(SYBDB_INCLUDE_DIR AND NOT SYBDB_INCLUDE_DIR STREQUAL "")
-  target_include_directories(
+    target_include_directories(
         ${PROJECT_NAME}
         SYSTEM
         AFTER
@@ -329,7 +338,7 @@ if(SYBDB_INCLUDE_DIR AND NOT SYBDB_INCLUDE_DIR STREQUAL "")
 endif()
 
 if(APPLE)
-  target_include_directories(
+    target_include_directories(
         ${PROJECT_NAME}
         PRIVATE "${SPARKLE_FRAMEWORK_PATH}/Headers"
     )
@@ -362,7 +371,7 @@ target_link_libraries(
 )
 
 if(APPLE)
-  target_link_libraries(
+    target_link_libraries(
         ${PROJECT_NAME}
         PRIVATE
             glfw
@@ -371,22 +380,22 @@ if(APPLE)
             ${FOUNDATION_LIBRARY}
             ${APPKIT_LIBRARY}
     )
-  target_link_libraries(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}")
 elseif(LINUX)
-  target_link_libraries(
+    target_link_libraries(
         ${PROJECT_NAME}
         PRIVATE ${GTK4_LIBRARIES} ${EPOXY_LIBRARIES} ${X11_LIBRARIES}
     )
-  target_link_directories(
+    target_link_directories(
         ${PROJECT_NAME}
         PRIVATE ${GTK4_LIBRARY_DIRS} ${EPOXY_LIBRARY_DIRS}
     )
 elseif(WIN32)
-  target_link_libraries(
+    target_link_libraries(
         ${PROJECT_NAME}
         PRIVATE glfw d3d11 dxgi dwmapi comctl32 uxtheme ws2_32 WinSparkle
     )
-  add_custom_command(
+    add_custom_command(
         TARGET ${PROJECT_NAME}
         POST_BUILD
         COMMAND
@@ -395,16 +404,16 @@ elseif(WIN32)
         COMMENT "Copying WinSparkle.dll to output directory"
     )
 else()
-  target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL)
+    target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL)
 endif()
 
 if(APPLE)
-  configure_file(
+    configure_file(
         "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in"
         "${CMAKE_BINARY_DIR}/Info.plist.in"
         @ONLY
     )
-  set_target_properties(
+    set_target_properties(
         ${PROJECT_NAME}
         PROPERTIES
             MACOSX_BUNDLE TRUE
@@ -419,16 +428,16 @@ if(APPLE)
             INSTALL_RPATH "@loader_path/../Frameworks"
     )
 
-  set_source_files_properties(
+    set_source_files_properties(
         assets/AppIcon.icns
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
     )
-  target_sources(${PROJECT_NAME} PRIVATE assets/AppIcon.icns)
+    target_sources(${PROJECT_NAME} PRIVATE assets/AppIcon.icns)
 
-  set(_SPARKLE_DEST
+    set(_SPARKLE_DEST
         "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks/Sparkle.framework"
     )
-  add_custom_command(
+    add_custom_command(
         TARGET ${PROJECT_NAME}
         POST_BUILD
         COMMAND
@@ -442,7 +451,7 @@ if(APPLE)
         COMMENT "Embedding Sparkle.framework into app bundle"
     )
 
-  add_custom_command(
+    add_custom_command(
         TARGET ${PROJECT_NAME}
         POST_BUILD
         COMMAND
@@ -456,16 +465,16 @@ endif()
 include(cmake/Tests.cmake)
 
 if(LINUX)
-  install(TARGETS ${PROJECT_NAME} DESTINATION bin)
-  install(
+    install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+    install(
         FILES packaging/io.gitlab.dunkbing.dearsql.desktop
         DESTINATION share/applications
     )
-  install(
+    install(
         FILES packaging/io.gitlab.dunkbing.dearsql.metainfo.xml
         DESTINATION share/metainfo
     )
-  install(
+    install(
         FILES assets/appicon.png
         DESTINATION share/icons/hicolor/256x256/apps
         RENAME io.gitlab.dunkbing.dearsql.png
