@@ -379,8 +379,53 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
 
         const bool isOracle = type == DatabaseType::ORACLE;
         data->sslCACertPathEntry = makeEntry(isOracle ? "/path/to/wallet" : "/path/to/ca-cert.pem");
-        data->sslCACertPathRow =
-            makeRow(makeLabel(isOracle ? "Wallet" : "CA Cert"), data->sslCACertPathEntry);
+        GtkWidget* browseCertBtn = gtk_button_new_with_label("Browse...");
+        g_signal_connect(
+            browseCertBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer ud) {
+                auto* d = static_cast<ConnectionDialogData*>(ud);
+                GtkFileDialog* fileDialog = gtk_file_dialog_new();
+                gtk_file_dialog_set_title(fileDialog, "Select CA Certificate");
+
+                auto* filter = gtk_file_filter_new();
+                gtk_file_filter_set_name(filter, "Certificates (*.pem, *.crt, *.cer)");
+                gtk_file_filter_add_pattern(filter, "*.pem");
+                gtk_file_filter_add_pattern(filter, "*.crt");
+                gtk_file_filter_add_pattern(filter, "*.cer");
+                auto* allFilter = gtk_file_filter_new();
+                gtk_file_filter_set_name(allFilter, "All Files");
+                gtk_file_filter_add_pattern(allFilter, "*");
+                auto* filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+                g_list_store_append(filters, filter);
+                g_list_store_append(filters, allFilter);
+                gtk_file_dialog_set_filters(fileDialog, G_LIST_MODEL(filters));
+                g_object_unref(filter);
+                g_object_unref(allFilter);
+                g_object_unref(filters);
+
+                gtk_file_dialog_open(
+                    fileDialog, GTK_WINDOW(d->dialog), nullptr,
+                    +[](GObject* source, GAsyncResult* res, gpointer ud2) {
+                        auto* d2 = static_cast<ConnectionDialogData*>(ud2);
+                        GFile* file =
+                            gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), res, nullptr);
+                        if (file) {
+                            char* path = g_file_get_path(file);
+                            if (path) {
+                                gtk_editable_set_text(GTK_EDITABLE(d2->sslCACertPathEntry), path);
+                                g_free(path);
+                            }
+                            g_object_unref(file);
+                        }
+                    },
+                    d);
+                g_object_unref(fileDialog);
+            }),
+            data);
+
+        data->sslCACertPathRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(data->sslCACertPathRow), makeLabel(isOracle ? "Wallet" : "CA Cert"));
+        gtk_box_append(GTK_BOX(data->sslCACertPathRow), data->sslCACertPathEntry);
+        gtk_box_append(GTK_BOX(data->sslCACertPathRow), browseCertBtn);
         gtk_box_append(GTK_BOX(data->fieldsBox), data->sslCACertPathRow);
         gtk_widget_set_visible(data->sslCACertPathRow, FALSE);
 
