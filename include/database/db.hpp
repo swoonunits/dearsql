@@ -53,13 +53,21 @@ struct ForeignKey {
 };
 
 struct Table {
-    std::string name; // Simple table/view name (e.g., "users")
+    std::string name;   // Simple table/view name (e.g., "users")
+    std::string schema; // Schema/namespace for SQL qualification:
+                        // Postgres: schema name ("public")
+                        // MSSQL: schema name ("dbo")
+                        // Oracle: owner/schema
+                        // MySQL: database name
+                        // SQLite: empty
     std::string comment;
-    std::string fullName; // Fully qualified name for unique identification:
-                          // SQLite: "connection.table"
-                          // PostgreSQL: "connection.database.schema.table"
-                          // MySQL: "connection.database.table"
-                          // Redis: "connection.pattern"
+    std::string definition; // View/materialized-view SQL body (the SELECT after `AS`).
+                            // Empty for ordinary tables.
+    std::string fullName;   // Fully qualified name for unique identification:
+                            // SQLite: "connection.table"
+                            // PostgreSQL: "connection.database.schema.table"
+                            // MySQL: "connection.database.table"
+                            // Redis: "connection.pattern"
     std::vector<Column> columns;
     std::vector<Index> indexes;
     std::vector<ForeignKey> foreignKeys;
