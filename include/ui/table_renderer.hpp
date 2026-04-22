@@ -124,6 +124,20 @@ private:
     int editingCol = -1;
     int rowNumberOffset = 0;
 
+    // drag-to-select range — anchor is the mouse-down cell,
+    // rangeEnd tracks the cell under the cursor while dragging.
+    // When not dragging, the range spans [anchor..selectedRow/Col].
+    int rangeAnchorRow = -1;
+    int rangeAnchorCol = -1;
+    int rangeEndRow = -1;
+    int rangeEndCol = -1;
+    bool isDragging = false;
+    bool mouseWasDownLastFrame = false;
+    // updated at the top of render(): true only on the frame the left button
+    // transitions from up to down. more reliable than ImGui::IsMouseClicked
+    // in scrollable tables where a held Selectable can interfere with input routing.
+    bool leftPressedThisFrame = false;
+
     char editBuffer[16384] = {0};
 
     // Scrolling state
@@ -167,4 +181,12 @@ private:
     void handleCellInteraction(int row, int col, bool isSelected);
     void renderColumnHeader(int colIdx, const std::string& colName);
     void renderEditOverlay();
+    void updateDragFromItem(int row, int col);
+    bool isInSelectionRange(int row, int col) const;
+    void collapseSelectionToCell(int row, int col);
+    void setSelectionRange(int anchorRow, int anchorCol, int endRow, int endCol);
+
+    bool suppressBoolToggleUntilMouseUp = false;
+    int suppressBoolToggleRow = -1;
+    int suppressBoolToggleCol = -1;
 };

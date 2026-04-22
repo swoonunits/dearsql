@@ -36,7 +36,7 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET)
             COMMAND uname -m
             OUTPUT_VARIABLE ARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
+    )
         if(ARCH STREQUAL "x86_64")
             set(VCPKG_TARGET_TRIPLET
                 "x64-linux"
@@ -104,21 +104,7 @@ if(APPLE)
     add_link_options(-fexperimental-library)
 endif()
 
-file(STRINGS "${CMAKE_SOURCE_DIR}/APP_METADATA" _metadata_lines)
-foreach(_line IN LISTS _metadata_lines)
-    if(_line MATCHES "^([A-Z_]+)=(.+)$")
-        set(${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
-    endif()
-endforeach()
-
-# extract APP_VERSION from the current git tag
-execute_process(
-  COMMAND git describe --tags --abbrev=0
-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-  OUTPUT_VARIABLE _git_tag
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET)
-string(REGEX REPLACE "^v" "" APP_VERSION "${_git_tag}")
+include(cmake/AppMetadata.cmake)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(SENTRY_ENVIRONMENT "production")
@@ -245,6 +231,7 @@ if(APPLE)
     list(APPEND APP_SOURCES src/platform/macos_alert.mm)
     list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
     list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+    list(APPEND APP_SOURCES src/ui/table_aurora_shader.mm)
 elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
     list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)

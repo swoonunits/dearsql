@@ -5,6 +5,7 @@
 #import "imgui_impl_glfw.h"
 #import "imgui_impl_metal.h"
 #include "platform/graphics_backend.hpp"
+#include "ui/table_aurora_shader.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
@@ -110,6 +111,12 @@ void MacOSMetalBackend::renderDrawData(ImDrawData* drawData) {
     int display_w, display_h;
     glfwGetFramebufferSize(window_, &display_w, &display_h);
     ((CAMetalLayer*)metalLayer_).drawableSize = CGSizeMake(display_w, display_h);
+
+#if DEARSQL_ENABLE_TABLE_AURORA
+    TableAurora::setMetalRenderContext(
+        (__bridge void*)metalDevice_, (__bridge void*)currentRenderEncoder_,
+        static_cast<float>(display_w), static_cast<float>(display_h));
+#endif
 
     ImGui_ImplMetal_RenderDrawData(drawData, (id<MTLCommandBuffer>)currentCommandBuffer_,
                                    (id<MTLRenderCommandEncoder>)currentRenderEncoder_);

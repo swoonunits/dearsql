@@ -3,7 +3,9 @@
 #include "application.hpp"
 #include "database/db.hpp"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "themes.hpp"
+#include "ui/table_aurora_shader.hpp"
 #include <algorithm>
 #include <cstring>
 #include <format>
@@ -15,6 +17,33 @@ namespace {
         if (pos == std::string::npos)
             return text;
         return text.substr(0, pos);
+    }
+
+    // RFC 4180: wrap in quotes and double any embedded quote when the field
+    // contains a separator, quote, or newline.
+    std::string csvEscape(const std::string& field) {
+        const bool needsQuoting = field.find_first_of(",\"\n\r") != std::string::npos;
+        if (!needsQuoting)
+            return field;
+        std::string out;
+        out.reserve(field.size() + 2);
+        out.push_back('"');
+        for (char c : field) {
+            if (c == '"')
+                out.push_back('"');
+            out.push_back(c);
+        }
+        out.push_back('"');
+        return out;
+    }
+
+    // render cell value for clipboard: unwrap null/bool sentinels.
+    std::string exportValue(const std::string& v) {
+        if (isNullSentinel(v))
+            return {};
+        if (isBoolSentinel(v))
+            return boolSentinelValue(v) ? "true" : "false";
+        return v;
     }
 } // namespace
 
@@ -58,8 +87,91 @@ void TableRenderer::setCellEditedStatus(const std::vector<std::vector<bool>>& ed
 }
 
 void TableRenderer::setSelectedCell(int row, int col) {
+    const bool sameCell = (selectedRow == row && selectedCol == col);
     selectedRow = row;
     selectedCol = col;
+    if (row < 0 || col < 0) {
+        rangeAnchorRow = -1;
+        rangeAnchorCol = -1;
+        rangeEndRow = -1;
+        rangeEndCol = -1;
+        isDragging = false;
+        return;
+    }
+
+    if (rangeAnchorRow < 0 || rangeAnchorCol < 0 || rangeEndRow < 0 || rangeEndCol < 0 ||
+        !sameCell) {
+        collapseSelectionToCell(row, col);
+    }
+}
+
+void TableRenderer::collapseSelectionToCell(int row, int col) {
+    selectedRow = row;
+    selectedCol = col;
+    rangeAnchorRow = row;
+    rangeAnchorCol = col;
+    rangeEndRow = row;
+    rangeEndCol = col;
+}
+
+void TableRenderer::setSelectionRange(int anchorRow, int anchorCol, int endRow, int endCol) {
+    rangeAnchorRow = anchorRow;
+    rangeAnchorCol = anchorCol;
+    rangeEndRow = endRow;
+    rangeEndCol = endCol;
+    selectedRow = endRow;
+    selectedCol = endCol;
+}
+
+void TableRenderer::updateDragFromItem(int row, int col) {
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        return;
+    if (ImGui::GetIO().KeyShift)
+        return;
+
+    // use the cell's full bg rect (including padding) for hit-testing instead
+    // of GetItemRectMin/Max, which would only cover the inner widget — a
+    // narrow checkbox or short Selectable text wouldn't register most of the cell.
+    ImGuiTable* table = ImGui::GetCurrentTable();
+    if (!table)
+        return;
+    const int tableColIdx = config.showRowNumbers ? col + 1 : col;
+    const ImRect cellRect = ImGui::TableGetCellBgRect(table, tableColIdx);
+
+    if (!cellRect.Contains(ImGui::GetMousePos()))
+        return;
+
+    if (!isDragging) {
+        // only start a drag if the press happened this frame —
+        // prevents a mouse that was pressed outside the table from
+        // initiating a selection the moment it enters a cell
+        if (!leftPressedThisFrame)
+            return;
+        collapseSelectionToCell(row, col);
+        isDragging = true;
+        if (onCellSelect)
+            onCellSelect(row, col);
+        return;
+    }
+
+    if (rangeEndRow != row || rangeEndCol != col) {
+        rangeEndRow = row;
+        rangeEndCol = col;
+        selectedRow = row;
+        selectedCol = col;
+        if (onCellSelect)
+            onCellSelect(row, col);
+    }
+}
+
+bool TableRenderer::isInSelectionRange(int row, int col) const {
+    if (rangeAnchorRow < 0 || rangeEndRow < 0)
+        return false;
+    const int r0 = std::min(rangeAnchorRow, rangeEndRow);
+    const int r1 = std::max(rangeAnchorRow, rangeEndRow);
+    const int c0 = std::min(rangeAnchorCol, rangeEndCol);
+    const int c1 = std::max(rangeAnchorCol, rangeEndCol);
+    return row >= r0 && row <= r1 && col >= c0 && col <= c1;
 }
 
 void TableRenderer::render(const char* tableId) {
@@ -74,6 +186,41 @@ void TableRenderer::render(const char* tableId) {
     }
 
     const auto& colors = Application::getInstance().getCurrentColors();
+
+    // reconcile drag/mouse state with current mouse state at frame start
+    const bool mouseDownNow = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    const bool releasedThisFrame = !mouseDownNow && mouseWasDownLastFrame;
+    leftPressedThisFrame = mouseDownNow && !mouseWasDownLastFrame;
+    if (isDragging && !mouseDownNow) {
+        isDragging = false;
+    }
+    mouseWasDownLastFrame = mouseDownNow;
+
+    // Cmd/Ctrl+C → copy the selected range as CSV.
+    // Gated on the window being focused and no text input active so it doesn't
+    // compete with InputText's own copy or the edit overlay.
+    if (config.allowSelection && editingRow == -1 && rangeAnchorRow >= 0 && rangeEndRow >= 0 &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_C)) {
+        const int r0 = std::min(rangeAnchorRow, rangeEndRow);
+        const int r1 = std::max(rangeAnchorRow, rangeEndRow);
+        const int c0 = std::min(rangeAnchorCol, rangeEndCol);
+        const int c1 = std::max(rangeAnchorCol, rangeEndCol);
+
+        std::string csv;
+        for (int r = r0; r <= r1 && r < static_cast<int>(data.size()); ++r) {
+            const auto& rowData = data[r];
+            for (int c = c0; c <= c1; ++c) {
+                if (c > c0)
+                    csv.push_back(',');
+                if (c < static_cast<int>(rowData.size()))
+                    csv += csvEscape(exportValue(rowData[c]));
+            }
+            csv.push_back('\n');
+        }
+        if (!csv.empty())
+            ImGui::SetClipboardText(csv.c_str());
+    }
 
     int colCount = static_cast<int>(columns.size());
     if (config.showRowNumbers) {
@@ -128,6 +275,12 @@ void TableRenderer::render(const char* tableId) {
             }
         }
     }
+
+#if defined(__APPLE__) && DEARSQL_ENABLE_TABLE_AURORA
+    ImVec2 tableMin(0, 0);
+    ImVec2 tableMax(0, 0);
+    bool tableRendered = false;
+#endif
 
     if (ImGui::BeginTable(tableId, colCount, config.tableFlags, ImVec2(0.0f, availableHeight))) {
         if (config.showRowNumbers) {
@@ -245,11 +398,44 @@ void TableRenderer::render(const char* tableId) {
 
         ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetStyle().ScrollbarSize);
         ImGui::EndTable();
+#if defined(__APPLE__) && DEARSQL_ENABLE_TABLE_AURORA
+        tableMin = ImGui::GetItemRectMin();
+        tableMax = ImGui::GetItemRectMax();
+        tableRendered = true;
+#endif
     }
+
+#if defined(__APPLE__) && DEARSQL_ENABLE_TABLE_AURORA
+    if (tableRendered && tableMax.x > tableMin.x && tableMax.y > tableMin.y) {
+        TableAurora::Params p{};
+        p.x = tableMin.x;
+        p.y = tableMin.y;
+        p.w = tableMax.x - tableMin.x;
+        p.h = tableMax.y - tableMin.y;
+        p.r1 = colors.blue.x;
+        p.g1 = colors.blue.y;
+        p.b1 = colors.blue.z;
+        p.r2 = colors.teal.x;
+        p.g2 = colors.teal.y;
+        p.b2 = colors.teal.z;
+        p.time = static_cast<float>(ImGui::GetTime());
+        p.intensity = 1.0f;
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddCallback(TableAurora::callback, &p, sizeof(p));
+        dl->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
+    }
+#endif
 
     if (pendingEditOverlay) {
         renderEditOverlay();
         pendingEditOverlay = false;
+    }
+
+    if (releasedThisFrame) {
+        suppressBoolToggleUntilMouseUp = false;
+        suppressBoolToggleRow = -1;
+        suppressBoolToggleCol = -1;
     }
 }
 
@@ -370,6 +556,7 @@ void TableRenderer::renderCell(int row, int col) {
             (row < static_cast<int>(editedCells.size()) &&
              col < static_cast<int>(editedCells[row].size()) && editedCells[row][col]);
 
+        const bool inRange = isInSelectionRange(row, col);
         if (isEdited && isSelected) {
             ImGui::TableSetBgColor(
                 ImGuiTableBgTarget_CellBg,
@@ -380,6 +567,10 @@ void TableRenderer::renderCell(int row, int col) {
                 ImGui::GetColorU32(ImVec4(colors.teal.x, colors.teal.y, colors.teal.z, 0.3f)));
         } else if (isSelected) {
             ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(colors.surface2));
+        } else if (inRange) {
+            ImGui::TableSetBgColor(
+                ImGuiTableBgTarget_CellBg,
+                ImGui::GetColorU32(ImVec4(colors.blue.x, colors.blue.y, colors.blue.z, 0.25f)));
         }
 
         const std::string& cellValue = data[row][col];
@@ -429,10 +620,27 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
     const std::string& cellValue = data[row][col];
     const bool isNull = isNullSentinel(cellValue);
     const bool isBool = isBoolSentinel(cellValue);
+    ImGuiIO& io = ImGui::GetIO();
+    const bool canShiftSelect = io.KeyShift && selectedRow >= 0 && selectedCol >= 0;
 
     // boolean cells: render a small centered checkbox
     if (isBool) {
         bool checked = boolSentinelValue(cellValue);
+        ImGuiTable* table = ImGui::GetCurrentTable();
+        const int tableColIdx = config.showRowNumbers ? col + 1 : col;
+        const ImRect cellRect = table ? ImGui::TableGetCellBgRect(table, tableColIdx) : ImRect();
+        const int previousSelectedRow = selectedRow;
+        const int previousSelectedCol = selectedCol;
+        const bool shiftClickPressed = canShiftSelect && leftPressedThisFrame && table &&
+                                       cellRect.Contains(ImGui::GetMousePos());
+        if (shiftClickPressed) {
+            setSelectionRange(previousSelectedRow, previousSelectedCol, row, col);
+            suppressBoolToggleUntilMouseUp = true;
+            suppressBoolToggleRow = row;
+            suppressBoolToggleCol = col;
+            if (onCellSelect)
+                onCellSelect(row, col);
+        }
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
         float checkboxWidth = ImGui::GetFrameHeight();
@@ -446,12 +654,19 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
 
         bool editable = config.allowEditing && !config.nonEditableColumns.contains(col) &&
                         (!cellEditableCb || cellEditableCb(row, col));
-        if (!editable)
+        // suppress toggle when the user is dragging in from elsewhere —
+        // releasing on a bool cell in that case shouldn't flip the value.
+        const bool dragFromElsewhere =
+            isDragging && (rangeAnchorRow != row || rangeAnchorCol != col);
+        const bool suppressBoolToggle = suppressBoolToggleUntilMouseUp &&
+                                        suppressBoolToggleRow == row &&
+                                        suppressBoolToggleCol == col;
+        const bool disableCheckbox = !editable || dragFromElsewhere || suppressBoolToggle;
+        if (disableCheckbox)
             ImGui::BeginDisabled();
 
         if (ImGui::Checkbox("##bool", &checked)) {
-            selectedRow = row;
-            selectedCol = col;
+            collapseSelectionToCell(row, col);
             if (onCellSelect)
                 onCellSelect(row, col);
             if (onCellEdit) {
@@ -460,16 +675,18 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
             }
         }
 
-        if (!editable)
+        if (disableCheckbox)
             ImGui::EndDisabled();
+
+        updateDragFromItem(row, col);
 
         ImGui::PopStyleColor(3);
         ImGui::PopStyleVar();
 
         // select on click even if not toggling
-        if (ImGui::IsItemClicked() || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            selectedRow = row;
-            selectedCol = col;
+        if (!suppressBoolToggle &&
+            (ImGui::IsItemClicked() || ImGui::IsItemClicked(ImGuiMouseButton_Right))) {
+            collapseSelectionToCell(row, col);
             if (onCellSelect)
                 onCellSelect(row, col);
         }
@@ -483,8 +700,7 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
             const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
             if (ImGui::BeginPopupContextItem(menuId.c_str())) {
                 if (selectedRow != row || selectedCol != col) {
-                    selectedRow = row;
-                    selectedCol = col;
+                    collapseSelectionToCell(row, col);
                     if (onCellSelect)
                         onCellSelect(row, col);
                 }
@@ -519,15 +735,21 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
     if (isNull)
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(colors.overlay1));
 
+    const int previousSelectedRow = selectedRow;
+    const int previousSelectedCol = selectedCol;
     if (ImGui::Selectable(displayText, isSelected, ImGuiSelectableFlags_AllowDoubleClick)) {
-        selectedRow = row;
-        selectedCol = col;
+        const bool shiftSelecting = canShiftSelect && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+        if (shiftSelecting) {
+            setSelectionRange(previousSelectedRow, previousSelectedCol, row, col);
+        } else {
+            collapseSelectionToCell(row, col);
+        }
 
         if (onCellSelect) {
             onCellSelect(row, col);
         }
 
-        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        if (!shiftSelecting && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (config.allowEditing) {
                 enterEditMode(row, col);
             }
@@ -537,6 +759,8 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
             }
         }
     }
+
+    updateDragFromItem(row, col);
 
     if (isNull)
         ImGui::PopStyleColor();
@@ -558,8 +782,7 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
         if (ImGui::BeginPopupContextItem(menuId.c_str())) {
             if (selectedRow != row || selectedCol != col) {
-                selectedRow = row;
-                selectedCol = col;
+                collapseSelectionToCell(row, col);
                 if (onCellSelect)
                     onCellSelect(row, col);
             }
