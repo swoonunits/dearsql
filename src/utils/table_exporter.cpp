@@ -320,6 +320,8 @@ namespace TableExporter {
             case ExportFormat::JSON:
                 ok = exportJson(provider, *table, path);
                 break;
+            default:
+                break;
             }
             if (!ok) {
                 allOk = false;

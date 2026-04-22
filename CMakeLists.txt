@@ -36,7 +36,7 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET)
             COMMAND uname -m
             OUTPUT_VARIABLE ARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
+    )
     if(ARCH STREQUAL "x86_64")
       set(VCPKG_TARGET_TRIPLET
                 "x64-linux"
@@ -231,6 +231,7 @@ if(APPLE)
   list(APPEND APP_SOURCES src/platform/macos_alert.mm)
   list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
   list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
+  list(APPEND APP_SOURCES src/ui/table_aurora_shader.mm)
 elseif(LINUX)
   list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
   list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
