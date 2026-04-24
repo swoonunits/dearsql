@@ -168,6 +168,7 @@ set(APP_SOURCES
     src/database/postgresql.cpp
     src/database/postgres/postgres_database_node.cpp
     src/database/postgres/postgres_schema_node.cpp
+    src/database/postgres/postgres_backup.cpp
     src/database/mysql.cpp
     src/database/mysql/mysql_database_node.cpp
     src/database/redis.cpp
@@ -207,6 +208,7 @@ set(APP_SOURCES
     src/ui/tab/redis_status_panel.cpp
     src/ui/tab/mongo_editor_tab.cpp
     src/utils/file_dialog.cpp
+    src/utils/process_runner.cpp
     src/utils/table_exporter.cpp
     src/utils/table_importer.cpp
     src/utils/toggle_button.cpp

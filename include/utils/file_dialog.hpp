@@ -19,6 +19,8 @@ public:
 
     // returns the selected file path, or empty string if cancelled
     static std::string openCSVFile();
+    static std::string openPostgresBackupFile();
+    static std::string savePostgresBackupFile(const std::string& defaultName);
 
 private:
     static bool isInitialized;

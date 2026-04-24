@@ -1,11 +1,13 @@
 #pragma once
 
 #include "app_state.hpp"
+#include "database/async_helper.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb/mongodb_database_node.hpp"
 #include "database/mssql/mssql_database_node.hpp"
 #include "database/mysql/mysql_database_node.hpp"
 #include "database/oracle/oracle_database_node.hpp"
+#include "database/postgres/postgres_backup.hpp"
 #include "database/postgres/postgres_database_node.hpp"
 #include "database/sqlite.hpp"
 #include "imgui.h"
@@ -67,12 +69,22 @@ private:
     const Table* lastAnchorTable_ = nullptr;
     std::vector<const Table*> prevVisibleTables_;
     std::vector<const Table*> currVisibleTables_;
+    AsyncOperation<PostgresToolResult> postgresToolOp_;
+    std::string postgresToolTitle_;
+    std::string postgresToolRefreshDbName_;
+    bool postgresToolRefreshDatabaseList_ = false;
 
     void handleTableClick(const Table* table);
     void renderMultiSelectMenuContent(ITableDataProvider* provider,
                                       const std::vector<Table>& nodeTables,
                                       std::function<void(const std::string&)> dropOne,
                                       DatabaseType dbType = DatabaseType::SQLITE);
+    void checkPostgresToolStatus();
+    void renderPostgresBackupRestoreMenus(PostgresDatabaseNode* dbData);
+    void startPostgresBackup(PostgresDatabaseNode* dbData, PostgresBackupFormat format,
+                             bool includeCreateDatabase, bool noOwner);
+    void startPostgresRestore(PostgresDatabaseNode* dbData, bool cleanBeforeRestore,
+                              bool createDatabase);
 
     // Database-specific renderers
     void renderPostgresDatabaseNode(PostgresDatabaseNode* dbData);

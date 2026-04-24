@@ -62,3 +62,40 @@ std::string FileDialog::openCSVFile() {
     }
     return {};
 }
+
+std::string FileDialog::openPostgresBackupFile() {
+    nfdchar_t* outPath;
+    constexpr nfdfilteritem_t filterItem[3] = {{"PostgreSQL Backups", "dump,backup,sql,tar"},
+                                               {"SQL Files", "sql"},
+                                               {"All Files", "*"}};
+
+    const nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, 3, nullptr);
+    if (result == NFD_OKAY) {
+        std::string path(outPath);
+        NFD_FreePath(outPath);
+        return path;
+    }
+    if (result != NFD_CANCEL) {
+        std::cerr << "File dialog error: " << NFD_GetError() << std::endl;
+    }
+    return {};
+}
+
+std::string FileDialog::savePostgresBackupFile(const std::string& defaultName) {
+    nfdchar_t* outPath;
+    constexpr nfdfilteritem_t filterItem[3] = {{"PostgreSQL Custom Backup", "dump,backup"},
+                                               {"SQL Files", "sql"},
+                                               {"All Files", "*"}};
+
+    const nfdresult_t result = NFD_SaveDialog(&outPath, filterItem, 3, nullptr,
+                                              defaultName.empty() ? nullptr : defaultName.c_str());
+    if (result == NFD_OKAY) {
+        std::string path(outPath);
+        NFD_FreePath(outPath);
+        return path;
+    }
+    if (result != NFD_CANCEL) {
+        std::cerr << "File dialog error: " << NFD_GetError() << std::endl;
+    }
+    return {};
+}

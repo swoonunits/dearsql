@@ -18,9 +18,15 @@
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab_manager.hpp"
 
+#include "utils/file_dialog.hpp"
 #include "utils/spinner.hpp"
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"
+#include <algorithm>
+#include <chrono>
+#include <cctype>
+#include <ctime>
+#include <filesystem>
 #include <format>
 #include <ranges>
 #include <spdlog/spdlog.h>
@@ -37,6 +43,8 @@ namespace {
     constexpr const char* NEW_QUERY_EDITOR_LABEL = "New Query Editor";
     constexpr const char* SHOW_DIAGRAM_LABEL = "Show Diagram";
     constexpr const char* LOADING_LABEL = "  Loading...";
+    constexpr const char* BACKUP_LABEL = "Backup";
+    constexpr const char* RESTORE_LABEL = "Restore";
 
     // shared routine rendering for all database types
     void renderRoutineItems(const std::vector<Routine>& routines, IDatabaseNode* node) {
@@ -70,6 +78,67 @@ namespace {
                 }
             }
         }
+    }
+
+    std::string sanitizeBackupFileName(std::string name) {
+        for (char& c : name) {
+            const auto uc = static_cast<unsigned char>(c);
+            if (!std::isalnum(uc) && c != '-' && c != '_') {
+                c = '_';
+            }
+        }
+        return name.empty() ? "postgres_database" : name;
+    }
+
+    std::string timestampForFileName() {
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &t);
+#else
+        localtime_r(&t, &tm);
+#endif
+        return std::format("{:04}{:02}{:02}_{:02}{:02}{:02}", tm.tm_year + 1900, tm.tm_mon + 1,
+                           tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    }
+
+    std::string defaultPostgresBackupName(const std::string& databaseName,
+                                          const PostgresBackupFormat format) {
+        return std::format("{}_{}.{}", sanitizeBackupFileName(databaseName), timestampForFileName(),
+                           format == PostgresBackupFormat::Custom ? "dump" : "sql");
+    }
+
+    bool isPlainSqlBackupPath(const std::string& path) {
+        auto ext = std::filesystem::path(path).extension().string();
+        std::ranges::transform(ext, ext.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return ext == ".sql";
+    }
+
+    std::string summarizeToolFailure(const PostgresToolResult& result) {
+        if (!result.output.empty()) {
+            constexpr size_t maxLen = 1800;
+            if (result.output.size() <= maxLen) {
+                return result.output;
+            }
+            return result.output.substr(result.output.size() - maxLen);
+        }
+        return result.message;
+    }
+
+    bool ensurePostgresToolsAvailable(const std::vector<std::string>& toolNames) {
+        const PostgresToolResult result = PostgresBackupService::checkToolsAvailable(toolNames);
+        if (result.success) {
+            return true;
+        }
+        if (result.output.empty()) {
+            Alert::show("PostgreSQL Tools Missing", result.message);
+        } else {
+            Alert::show("PostgreSQL Tools Missing",
+                        std::format("{}\n\n{}", result.message, summarizeToolFailure(result)));
+        }
+        return false;
     }
 } // namespace
 
@@ -193,6 +262,8 @@ void DatabaseHierarchy::renderRootNode() {
     if (!db) {
         return;
     }
+
+    checkPostgresToolStatus();
 
     prevVisibleTables_ = std::move(currVisibleTables_);
     currVisibleTables_.clear();
@@ -657,6 +728,7 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
         if (ImGui::MenuItem(REFRESH_LABEL)) {
             dbData->startSchemasLoadAsync(true, true);
         }
+        renderPostgresBackupRestoreMenus(dbData);
         ImGui::Separator();
         if (ImGui::MenuItem(RENAME_LABEL)) {
             const std::string oldName = dbData->name;
@@ -727,6 +799,179 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
 
         ImGui::TreePop();
     }
+}
+
+void DatabaseHierarchy::checkPostgresToolStatus() {
+    postgresToolOp_.check([this](const PostgresToolResult result) {
+        const std::string title = postgresToolTitle_.empty() ? "PostgreSQL Operation"
+                                                             : postgresToolTitle_;
+        if (result.success) {
+            Alert::show(title, result.message);
+            if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
+                if (!postgresToolRefreshDbName_.empty()) {
+                    if (auto* dbData = pgDb->getDatabaseData(postgresToolRefreshDbName_)) {
+                        dbData->startSchemasLoadAsync(true, true);
+                    }
+                }
+                if (postgresToolRefreshDatabaseList_ || !postgresToolRefreshDbName_.empty()) {
+                    pgDb->refreshDatabaseNames();
+                }
+            }
+        } else {
+            Alert::show(title, std::format("{}\n\n{}", result.message,
+                                           summarizeToolFailure(result)));
+        }
+        postgresToolTitle_.clear();
+        postgresToolRefreshDbName_.clear();
+        postgresToolRefreshDatabaseList_ = false;
+    });
+}
+
+void DatabaseHierarchy::renderPostgresBackupRestoreMenus(PostgresDatabaseNode* dbData) {
+    if (!dbData || !dbData->parentDb) {
+        return;
+    }
+
+    if (dbData->parentDb->getConnectionInfo().type == DatabaseType::REDSHIFT) {
+        return;
+    }
+
+    const bool toolBusy = postgresToolOp_.isRunning();
+    if (ImGui::BeginMenu(BACKUP_LABEL, !toolBusy)) {
+        if (ImGui::MenuItem("Custom Archive (.dump)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::Custom, false, false);
+        }
+        if (ImGui::MenuItem("Custom Archive + CREATE DATABASE (.dump)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::Custom, true, false);
+        }
+        if (ImGui::MenuItem("Custom Archive, No Owner (.dump)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::Custom, false, true);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Plain SQL (.sql)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::PlainSql, false, false);
+        }
+        if (ImGui::MenuItem("Plain SQL + CREATE DATABASE (.sql)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::PlainSql, true, false);
+        }
+        if (ImGui::MenuItem("Plain SQL, No Owner (.sql)")) {
+            startPostgresBackup(dbData, PostgresBackupFormat::PlainSql, false, true);
+        }
+        ImGui::EndMenu();
+    } else if (toolBusy && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("A PostgreSQL backup or restore is already running");
+    }
+
+    if (ImGui::BeginMenu(RESTORE_LABEL, !toolBusy)) {
+        if (ImGui::MenuItem("Into This Database")) {
+            startPostgresRestore(dbData, false, false);
+        }
+        if (ImGui::MenuItem("Clean Then Restore")) {
+            startPostgresRestore(dbData, true, false);
+        }
+        if (ImGui::MenuItem("Create Database From Backup")) {
+            startPostgresRestore(dbData, false, true);
+        }
+        ImGui::EndMenu();
+    } else if (toolBusy && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("A PostgreSQL backup or restore is already running");
+    }
+}
+
+void DatabaseHierarchy::startPostgresBackup(PostgresDatabaseNode* dbData,
+                                            const PostgresBackupFormat format,
+                                            const bool includeCreateDatabase,
+                                            const bool noOwner) {
+    if (!dbData || !dbData->parentDb || postgresToolOp_.isRunning()) {
+        return;
+    }
+
+    if (!ensurePostgresToolsAvailable({"pg_dump"})) {
+        return;
+    }
+
+    const std::string path =
+        FileDialog::savePostgresBackupFile(defaultPostgresBackupName(dbData->name, format));
+    if (path.empty()) {
+        return;
+    }
+
+    auto info = dbData->parentDb->getConnectionInfo();
+    info.database = dbData->name;
+    PostgresBackupOptions options{info, dbData->name, std::filesystem::path(path), format,
+                                  includeCreateDatabase, noOwner};
+
+    postgresToolTitle_ = "Backup Database";
+    postgresToolRefreshDbName_.clear();
+    postgresToolRefreshDatabaseList_ = false;
+    postgresToolOp_.start([options = std::move(options)]() {
+        return PostgresBackupService::backupDatabase(options);
+    });
+}
+
+void DatabaseHierarchy::startPostgresRestore(PostgresDatabaseNode* dbData,
+                                             const bool cleanBeforeRestore,
+                                             const bool createDatabase) {
+    if (!dbData || !dbData->parentDb || postgresToolOp_.isRunning()) {
+        return;
+    }
+
+    const std::string path = FileDialog::openPostgresBackupFile();
+    if (path.empty()) {
+        return;
+    }
+
+    const bool plainSqlBackup = isPlainSqlBackupPath(path);
+    if (cleanBeforeRestore && plainSqlBackup) {
+        Alert::show("Restore Database",
+                    "Clean restore requires a custom PostgreSQL archive because pg_restore "
+                    "generates the DROP statements. Plain SQL backups can still be restored "
+                    "normally if they already contain the intended DDL.");
+        return;
+    }
+
+    if (!ensurePostgresToolsAvailable({plainSqlBackup ? "psql" : "pg_restore"})) {
+        return;
+    }
+
+    const std::string dbName = dbData->name;
+    const std::string action =
+        createDatabase ? "create a database from this backup"
+                       : cleanBeforeRestore ? std::format("drop matching objects in '{}' first",
+                                                          dbName)
+                                            : std::format("restore into '{}'", dbName);
+    const std::string createNote =
+        createDatabase && plainSqlBackup
+            ? "\n\nPlain SQL create-database restores require a backup that contains CREATE "
+              "DATABASE and connection commands."
+            : "";
+    Alert::show(
+        "Restore Database",
+        std::format("This will {}.\n\nBackup file:\n{}{}\n\nContinue?", action, path, createNote),
+        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+         {"Restore",
+          [this, dbData, dbName, path, cleanBeforeRestore, createDatabase]() {
+              if (!dbData || !dbData->parentDb || postgresToolOp_.isRunning()) {
+                  return;
+              }
+
+              auto info = dbData->parentDb->getConnectionInfo();
+              info.database = dbName;
+              PostgresRestoreOptions options{info,
+                                             dbName,
+                                             std::filesystem::path(path),
+                                             cleanBeforeRestore,
+                                             true,
+                                             createDatabase};
+
+              postgresToolTitle_ = "Restore Database";
+              postgresToolRefreshDbName_ = createDatabase ? "" : dbName;
+              postgresToolRefreshDatabaseList_ = createDatabase;
+              postgresToolOp_.start([options = std::move(options)]() {
+                  return PostgresBackupService::restoreDatabase(options);
+              });
+          },
+          AlertButton::Style::Destructive}});
 }
 
 void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbData,
