@@ -2,6 +2,7 @@
 #include "IconsFontAwesome6.h"
 #include "IconsForkAwesome.h"
 #include "application.hpp"
+#include "database/cassandra.hpp"
 #include "database/database_node.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
@@ -23,8 +24,8 @@
 #include "utils/table_exporter.hpp"
 #include "utils/table_importer.hpp"
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <format>
@@ -386,6 +387,32 @@ void DatabaseHierarchy::renderRootNode() {
             for (const auto& dbDataPtr : databases) {
                 if (dbDataPtr && !hiddenDatabases_.contains(dbDataPtr->name)) {
                     renderMSSQLDatabaseNode(dbDataPtr.get());
+                }
+            }
+        }
+    } else if (dbType == DatabaseType::CASSANDRA) {
+        auto* cassDb = dynamic_cast<CassandraDatabase*>(db.get());
+        if (!cassDb) {
+            return;
+        }
+
+        if (!cassDb->areDatabasesLoaded() && !cassDb->isLoadingDatabases()) {
+            cassDb->refreshDatabaseNames();
+        }
+
+        if (cassDb->isLoadingDatabases()) {
+            cassDb->checkDatabasesStatusAsync();
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+            ImGui::TextUnformatted(LOADING_LABEL);
+            ImGui::SameLine(0, Theme::Spacing::S);
+            UIUtils::Spinner("##loading_keyspaces_spinner", 6.0f, 2,
+                             ImGui::GetColorU32(colors.peach));
+            ImGui::PopStyleColor();
+        } else if (cassDb->areDatabasesLoaded()) {
+            const auto& keyspaces = cassDb->getDatabaseDataMap() | std::views::values;
+            for (const auto& ksPtr : keyspaces) {
+                if (ksPtr && !hiddenDatabases_.contains(ksPtr->name)) {
+                    renderCassandraDatabaseNode(ksPtr.get());
                 }
             }
         }
@@ -803,8 +830,8 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
 
 void DatabaseHierarchy::checkPostgresToolStatus() {
     postgresToolOp_.check([this](const PostgresToolResult result) {
-        const std::string title = postgresToolTitle_.empty() ? "PostgreSQL Operation"
-                                                             : postgresToolTitle_;
+        const std::string title =
+            postgresToolTitle_.empty() ? "PostgreSQL Operation" : postgresToolTitle_;
         if (result.success) {
             Alert::show(title, result.message);
             if (auto* pgDb = dynamic_cast<PostgresDatabase*>(db.get())) {
@@ -818,8 +845,8 @@ void DatabaseHierarchy::checkPostgresToolStatus() {
                 }
             }
         } else {
-            Alert::show(title, std::format("{}\n\n{}", result.message,
-                                           summarizeToolFailure(result)));
+            Alert::show(title,
+                        std::format("{}\n\n{}", result.message, summarizeToolFailure(result)));
         }
         postgresToolTitle_.clear();
         postgresToolRefreshDbName_.clear();
@@ -880,8 +907,7 @@ void DatabaseHierarchy::renderPostgresBackupRestoreMenus(PostgresDatabaseNode* d
 
 void DatabaseHierarchy::startPostgresBackup(PostgresDatabaseNode* dbData,
                                             const PostgresBackupFormat format,
-                                            const bool includeCreateDatabase,
-                                            const bool noOwner) {
+                                            const bool includeCreateDatabase, const bool noOwner) {
     if (!dbData || !dbData->parentDb || postgresToolOp_.isRunning()) {
         return;
     }
@@ -898,8 +924,8 @@ void DatabaseHierarchy::startPostgresBackup(PostgresDatabaseNode* dbData,
 
     auto info = dbData->parentDb->getConnectionInfo();
     info.database = dbData->name;
-    PostgresBackupOptions options{info, dbData->name, std::filesystem::path(path), format,
-                                  includeCreateDatabase, noOwner};
+    PostgresBackupOptions options{info,   dbData->name,          std::filesystem::path(path),
+                                  format, includeCreateDatabase, noOwner};
 
     postgresToolTitle_ = "Backup Database";
     postgresToolRefreshDbName_.clear();
@@ -935,11 +961,10 @@ void DatabaseHierarchy::startPostgresRestore(PostgresDatabaseNode* dbData,
     }
 
     const std::string dbName = dbData->name;
-    const std::string action =
-        createDatabase ? "create a database from this backup"
-                       : cleanBeforeRestore ? std::format("drop matching objects in '{}' first",
-                                                          dbName)
-                                            : std::format("restore into '{}'", dbName);
+    const std::string action = createDatabase ? "create a database from this backup"
+                               : cleanBeforeRestore
+                                   ? std::format("drop matching objects in '{}' first", dbName)
+                                   : std::format("restore into '{}'", dbName);
     const std::string createNote =
         createDatabase && plainSqlBackup
             ? "\n\nPlain SQL create-database restores require a backup that contains CREATE "
@@ -957,12 +982,9 @@ void DatabaseHierarchy::startPostgresRestore(PostgresDatabaseNode* dbData,
 
               auto info = dbData->parentDb->getConnectionInfo();
               info.database = dbName;
-              PostgresRestoreOptions options{info,
-                                             dbName,
-                                             std::filesystem::path(path),
-                                             cleanBeforeRestore,
-                                             true,
-                                             createDatabase};
+              PostgresRestoreOptions options{
+                  info, dbName,        std::filesystem::path(path), cleanBeforeRestore,
+                  true, createDatabase};
 
               postgresToolTitle_ = "Restore Database";
               postgresToolRefreshDbName_ = createDatabase ? "" : dbName;
@@ -3890,5 +3912,259 @@ void DatabaseHierarchy::renderSQLiteViewNode(Table& view, SQLiteDatabase* sqlite
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
+    }
+}
+
+void DatabaseHierarchy::renderCassandraDatabaseNode(CassandraDatabaseNode* dbData) {
+    if (!dbData)
+        return;
+
+    auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
+
+    const std::string nodeId = std::format("ks_{}_{:p}", dbData->name, static_cast<void*>(dbData));
+    const bool isOpen = renderTreeNodeWithIcon(dbData->name, nodeId, ICON_FK_DATABASE,
+                                               ImGui::GetColorU32(colors.blue));
+
+    if (ImGui::IsItemToggledOpen())
+        dbData->expanded = isOpen;
+
+    if (ImGui::BeginPopupContextItem(nullptr)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem(NEW_SQL_EDITOR_LABEL)) {
+            app.getTabManager()->createSQLEditorTab("", dbData);
+        }
+        if (ImGui::MenuItem(REFRESH_LABEL)) {
+            dbData->startTablesLoadAsync(true);
+            dbData->startViewsLoadAsync(true);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(DELETE_LABEL)) {
+            const std::string ksName = dbData->name;
+            Alert::show("Drop Keyspace",
+                        std::format("Permanently drop keyspace '{}' and ALL its data?", ksName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Drop",
+                          [this, ksName]() {
+                              auto [ok, err] = db->dropDatabase(ksName);
+                              if (ok) {
+                                  if (auto* c = dynamic_cast<CassandraDatabase*>(db.get()))
+                                      c->refreshDatabaseNames();
+                              } else {
+                                  Alert::show("Error",
+                                              std::format("Failed to drop keyspace: {}", err));
+                              }
+                          },
+                          AlertButton::Style::Destructive}});
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+
+    if (!isOpen)
+        return;
+
+    // Tables
+    {
+        const std::string tablesNodeId =
+            std::format("cass_tables_{}_{:p}", dbData->name, static_cast<void*>(&dbData->tables));
+        const bool tablesOpen = renderTreeNodeWithIcon("Tables", tablesNodeId, ICON_FK_TABLE,
+                                                       ImGui::GetColorU32(colors.green));
+
+        if (ImGui::BeginPopupContextItem(nullptr)) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+            if (ImGui::MenuItem(REFRESH_LABEL))
+                dbData->startTablesLoadAsync(true);
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+
+        if (tablesOpen) {
+            if (!dbData->tablesLoaded && !dbData->tablesLoader.isRunning())
+                dbData->startTablesLoadAsync();
+
+            if (dbData->tablesLoader.isRunning()) {
+                dbData->checkLoadingStatus();
+                ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                ImGui::TextUnformatted(LOADING_LABEL);
+                ImGui::SameLine(0, Theme::Spacing::S);
+                UIUtils::Spinner("##loading_cass_tables", 6.0f, 2,
+                                 ImGui::GetColorU32(colors.peach));
+                ImGui::PopStyleColor();
+            } else if (dbData->tablesLoaded) {
+                if (dbData->tables.empty()) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                    ImGui::Text("  No tables");
+                    ImGui::PopStyleColor();
+                } else {
+                    for (auto& t : dbData->tables)
+                        renderCassandraTableNode(t, dbData);
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // Materialized views (CQL has no plain views).
+    {
+        const std::string viewsNodeId =
+            std::format("cass_views_{}_{:p}", dbData->name, static_cast<void*>(&dbData->views));
+        const bool viewsOpen = renderTreeNodeWithIcon("Materialized Views", viewsNodeId,
+                                                      ICON_FK_EYE, ImGui::GetColorU32(colors.teal));
+
+        if (ImGui::BeginPopupContextItem(nullptr)) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+            if (ImGui::MenuItem(REFRESH_LABEL))
+                dbData->startViewsLoadAsync(true);
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+
+        if (viewsOpen) {
+            if (!dbData->viewsLoaded && !dbData->viewsLoader.isRunning())
+                dbData->startViewsLoadAsync();
+
+            if (dbData->viewsLoader.isRunning()) {
+                dbData->checkLoadingStatus();
+                ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                ImGui::TextUnformatted(LOADING_LABEL);
+                ImGui::SameLine(0, Theme::Spacing::S);
+                UIUtils::Spinner("##loading_cass_views", 6.0f, 2, ImGui::GetColorU32(colors.peach));
+                ImGui::PopStyleColor();
+            } else if (dbData->viewsLoaded) {
+                if (dbData->views.empty()) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                    ImGui::Text("  No views");
+                    ImGui::PopStyleColor();
+                } else {
+                    for (auto& v : dbData->views)
+                        renderCassandraViewNode(v, dbData);
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    ImGui::TreePop();
+}
+
+void DatabaseHierarchy::renderCassandraTableNode(Table& table, CassandraDatabaseNode* dbData) {
+    auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
+
+    currVisibleTables_.push_back(&table);
+    const bool isSelected = selectedTables_.count(&table) > 0;
+    const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                                     ImGuiTreeNodeFlags_FramePadding |
+                                     (isSelected ? ImGuiTreeNodeFlags_Selected : 0);
+
+    const std::string nodeId =
+        std::format("cass_tbl_{}_{:p}", table.name, static_cast<const void*>(&table));
+    const bool isOpen = renderTreeNodeWithIcon(table.name, nodeId, ICON_FK_TABLE,
+                                               ImGui::GetColorU32(colors.green), flags);
+
+    if (ImGui::IsItemClicked(0) && !ImGui::IsItemToggledOpen())
+        handleTableClick(&table);
+
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+        app.getTabManager()->createTableViewerTab(dbData, table);
+
+    if (ImGui::BeginPopupContextItem(nullptr)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem(VIEW_DATA_LABEL))
+            app.getTabManager()->createTableViewerTab(dbData, table);
+        if (ImGui::MenuItem(REFRESH_LABEL))
+            dbData->startTableRefreshAsync(table.name);
+        ImGui::Separator();
+        if (ImGui::MenuItem(DELETE_LABEL)) {
+            const std::string tName = table.name;
+            Alert::show("Drop Table", std::format("Permanently drop table '{}'?", tName),
+                        {{"Cancel", nullptr, AlertButton::Style::Cancel},
+                         {"Drop",
+                          [dbData, tName]() {
+                              auto [ok, err] = dbData->dropTable(tName);
+                              if (!ok)
+                                  Alert::show("Error",
+                                              std::format("Failed to drop table: {}", err));
+                          },
+                          AlertButton::Style::Destructive}});
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+
+    if (dbData->isTableRefreshing(table.name))
+        dbData->checkTableRefreshStatusAsync(table.name);
+
+    if (isOpen) {
+        const std::string colsId =
+            std::format("cass_cols_{}_{:p}", table.name, static_cast<void*>(&table.columns));
+        const bool colsOpen = renderTreeNodeWithIcon("Columns", colsId, ICON_FA_TABLE_COLUMNS,
+                                                     ImGui::GetColorU32(colors.green));
+
+        if (colsOpen) {
+            if (table.columns.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                ImGui::Text("  No columns");
+                ImGui::PopStyleColor();
+            } else {
+                for (const auto& col : table.columns) {
+                    constexpr ImGuiTreeNodeFlags leafFlags = ImGuiTreeNodeFlags_Leaf |
+                                                             ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                             ImGuiTreeNodeFlags_FramePadding;
+                    std::string label = std::format("{} ({})", col.name, col.type);
+                    if (col.isPrimaryKey)
+                        label += ", PK";
+                    const std::string id = std::format("###cass_col_{}_{:p}", col.name,
+                                                       static_cast<const void*>(&col));
+                    ImGui::TreeNodeEx((label + id).c_str(), leafFlags);
+                }
+            }
+            ImGui::TreePop();
+        }
+        ImGui::TreePop();
+    }
+}
+
+void DatabaseHierarchy::renderCassandraViewNode(Table& view, CassandraDatabaseNode* dbData) {
+    auto& app = Application::getInstance();
+    const auto& colors = app.getCurrentColors();
+
+    currVisibleTables_.push_back(&view);
+    const ImGuiTreeNodeFlags flags =
+        ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_FramePadding;
+
+    const std::string nodeId =
+        std::format("cass_view_{}_{:p}", view.name, static_cast<const void*>(&view));
+    const bool isOpen = renderTreeNodeWithIcon(view.name, nodeId, ICON_FK_EYE,
+                                               ImGui::GetColorU32(colors.teal), flags);
+
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+        app.getTabManager()->createTableViewerTab(dbData, view);
+
+    if (ImGui::BeginPopupContextItem(nullptr)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        if (ImGui::MenuItem(VIEW_DATA_LABEL))
+            app.getTabManager()->createTableViewerTab(dbData, view);
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+
+    if (isOpen) {
+        for (const auto& col : view.columns) {
+            constexpr ImGuiTreeNodeFlags leafFlags = ImGuiTreeNodeFlags_Leaf |
+                                                     ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                     ImGuiTreeNodeFlags_FramePadding;
+            std::string label = std::format("{} ({})", col.name, col.type);
+            const std::string id =
+                std::format("###cass_vcol_{}_{:p}", col.name, static_cast<const void*>(&col));
+            ImGui::TreeNodeEx((label + id).c_str(), leafFlags);
+        }
+        ImGui::TreePop();
     }
 }

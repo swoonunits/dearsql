@@ -241,3 +241,29 @@ TEST(SQLFormatTest, OperatorSpacing) {
     EXPECT_TRUE(result.find("b <> 2") != std::string::npos);
     EXPECT_TRUE(result.find("c >= 3") != std::string::npos);
 }
+
+// ========== CQL (Cassandra) ==========
+// Tree-sitter SQL handles common CQL: SELECT/INSERT/UPDATE/CREATE TABLE all
+// share syntax with ANSI SQL. CQL-specific clauses (ALLOW FILTERING, USING TTL,
+// CREATE KEYSPACE WITH replication = {...}) may not parse — the formatter
+// returns the original input on parse failure, which is acceptable.
+
+TEST(SQLFormatTest, CQLBasicSelect) {
+    auto result = TextEditor::FormatSQL("select id, name from users where id = 1");
+    EXPECT_TRUE(result.find("SELECT id") != std::string::npos);
+    EXPECT_TRUE(result.find("FROM users") != std::string::npos);
+    EXPECT_TRUE(result.find("WHERE id = 1") != std::string::npos);
+}
+
+TEST(SQLFormatTest, CQLInsert) {
+    auto result = TextEditor::FormatSQL("insert into users (id, name) values (1, 'alice')");
+    EXPECT_TRUE(result.find("INSERT INTO") != std::string::npos);
+}
+
+TEST(SQLFormatTest, CQLAllowFilteringPreserved) {
+    // ALLOW FILTERING is CQL-specific. Either it parses (ideal) or the formatter
+    // falls back to the original — either way, the keyword survives intact.
+    auto result = TextEditor::FormatSQL("select * from users where role = 'admin' ALLOW FILTERING");
+    EXPECT_TRUE(result.find("ALLOW FILTERING") != std::string::npos ||
+                result.find("allow filtering") != std::string::npos);
+}

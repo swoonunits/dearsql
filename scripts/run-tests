@@ -14,6 +14,7 @@ MONGODB_CONTAINER="dearsql-mongodb-test"
 MSSQL_CONTAINER="dearsql-mssql-test"
 ORACLE_CONTAINER="dearsql-oracle-test"
 REDSHIFT_CONTAINER="dearsql-redshift-test"
+CASSANDRA_CONTAINER="dearsql-cassandra-test"
 SSH_CONTAINER="dearsql-ssh-test"
 
 # Docker images
@@ -24,6 +25,7 @@ MONGODB_IMAGE="mongo:7.0"
 MSSQL_IMAGE="mcr.microsoft.com/mssql/server:2022-latest"
 ORACLE_IMAGE="gvenzl/oracle-xe:21-slim-faststart"
 REDSHIFT_IMAGE="postgres:15-alpine"
+CASSANDRA_IMAGE="cassandra:5"
 SSH_IMAGE="dearsql-ssh-test-img"
 
 # for SSH tunnel tests
@@ -38,6 +40,7 @@ MONGODB_PORT="${MONGODB_PORT:-57017}"
 MSSQL_PORT="${MSSQL_PORT:-51433}"
 ORACLE_PORT="${ORACLE_PORT:-51521}"
 REDSHIFT_PORT="${REDSHIFT_PORT:-55439}"
+CASSANDRA_PORT="${CASSANDRA_PORT:-59042}"
 SSH_PORT="${SSH_PORT:-52222}"
 
 # TLS cert directory
@@ -89,6 +92,10 @@ export DEARSQL_TEST_REDSHIFT_DB="dev"
 export DEARSQL_TEST_REDSHIFT_USER="postgres"
 export DEARSQL_TEST_REDSHIFT_PASSWORD="redshift"
 export DEARSQL_TEST_REDSHIFT_NAME="RedshiftDocker"
+
+export DEARSQL_TEST_CASSANDRA_HOST="127.0.0.1"
+export DEARSQL_TEST_CASSANDRA_PORT="$CASSANDRA_PORT"
+export DEARSQL_TEST_CASSANDRA_NAME="CassandraDocker"
 
 # SSH tunnel test env vars
 export DEARSQL_TEST_SSH_HOST="127.0.0.1"
@@ -294,6 +301,7 @@ all_ports_open() {
     port_open 127.0.0.1 "$MSSQL_PORT" &&
     port_open 127.0.0.1 "$ORACLE_PORT" &&
     port_open 127.0.0.1 "$REDSHIFT_PORT" &&
+    port_open 127.0.0.1 "$CASSANDRA_PORT" &&
     { [[ ! -d "$CERT_DIR" ]] || port_open 127.0.0.1 "$REDIS_TLS_PORT"; } &&
     { [[ ! -d "$CERT_DIR" ]] || port_open 127.0.0.1 "$SSH_PORT"; } &&
     ssh_test_environment_ready
@@ -435,6 +443,24 @@ setup_containers() {
     wait_for_command "Redshift" 60 docker_cmd exec "$REDSHIFT_CONTAINER" \
         pg_isready -h localhost -U postgres
 
+    # ── Cassandra ──
+    # Cassandra binds 9042 early (port_open succeeds long before CQL is ready),
+    # and nodetool/cqlsh probes spawn a new JVM/Python each call (slow). The
+    # only fast & accurate readiness signal is the log line emitted when the
+    # native transport starts accepting clients.
+    #
+    # We also pin the heap explicitly: inside Docker Desktop the auto-sizer
+    # often picks a tiny heap and the JVM thrashes for minutes during bootstrap.
+    start_or_create "$CASSANDRA_CONTAINER" \
+        -e CASSANDRA_CLUSTER_NAME=DearSQLTest \
+        -e MAX_HEAP_SIZE=1G \
+        -e HEAP_NEWSIZE=200M \
+        -p "127.0.0.1:${CASSANDRA_PORT}:9042" \
+        "$CASSANDRA_IMAGE"
+    wait_for_command "Cassandra" 600 docker_cmd exec "$CASSANDRA_CONTAINER" \
+        sh -c "grep -q 'Starting listening for CQL clients' /var/log/cassandra/system.log 2>/dev/null \
+            || grep -q 'Starting listening for CQL clients' /opt/cassandra/logs/system.log 2>/dev/null"
+
     # ── SSH server (for tunnel tests, same network as PostgreSQL) ──
     if $has_certs; then
         # build minimal SSH image with the test public key baked in
@@ -506,6 +532,7 @@ echo "MongoDB:     $DEARSQL_TEST_MONGODB_HOST:$DEARSQL_TEST_MONGODB_PORT"
 echo "MSSQL:       $DEARSQL_TEST_MSSQL_HOST:$DEARSQL_TEST_MSSQL_PORT"
 echo "Oracle:      $DEARSQL_TEST_ORACLE_HOST:$DEARSQL_TEST_ORACLE_PORT"
 echo "Redshift:    $DEARSQL_TEST_REDSHIFT_HOST:$DEARSQL_TEST_REDSHIFT_PORT ($DEARSQL_TEST_REDSHIFT_DB)"
+echo "Cassandra:   $DEARSQL_TEST_CASSANDRA_HOST:$DEARSQL_TEST_CASSANDRA_PORT"
 echo "SSH:         $DEARSQL_TEST_SSH_HOST:$DEARSQL_TEST_SSH_PORT"
 echo "CA cert:     ${DEARSQL_TEST_CA_CERT:-<not available>}"
 echo ""

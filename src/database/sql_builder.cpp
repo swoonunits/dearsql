@@ -84,6 +84,8 @@ std::unique_ptr<ISQLBuilder> createSQLBuilder(DatabaseType type) {
         return std::make_unique<MSSQLBuilder>();
     case DatabaseType::ORACLE:
         return std::make_unique<OracleBuilder>();
+    case DatabaseType::CASSANDRA:
+        return std::make_unique<CassandraBuilder>();
     case DatabaseType::SQLITE:
     default:
         return std::make_unique<SQLiteBuilder>();
@@ -359,4 +361,33 @@ std::string SQLiteBuilder::addColumn(const std::string& table, const Column& col
 std::string SQLiteBuilder::dropColumn(const std::string& table,
                                       const std::string& columnName) const {
     return "ALTER TABLE " + quoteIdentifier(table) + " DROP COLUMN " + quoteIdentifier(columnName);
+}
+
+std::string CassandraBuilder::addColumn(const std::string& table, const Column& column) const {
+    return "ALTER TABLE " + quoteIdentifier(table) + " ADD " + quoteIdentifier(column.name) + " " +
+           column.type;
+}
+
+std::string CassandraBuilder::dropColumn(const std::string& table,
+                                         const std::string& columnName) const {
+    return "ALTER TABLE " + quoteIdentifier(table) + " DROP " + quoteIdentifier(columnName);
+}
+
+std::string CassandraBuilder::columnNames(const Table& table) const {
+    const std::string keyspace = table.schema;
+    return std::format("SELECT column_name FROM system_schema.columns "
+                       "WHERE keyspace_name = '{}' AND table_name = '{}'",
+                       keyspace, table.name);
+}
+
+std::string CassandraBuilder::selectAll(const Table& table, const std::string& whereClause,
+                                        const std::string& orderByClause, int limit,
+                                        int /*offset*/) const {
+    std::string sql = std::format("SELECT * FROM {}", qualifiedName(table));
+    if (!whereClause.empty())
+        sql += " WHERE " + whereClause + " ALLOW FILTERING";
+    if (!orderByClause.empty())
+        sql += " ORDER BY " + orderByClause;
+    sql += std::format(" LIMIT {}", limit);
+    return sql;
 }

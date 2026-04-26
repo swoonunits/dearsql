@@ -30,3 +30,6 @@
 [submodule "external/sql-parser"]
 	path = external/sql-parser
 	url = https://github.com/hyrise/sql-parser.git
+[submodule "external/cpp-driver"]
+	path = external/cpp-driver
+	url = https://github.com/datastax/cpp-driver.git

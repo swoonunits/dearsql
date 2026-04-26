@@ -17,7 +17,8 @@ enum class DatabaseType {
     MONGODB,
     MSSQL,
     ORACLE,
-    REDSHIFT
+    REDSHIFT,
+    CASSANDRA
 };
 
 enum class SSHAuthMethod { Password, PrivateKey };
@@ -148,6 +149,12 @@ struct DatabaseConnectionInfo {
         case DatabaseType::ORACLE: {
             // OCI Easy Connect: //host:port/service_name
             return "//" + host + ":" + std::to_string(port) + "/" + database;
+        }
+
+        case DatabaseType::CASSANDRA: {
+            // cpp-driver uses programmatic CassCluster setup; the string is
+            // diagnostic-only.
+            return host + ":" + std::to_string(port);
         }
 
         default:

@@ -67,8 +67,8 @@ namespace {
         } else if (!process.errorMessage.empty()) {
             result.message = process.errorMessage;
         } else {
-            result.message = std::format("PostgreSQL tool failed with exit code {}",
-                                         process.exitCode);
+            result.message =
+                std::format("PostgreSQL tool failed with exit code {}", process.exitCode);
         }
         return result;
     }
@@ -129,16 +129,16 @@ PostgresToolResult PostgresBackupService::backupDatabase(const PostgresBackupOpt
     args.emplace_back("--verbose");
 
     ProcessSpec spec{std::move(args), postgresEnvironment(options.connectionInfo)};
-    return fromProcessResult(
-        ProcessRunner::run(spec),
-        std::format("Backup completed: {}", options.outputPath.string()));
+    return fromProcessResult(ProcessRunner::run(spec),
+                             std::format("Backup completed: {}", options.outputPath.string()));
 }
 
 PostgresToolResult PostgresBackupService::restoreDatabase(const PostgresRestoreOptions& options) {
     const bool plainSql = hasSqlExtension(options.inputPath);
     const std::string targetDatabase =
-        options.createDatabase ? maintenanceDatabaseFor(options.connectionInfo, options.databaseName)
-                               : options.databaseName;
+        options.createDatabase
+            ? maintenanceDatabaseFor(options.connectionInfo, options.databaseName)
+            : options.databaseName;
 
     std::vector<std::string> args;
     if (plainSql) {
@@ -165,7 +165,6 @@ PostgresToolResult PostgresBackupService::restoreDatabase(const PostgresRestoreO
     }
 
     ProcessSpec spec{std::move(args), postgresEnvironment(options.connectionInfo)};
-    return fromProcessResult(
-        ProcessRunner::run(spec),
-        std::format("Restore completed from: {}", options.inputPath.string()));
+    return fromProcessResult(ProcessRunner::run(spec),
+                             std::format("Restore completed from: {}", options.inputPath.string()));
 }

@@ -135,6 +135,7 @@ find_package(sentry CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 include(cmake/FreeTDS.cmake)
 include(cmake/OracleOCI.cmake)
+include(cmake/CassandraDriver.cmake)
 
 enable_testing()
 
@@ -180,6 +181,8 @@ set(APP_SOURCES
     src/database/oracle.cpp
     src/database/oracle/oracle_database_node.cpp
     src/database/oracle/oracle_client_installer.cpp
+    src/database/cassandra.cpp
+    src/database/cassandra/cassandra_database_node.cpp
     src/database/db_factory.cpp
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
@@ -351,6 +354,7 @@ target_link_libraries(
         ${SYBDB_LIBRARY}
         ${SYBDB_DEPS}
         odpi
+        cassandra_static
         httplib::httplib
         unofficial::tree-sitter::tree-sitter
         tree-sitter-sql-grammar

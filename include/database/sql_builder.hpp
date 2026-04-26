@@ -119,3 +119,21 @@ public:
                                          const std::string& columnName) const override;
     [[nodiscard]] std::string columnNames(const Table& table) const override;
 };
+
+class CassandraBuilder : public ISQLBuilder {
+public:
+    [[nodiscard]] DatabaseType databaseType() const override {
+        return DatabaseType::CASSANDRA;
+    }
+
+    [[nodiscard]] std::string addColumn(const std::string& table,
+                                        const Column& column) const override;
+    [[nodiscard]] std::string dropColumn(const std::string& table,
+                                         const std::string& columnName) const override;
+    [[nodiscard]] std::string columnNames(const Table& table) const override;
+
+    // CQL has no OFFSET; falls back to LIMIT-only paging.
+    [[nodiscard]] std::string selectAll(const Table& table, const std::string& whereClause,
+                                        const std::string& orderByClause, int limit,
+                                        int offset) const override;
+};

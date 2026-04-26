@@ -2,6 +2,7 @@
 
 #include "app_state.hpp"
 #include "application.hpp"
+#include "database/cassandra.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -276,6 +277,8 @@ static int defaultPort(DatabaseType type) {
         return 1521;
     case DatabaseType::REDSHIFT:
         return 5439;
+    case DatabaseType::CASSANDRA:
+        return 9042;
     default:
         return 0;
     }
@@ -605,6 +608,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = database.empty() ? "dev" : database;
             db = std::make_shared<PostgresDatabase>(info);
             break;
+        case DatabaseType::CASSANDRA:
+            info.database = database;
+            db = std::make_shared<CassandraDatabase>(info);
+            break;
         default:
             break;
         }
@@ -839,8 +846,8 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         makeCtrl("STATIC", "Type:", IDC_LABEL_TYPE, SS_RIGHT, LX, y + 3, LW, RH);
         HWND typeCombo =
             makeCtrl("COMBOBOX", "", IDC_TYPE_COMBO, CBS_DROPDOWNLIST | WS_TABSTOP, FX, y, FW, 200);
-        const char* types[] = {"SQLite",  "PostgreSQL", "MySQL",  "MariaDB", "Redis",
-                               "MongoDB", "MSSQL",      "Oracle", "Redshift"};
+        const char* types[] = {"SQLite",  "PostgreSQL", "MySQL",  "MariaDB",  "Redis",
+                               "MongoDB", "MSSQL",      "Oracle", "Redshift", "Cassandra"};
         for (const char* t : types) {
             SendMessageA(typeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(t));
         }

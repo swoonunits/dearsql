@@ -51,8 +51,8 @@ namespace {
         return commandLine;
     }
 
-    std::vector<char> buildEnvironmentBlock(
-        const std::unordered_map<std::string, std::string>& overrides) {
+    std::vector<char>
+    buildEnvironmentBlock(const std::unordered_map<std::string, std::string>& overrides) {
         std::vector<std::string> entries;
         LPCH env = GetEnvironmentStringsA();
         if (env) {
@@ -141,14 +141,15 @@ ProcessResult ProcessRunner::run(const ProcessSpec& spec) {
     result.exitCode = static_cast<int>(exitCode);
     result.success = exitCode == 0;
     if (!result.success && result.output.empty()) {
-        result.errorMessage = std::format("'{}' exited with code {}", spec.args.front(),
-                                          result.exitCode);
+        result.errorMessage =
+            std::format("'{}' exited with code {}", spec.args.front(), result.exitCode);
     }
     return result;
 #else
     int pipefd[2];
     if (pipe(pipefd) != 0) {
-        result.errorMessage = std::format("Failed to create process pipe: {}", std::strerror(errno));
+        result.errorMessage =
+            std::format("Failed to create process pipe: {}", std::strerror(errno));
         return result;
     }
 

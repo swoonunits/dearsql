@@ -19,6 +19,8 @@
       "features": ["ssl"]
     },
     "mongo-cxx-driver",
+    "libuv",
+    "zlib",
     "cpp-httplib",
     "tree-sitter",
     "gtest",

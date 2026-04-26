@@ -8,6 +8,7 @@ add_executable(
     tests/database/mongodb_database_test.cpp
     tests/database/mssql_database_test.cpp
     tests/database/oracle_database_test.cpp
+    tests/database/cassandra_database_test.cpp
     tests/database/ssl_connection_test.cpp
     tests/database/ssh_tunnel_test.cpp
     tests/database/sql_builder_test.cpp
@@ -27,6 +28,8 @@ add_executable(
     src/database/oracle.cpp
     src/database/oracle/oracle_database_node.cpp
     src/database/oracle/oracle_client_installer.cpp
+    src/database/cassandra.cpp
+    src/database/cassandra/cassandra_database_node.cpp
     src/database/db_utils.cpp
     src/database/sql_builder.cpp
     src/database/ssh_config_parser.cpp
@@ -62,6 +65,7 @@ target_link_libraries(
         ${SYBDB_LIBRARY}
         ${SYBDB_DEPS}
         odpi
+        cassandra_static
         spdlog::spdlog
 )
 

@@ -1,6 +1,7 @@
 #include "ui/db_sidebar.hpp"
 #include "IconsFontAwesome6.h"
 #include "application.hpp"
+#include "database/cassandra.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -528,6 +529,9 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
     case DatabaseType::REDIS:
         tryRefresh.template operator()<RedisDatabase>();
         break;
+    case DatabaseType::CASSANDRA:
+        tryRefresh.template operator()<CassandraDatabase>();
+        break;
     default:
         break;
     }
@@ -563,6 +567,9 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
             if (auto* redisDb = dynamic_cast<RedisDatabase*>(db.get()))
                 for (const auto& info : redisDb->getDatabaseInfoList())
                     dbNames.push_back(std::format("db{}", info.index));
+            break;
+        case DatabaseType::CASSANDRA:
+            collectNames.template operator()<CassandraDatabase>();
             break;
         default:
             break;

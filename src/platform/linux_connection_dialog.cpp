@@ -2,6 +2,7 @@
 
 #include "app_state.hpp"
 #include "application.hpp"
+#include "database/cassandra.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -344,6 +345,8 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
         defaultPort = "1521";
     else if (type == DatabaseType::REDSHIFT)
         defaultPort = "5439";
+    else if (type == DatabaseType::CASSANDRA)
+        defaultPort = "9042";
     gtk_editable_set_text(GTK_EDITABLE(data->portEntry), defaultPort);
 
     GtkWidget* hostRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -912,6 +915,10 @@ static void connectServerAsync(ConnectionDialogData* data) {
             info.database = dbStr.empty() ? "dev" : dbStr;
             db = std::make_shared<PostgresDatabase>(info);
             break;
+        case DatabaseType::CASSANDRA:
+            info.database = dbStr;
+            db = std::make_shared<CassandraDatabase>(info);
+            break;
         default:
             break;
         }
@@ -995,9 +1002,9 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
     gtk_box_append(GTK_BOX(mainBox), nameRow);
 
     // Type dropdown
-    static const char* typeNames[] = {"SQLite",  "PostgreSQL", "MySQL",  "MariaDB", "Redis",
-                                      "MongoDB", "MSSQL",      "Oracle", "Redshift"};
-    data->typeDropdown = makeStringDropdown(typeNames, 9, static_cast<int>(initialType));
+    static const char* typeNames[] = {"SQLite",  "PostgreSQL", "MySQL",  "MariaDB",  "Redis",
+                                      "MongoDB", "MSSQL",      "Oracle", "Redshift", "Cassandra"};
+    data->typeDropdown = makeStringDropdown(typeNames, 10, static_cast<int>(initialType));
 
     // type icon next to dropdown
     data->typeIcon = gtk_image_new();
@@ -1217,6 +1224,7 @@ static void populateFieldsFromConnection(ConnectionDialogData* data,
     case DatabaseType::MSSQL:
     case DatabaseType::ORACLE:
     case DatabaseType::REDSHIFT:
+    case DatabaseType::CASSANDRA:
         if (data->hostEntry)
             gtk_editable_set_text(GTK_EDITABLE(data->hostEntry), info.host.c_str());
         if (data->portEntry) {

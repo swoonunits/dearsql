@@ -1,6 +1,7 @@
 #include "application.hpp"
 #include "config.hpp"
 #include "database/async_helper.hpp"
+#include "database/cassandra.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
 #include "database/mysql.hpp"
@@ -470,6 +471,8 @@ void Application::restorePreviousConnections() {
             db = std::make_shared<MSSQLDatabase>(conn.connectionInfo);
         } else if (conn.connectionInfo.type == DatabaseType::ORACLE) {
             db = std::make_shared<OracleDatabase>(conn.connectionInfo);
+        } else if (conn.connectionInfo.type == DatabaseType::CASSANDRA) {
+            db = std::make_shared<CassandraDatabase>(conn.connectionInfo);
         } else {
             spdlog::warn("Unknown database type {} for connection '{}', skipping",
                          static_cast<int>(conn.connectionInfo.type), conn.connectionInfo.name);

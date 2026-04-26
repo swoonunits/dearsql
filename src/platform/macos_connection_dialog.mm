@@ -1,5 +1,6 @@
 #include "app_state.hpp"
 #include "application.hpp"
+#include "database/cassandra.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -299,6 +300,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     case DatabaseType::MYSQL:
     case DatabaseType::MARIADB:
     case DatabaseType::ORACLE:
+    case DatabaseType::CASSANDRA:
     case DatabaseType::MONGODB: {
         self.hostField.stringValue = [NSString stringWithUTF8String:info.host.c_str()];
         self.portField.stringValue = [NSString stringWithFormat:@"%d", info.port];
@@ -408,6 +410,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     [self.typePopup addItemWithTitle:@"MSSQL"];
     [self.typePopup addItemWithTitle:@"Oracle"];
     [self.typePopup addItemWithTitle:@"Redshift"];
+    [self.typePopup addItemWithTitle:@"Cassandra"];
     [self.typePopup setTarget:self];
     [self.typePopup setAction:@selector(typeChanged:)];
     [cv addSubview:self.typePopup];
@@ -1075,6 +1078,10 @@ static NSWindow* sActiveConnectionDialog = nil;
         self.portField.stringValue = @"5439";
         self.authSegment.selectedSegment = 0;
         break;
+    case DatabaseType::CASSANDRA:
+        self.portField.stringValue = @"9042";
+        self.authSegment.selectedSegment = 1; // No auth by default
+        break;
     }
 
     // Clear status
@@ -1410,6 +1417,10 @@ static NSWindow* sActiveConnectionDialog = nil;
       case DatabaseType::REDSHIFT:
           info.database = database.empty() ? "dev" : database;
           db = std::make_shared<PostgresDatabase>(info);
+          break;
+      case DatabaseType::CASSANDRA:
+          info.database = database;
+          db = std::make_shared<CassandraDatabase>(info);
           break;
       default:
           break;

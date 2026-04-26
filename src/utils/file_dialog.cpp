@@ -65,9 +65,8 @@ std::string FileDialog::openCSVFile() {
 
 std::string FileDialog::openPostgresBackupFile() {
     nfdchar_t* outPath;
-    constexpr nfdfilteritem_t filterItem[3] = {{"PostgreSQL Backups", "dump,backup,sql,tar"},
-                                               {"SQL Files", "sql"},
-                                               {"All Files", "*"}};
+    constexpr nfdfilteritem_t filterItem[3] = {
+        {"PostgreSQL Backups", "dump,backup,sql,tar"}, {"SQL Files", "sql"}, {"All Files", "*"}};
 
     const nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, 3, nullptr);
     if (result == NFD_OKAY) {
@@ -83,9 +82,8 @@ std::string FileDialog::openPostgresBackupFile() {
 
 std::string FileDialog::savePostgresBackupFile(const std::string& defaultName) {
     nfdchar_t* outPath;
-    constexpr nfdfilteritem_t filterItem[3] = {{"PostgreSQL Custom Backup", "dump,backup"},
-                                               {"SQL Files", "sql"},
-                                               {"All Files", "*"}};
+    constexpr nfdfilteritem_t filterItem[3] = {
+        {"PostgreSQL Custom Backup", "dump,backup"}, {"SQL Files", "sql"}, {"All Files", "*"}};
 
     const nfdresult_t result = NFD_SaveDialog(&outPath, filterItem, 3, nullptr,
                                               defaultName.empty() ? nullptr : defaultName.c_str());

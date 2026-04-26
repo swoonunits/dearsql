@@ -2,6 +2,7 @@
 
 #include "app_state.hpp"
 #include "database/async_helper.hpp"
+#include "database/cassandra/cassandra_database_node.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb/mongodb_database_node.hpp"
 #include "database/mssql/mssql_database_node.hpp"
@@ -94,6 +95,7 @@ private:
     void renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData);
     void renderOracleDatabaseNode(OracleDatabaseNode* dbData);
     void renderMongoDBDatabaseNode(MongoDBDatabaseNode* dbData);
+    void renderCassandraDatabaseNode(CassandraDatabaseNode* dbData);
     void renderSQLiteNode();
 
     // Table/view rendering (shared across database types)
@@ -108,6 +110,8 @@ private:
     void renderOracleTableNode(Table& table, OracleDatabaseNode* dbData);
     void renderOracleViewNode(Table& view, OracleDatabaseNode* dbData);
     void renderMongoDBCollectionNode(Table& collection, MongoDBDatabaseNode* dbData);
+    void renderCassandraTableNode(Table& table, CassandraDatabaseNode* dbData);
+    void renderCassandraViewNode(Table& view, CassandraDatabaseNode* dbData);
     void renderSQLiteTableNode(Table& table, SQLiteDatabase* sqliteDb);
     void renderSQLiteViewNode(Table& view, SQLiteDatabase* sqliteDb);
 
