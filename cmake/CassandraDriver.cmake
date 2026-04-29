@@ -1,6 +1,6 @@
 # DataStax C++ driver for Apache Cassandra
 #
-# Builds the driver from external/cpp-driver as a static library. Depends on
+# Builds the driver from external/cassandra-cpp-driver as a static library. Depends on
 # libuv (via vcpkg), OpenSSL, and zlib. The library target produced is
 # `cassandra_static`.
 
@@ -26,18 +26,18 @@ if(TARGET libuv::uv_a)
     set(LIBUV_ROOT_DIR "${_LIBUV_INCLUDE}/.." CACHE PATH "" FORCE)
 endif()
 
-# cpp-driver's CMakeLists asserts on CMAKE_CXX_COMPILER_ID being one of
+# cassandra-cpp-driver's CMakeLists asserts on CMAKE_CXX_COMPILER_ID being one of
 # Clang/GNU/MSVC; on macOS the actual value is "AppleClang", which is
 # functionally Clang. Override locally for the subdirectory scope.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     set(CMAKE_CXX_COMPILER_ID "Clang")
 endif()
 
-add_subdirectory(external/cpp-driver EXCLUDE_FROM_ALL)
+add_subdirectory(external/cassandra-cpp-driver EXCLUDE_FROM_ALL)
 
 # The driver's CMakeLists builds CASS_INCLUDES privately; re-expose the public
 # header via INTERFACE.
 target_include_directories(
     cassandra_static
-    INTERFACE ${CMAKE_SOURCE_DIR}/external/cpp-driver/include
+    INTERFACE ${CMAKE_SOURCE_DIR}/external/cassandra-cpp-driver/include
 )
