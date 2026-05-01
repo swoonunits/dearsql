@@ -72,6 +72,9 @@ private:
     // Cache for foreign key relationships
     std::unordered_map<std::string, std::pair<std::string, std::string>> foreignKeyCache;
 
+    // Index into `links` of the currently selected link, or -1 for none.
+    int selectedLinkIndex = -1;
+
     int nextNodeId = 1000;
     int nextLinkId = 10000;
     int nextPinId = 100000;

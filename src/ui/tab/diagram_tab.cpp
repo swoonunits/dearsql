@@ -3,6 +3,7 @@
 #include "application.hpp"
 #include "database/database_node.hpp"
 #include "imgui.h"
+#include "themes.hpp"
 #include <algorithm>
 #include <iostream>
 #include <ranges>
@@ -134,21 +135,30 @@ void DiagramTab::render() {
         ImGui::Text("Database: (no database selected)");
     }
 
-    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(0.0f, Theme::Spacing::S));
+
+    // Push a thicker, higher-contrast frame border for the controls below so
+    // the button and checkboxes have a visible outline against the dark bg.
+    const auto& themeColors = Application::getInstance().getCurrentColors();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertFloat4ToU32(themeColors.overlay1));
+
+    // Options + refresh button on a single row
+    ImGui::Checkbox("Show Column Types", &showColumnTypes);
+    ImGui::SameLine(0.0f, Theme::Spacing::L);
+    ImGui::Checkbox("Show Primary Keys", &showPrimaryKeys);
+    ImGui::SameLine(0.0f, Theme::Spacing::L);
+    ImGui::Checkbox("Show Foreign Keys", &showForeignKeys);
+    ImGui::SameLine(0.0f, Theme::Spacing::L);
     if (ImGui::Button(ICON_FA_ARROWS_ROTATE " Refresh")) {
         schemaLoaded = false;
         loadDatabaseSchema();
     }
-    ImGui::Separator();
 
-    // Options
-    ImGui::Checkbox("Show Column Types", &showColumnTypes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Primary Keys", &showPrimaryKeys);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Foreign Keys", &showForeignKeys);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 
-    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0.0f, Theme::Spacing::S));
 
     if (!editorContext) {
         std::cout << "DiagramTab: Editor context is null, cannot render!" << std::endl;
@@ -159,9 +169,14 @@ void DiagramTab::render() {
 
     handleZoomShortcuts();
 
+    // Capture the canvas bounds so we can stroke a border around it after
+    // rendering, without introducing a child window/scroll container.
+    const ImVec2 canvasMin = ImGui::GetCursorScreenPos();
+    const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+
     const std::string editorId =
         "Database Diagram##" + std::to_string(reinterpret_cast<uintptr_t>(this));
-    ax::NodeEditor::Begin(editorId.c_str(), ImVec2(0.0, 0.0f));
+    ax::NodeEditor::Begin(editorId.c_str(), canvasSize);
 
     // Links drawn first so they land on the background draw channel (below nodes)
     renderLinks();
@@ -170,6 +185,10 @@ void DiagramTab::render() {
 
     ax::NodeEditor::End();
     ax::NodeEditor::SetCurrentEditor(nullptr);
+
+    const ImVec2 canvasMax = {canvasMin.x + canvasSize.x, canvasMin.y + canvasSize.y};
+    ImGui::GetWindowDrawList()->AddRect(
+        canvasMin, canvasMax, ImGui::ColorConvertFloat4ToU32(themeColors.overlay1), 0.0f, 0, 1.0f);
 }
 
 void DiagramTab::handleZoomShortcuts() {
@@ -207,6 +226,7 @@ void DiagramTab::loadDatabaseSchema() {
     links.clear();
     tableToNodeIdMap.clear();
     foreignKeyCache.clear();
+    selectedLinkIndex = -1;
     nextNodeId = 1000;
     nextLinkId = 10000;
     nextPinId = 100000;
@@ -291,11 +311,23 @@ void DiagramTab::renderNodes() {
     const ImVec4 foreignKeyColor = colors.blue;
     const ImVec4 typeColor = colors.subtext0;
     const ImVec4 notNullColor = colors.red;
+    const ImVec4 selectedColumnColor = colors.peach;
 
     std::set<std::pair<std::string, std::string>> foreignKeyColumns;
     for (const auto& link : links) {
         foreignKeyColumns.insert({link.fromTable, link.fromColumn});
     }
+
+    // Columns connected by the currently selected link — highlighted in renderNodes.
+    std::set<std::pair<std::string, std::string>> selectedEndpoints;
+    if (selectedLinkIndex >= 0 && selectedLinkIndex < static_cast<int>(links.size())) {
+        const auto& sel = links[selectedLinkIndex];
+        selectedEndpoints.insert({sel.fromTable, sel.fromColumn});
+        selectedEndpoints.insert({sel.toTable, sel.toColumn});
+    }
+    ImVec4 selectedBgVec = selectedColumnColor;
+    selectedBgVec.w = 0.18f;
+    const ImU32 selectedBgColor = ImGui::ColorConvertFloat4ToU32(selectedBgVec);
 
     for (auto& node : nodes) {
         if (!node.initialPositionSet) {
@@ -312,7 +344,22 @@ void DiagramTab::renderNodes() {
                               node.isPrimaryTable ? primaryTableColor : normalTableColor);
         ImGui::Text(ICON_FA_TABLE " %s", node.tableName.c_str());
         ImGui::PopStyleColor();
-        ImGui::Separator();
+
+        // Custom separator constrained to the node's width — ImGui::Separator()
+        // would stretch across the canvas inside a node-editor node.
+        {
+            const auto& neStyle = ax::NodeEditor::GetStyle();
+            const float titleWidth = ImGui::GetItemRectSize().x;
+            const float innerWidth =
+                node.size.x > 0.0f ? node.size.x - neStyle.NodePadding.x - neStyle.NodePadding.z
+                                   : titleWidth;
+            const ImVec2 cursor = ImGui::GetCursorScreenPos();
+            const float y = cursor.y + ImGui::GetStyle().ItemSpacing.y * 0.5f;
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(cursor.x, y),
+                                                ImVec2(cursor.x + innerWidth, y),
+                                                ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(innerWidth, ImGui::GetStyle().ItemSpacing.y));
+        }
 
         // Extra spacing between column rows without creating layout items
         const ImVec2 baseSpacing = ImGui::GetStyle().ItemSpacing;
@@ -326,6 +373,8 @@ void DiagramTab::renderNodes() {
             }
 
             const bool isForeignKey = foreignKeyColumns.contains({node.tableName, column.name});
+            const bool isSelectedEndpoint =
+                selectedEndpoints.contains({node.tableName, column.name});
 
             ImGui::BeginGroup();
 
@@ -338,7 +387,14 @@ void DiagramTab::renderNodes() {
 
             ImGui::SameLine();
 
-            if (showPrimaryKeys && column.isPrimaryKey) {
+            if (isSelectedEndpoint) {
+                ImGui::PushStyleColor(ImGuiCol_Text, selectedColumnColor);
+                const char* icon = column.isPrimaryKey ? ICON_FA_KEY " "
+                                   : isForeignKey      ? ICON_FA_LINK " "
+                                                       : "";
+                ImGui::Text("%s%s", icon, column.name.c_str());
+                ImGui::PopStyleColor();
+            } else if (showPrimaryKeys && column.isPrimaryKey) {
                 ImGui::PushStyleColor(ImGuiCol_Text, primaryTableColor);
                 ImGui::Text(ICON_FA_KEY " %s", column.name.c_str());
                 ImGui::PopStyleColor();
@@ -376,6 +432,17 @@ void DiagramTab::renderNodes() {
             }
 
             ImGui::EndGroup();
+
+            // Translucent background tint behind a selected-endpoint row.
+            // Drawn with low alpha so it sits behind the text visually.
+            if (isSelectedEndpoint) {
+                const ImVec2 rowMin = ImGui::GetItemRectMin();
+                const ImVec2 rowMax = ImGui::GetItemRectMax();
+                const float padX = ImGui::GetStyle().ItemSpacing.x * 0.5f;
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(rowMin.x - padX, rowMin.y),
+                                                          ImVec2(rowMax.x + padX, rowMax.y),
+                                                          selectedBgColor, 3.0f);
+            }
         }
 
         ImGui::PopStyleVar();
@@ -394,6 +461,10 @@ void DiagramTab::renderLinks() {
     const auto& colors = Application::getInstance().getCurrentColors();
     const ImU32 linkColor = ImGui::ColorConvertFloat4ToU32(colors.sky);
     const ImU32 linkHoverColor = ImGui::ColorConvertFloat4ToU32(colors.blue);
+    const ImU32 linkSelectedColor = ImGui::ColorConvertFloat4ToU32(colors.peach);
+    ImVec4 selectedGlow = colors.peach;
+    selectedGlow.w = 0.30f;
+    const ImU32 linkSelectedGlow = ImGui::ColorConvertFloat4ToU32(selectedGlow);
     constexpr float thickness = 2.5f;
     constexpr float cornerRadius = 8.0f;
     constexpr float hoverThresh = 6.0f;
@@ -402,8 +473,14 @@ void DiagramTab::renderLinks() {
     // Inside ax::NodeEditor::Begin/End, io.MousePos is already in canvas-local space.
     const ImVec2 mouseCanvas = ImGui::GetMousePos();
     bool anyDragActive = false;
+    bool clickedAnyLink = false;
 
-    for (auto& link : links) {
+    if (selectedLinkIndex >= static_cast<int>(links.size())) {
+        selectedLinkIndex = -1;
+    }
+
+    for (size_t linkIdx = 0; linkIdx < links.size(); ++linkIdx) {
+        auto& link = links[linkIdx];
         // Find nodes
         auto fromIt = std::ranges::find_if(
             nodes, [&](const DiagramNode& n) { return n.tableName == link.fromTable; });
@@ -501,6 +578,8 @@ void DiagramTab::renderLinks() {
                 link.dragStartMouseX = mouseCanvas.x;
                 link.dragStartOffset = link.midXOffset;
                 anyDragActive = true;
+                selectedLinkIndex = static_cast<int>(linkIdx);
+                clickedAnyLink = true;
             }
         }
 
@@ -514,21 +593,52 @@ void DiagramTab::renderLinks() {
         }
 
         // --- Draw the orthogonal link ---
-        const bool highlight = isHovered || link.isDragging;
-        const ImU32 color = highlight ? linkHoverColor : linkColor;
-        const float lw = highlight ? thickness + 1.0f : thickness;
+        const bool isSelected = (static_cast<int>(linkIdx) == selectedLinkIndex);
+
+        ImU32 color;
+        float lw;
+        if (isSelected) {
+            color = linkSelectedColor;
+            lw = thickness + 2.0f;
+            // Soft outer glow underneath the main line.
+            drawOrthogonalPath(drawList, startPin, endPin, midX, linkSelectedGlow, lw + 4.0f,
+                               cornerRadius);
+        } else if (isHovered || link.isDragging) {
+            color = linkHoverColor;
+            lw = thickness + 1.0f;
+        } else {
+            color = linkColor;
+            lw = thickness;
+        }
 
         drawOrthogonalPath(drawList, startPin, endPin, midX, color, lw, cornerRadius);
 
-        // Tooltip on hover
+        // Tooltip on hover — positioned near the cursor with a visible border.
+        // We Suspend() the editor's coordinate transform so the popup uses
+        // screen-space coordinates and ImGui places it correctly.
         if (isHovered) {
+            ax::NodeEditor::Suspend();
+            const ImVec2 mouseScreen = ImGui::GetIO().MousePos;
+            ImGui::SetNextWindowPos(ImVec2(mouseScreen.x + 16.0f, mouseScreen.y + 16.0f),
+                                    ImGuiCond_Always);
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.5f);
+            ImGui::PushStyleColor(ImGuiCol_Border, color);
             if (ImGui::BeginTooltip()) {
                 ImGui::Text("%s.%s", link.fromTable.c_str(), link.fromColumn.c_str());
                 ImGui::Text("  ↓");
                 ImGui::Text("%s.%s", link.toTable.c_str(), link.toColumn.c_str());
                 ImGui::EndTooltip();
             }
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ax::NodeEditor::Resume();
         }
+    }
+
+    // Click on empty canvas (no link, no node) clears the link selection.
+    if (ImGui::IsMouseClicked(0) && !clickedAnyLink && !ax::NodeEditor::GetHoveredNode() &&
+        !ax::NodeEditor::GetHoveredPin()) {
+        selectedLinkIndex = -1;
     }
 }
 
