@@ -1323,6 +1323,12 @@ void DatabaseHierarchy::renderPostgresSchemaNode(const PostgresDatabaseNode* dbD
                             ImGui::GetWindowDrawList()->AddText(iconPos,
                                                                 ImGui::GetColorU32(colors.purple),
                                                                 ICON_FK_SORT_NUMERIC_ASC);
+
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                                Application::getInstance()
+                                    .getTabManager()
+                                    ->createPostgresSequenceViewerTab(schemaData, seq);
+                            }
                         }
                     }
                 }

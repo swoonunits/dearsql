@@ -9,6 +9,7 @@
 
 class IDatabaseNode;
 class MongoDBDatabaseNode;
+class PostgresSchemaNode;
 class RedisDatabase;
 class SQLiteDatabase;
 class DatabaseInterface;
@@ -69,6 +70,9 @@ public:
 
     std::shared_ptr<Tab> createSQLiteSequenceViewerTab(SQLiteDatabase* db,
                                                        const std::string& sequenceName);
+
+    std::shared_ptr<Tab> createPostgresSequenceViewerTab(PostgresSchemaNode* schema,
+                                                         const std::string& sequenceName);
 
     // UI rendering
     void renderTabs();

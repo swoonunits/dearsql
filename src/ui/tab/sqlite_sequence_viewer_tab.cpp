@@ -18,7 +18,10 @@ namespace {
         ImGui::SetNextItemWidth(width);
         char buf[256];
         std::snprintf(buf, sizeof(buf), "%s", value.c_str());
+        // BeginDisabled prevents click/focus and dims to signal read-only.
+        ImGui::BeginDisabled();
         ImGui::InputText(id, buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly);
+        ImGui::EndDisabled();
     }
 
     void labeledRow(const char* label, const char* id, const std::string& value, float labelWidth,
@@ -58,8 +61,9 @@ void SQLiteSequenceViewerTab::render() {
 
     constexpr float kLabelWidth = 110.0f;
     constexpr float kInputWidth = 220.0f;
-    constexpr float kWideInputWidth = 280.0f;
-    constexpr float kSmallInputWidth = 120.0f;
+    constexpr float kNumberWidth = 140.0f;
+    constexpr float kWideNumberWidth = 200.0f;
+    constexpr float kSmallNumberWidth = 80.0f;
     constexpr float kSmallLabelWidth = 90.0f;
 
     // top padding so the form doesn't hug the tab title bar
@@ -80,9 +84,11 @@ void SQLiteSequenceViewerTab::render() {
         ImGui::SameLine(kLabelWidth);
         ImGui::SetNextItemWidth(kInputWidth);
         char descBuf[2] = {'\0', '\0'};
+        ImGui::BeginDisabled();
         ImGui::InputTextMultiline("##sqlite_seq_desc", descBuf, sizeof(descBuf),
                                   ImVec2(kInputWidth, ImGui::GetTextLineHeight() * 2.5f),
                                   ImGuiInputTextFlags_ReadOnly);
+        ImGui::EndDisabled();
     }
     ImGui::EndGroup();
 
@@ -92,11 +98,11 @@ void SQLiteSequenceViewerTab::render() {
     ImGui::BeginGroup();
     {
         labeledRow("Value:", "##sqlite_seq_value", std::format("{}", value_), kLabelWidth,
-                   kInputWidth);
+                   kNumberWidth);
         labeledRow("Min Value:", "##sqlite_seq_min", std::format("{}", kMinValue), kLabelWidth,
-                   kInputWidth);
+                   kNumberWidth);
         labeledRow("Max Value:", "##sqlite_seq_max", std::format("{}", kMaxValue), kLabelWidth,
-                   kWideInputWidth);
+                   kWideNumberWidth);
     }
     ImGui::EndGroup();
 
@@ -106,7 +112,7 @@ void SQLiteSequenceViewerTab::render() {
     ImGui::BeginGroup();
     {
         labeledRow("Increment:", "##sqlite_seq_inc", std::format("{}", kIncrement),
-                   kSmallLabelWidth, kSmallInputWidth);
+                   kSmallLabelWidth, kSmallNumberWidth);
     }
     ImGui::EndGroup();
 

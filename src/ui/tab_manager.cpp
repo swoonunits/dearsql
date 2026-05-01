@@ -6,6 +6,7 @@
 #include "ui/tab/csv_editor_tab.hpp"
 #include "ui/tab/diagram_tab.hpp"
 #include "ui/tab/mongo_editor_tab.hpp"
+#include "ui/tab/postgres_sequence_viewer_tab.hpp"
 #include "ui/tab/redis_editor_tab.hpp"
 #include "ui/tab/redis_key_viewer_tab.hpp"
 #include "ui/tab/redis_pubsub_tab.hpp"
@@ -66,6 +67,8 @@ void TabManager::closeTabsForDatabase(DatabaseInterface* db) {
         else if (auto* t = dynamic_cast<DiagramTab*>(tab.get()))
             node = t->getDatabaseNode();
         else if (auto* t = dynamic_cast<MongoEditorTab*>(tab.get()))
+            node = t->getDatabaseNode();
+        else if (auto* t = dynamic_cast<PostgresSequenceViewerTab*>(tab.get()))
             node = t->getDatabaseNode();
 
         if (node)
@@ -578,6 +581,28 @@ std::shared_ptr<Tab> TabManager::createSQLiteSequenceViewerTab(SQLiteDatabase* d
     }
 
     auto tab = std::make_shared<SQLiteSequenceViewerTab>(db, sequenceName);
+    registerOpenedTab(tab);
+    return tab;
+}
+
+std::shared_ptr<Tab> TabManager::createPostgresSequenceViewerTab(PostgresSchemaNode* schema,
+                                                                 const std::string& sequenceName) {
+    if (!schema || sequenceName.empty()) {
+        return nullptr;
+    }
+
+    for (auto& tab : tabs) {
+        if (tab->getType() == TabType::POSTGRES_SEQUENCE_VIEWER) {
+            const auto seqTab = std::dynamic_pointer_cast<PostgresSequenceViewerTab>(tab);
+            if (seqTab && seqTab->getSchemaNode() == schema &&
+                seqTab->getSequenceName() == sequenceName) {
+                requestTabFocus(tab->getId());
+                return tab;
+            }
+        }
+    }
+
+    auto tab = std::make_shared<PostgresSequenceViewerTab>(schema, sequenceName);
     registerOpenedTab(tab);
     return tab;
 }
