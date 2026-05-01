@@ -13,6 +13,7 @@
 #include "database/sqlite.hpp"
 #include "imgui.h"
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <unordered_set>
@@ -59,11 +60,31 @@ public:
             hiddenDatabases_.erase(dbName);
     }
 
+    [[nodiscard]] bool isSchemaHidden(const std::string& dbName,
+                                      const std::string& schemaName) const {
+        const auto it = hiddenSchemas_.find(dbName);
+        return it != hiddenSchemas_.end() && it->second.contains(schemaName);
+    }
+
+    void setSchemaHidden(const std::string& dbName, const std::string& schemaName, bool hidden) {
+        if (hidden) {
+            hiddenSchemas_[dbName].insert(schemaName);
+        } else {
+            const auto it = hiddenSchemas_.find(dbName);
+            if (it != hiddenSchemas_.end()) {
+                it->second.erase(schemaName);
+                if (it->second.empty())
+                    hiddenSchemas_.erase(it);
+            }
+        }
+    }
+
 private:
     std::shared_ptr<DatabaseInterface> db;
     std::string pendingEditorOpenDbName_;
 
     std::set<std::string> hiddenDatabases_;
+    std::map<std::string, std::set<std::string>> hiddenSchemas_;
 
     // multi-selection state
     std::unordered_set<const Table*> selectedTables_;
@@ -76,6 +97,9 @@ private:
     bool postgresToolRefreshDatabaseList_ = false;
 
     void handleTableClick(const Table* table);
+    void renderSchemaFilterBadge(const std::string& dbName, std::vector<std::string> schemaNames,
+                                 const ImVec2& nodeMin, const ImVec2& nodeMax,
+                                 const void* popupKey);
     void renderMultiSelectMenuContent(ITableDataProvider* provider,
                                       const std::vector<Table>& nodeTables,
                                       std::function<void(const std::string&)> dropOne,

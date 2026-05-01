@@ -177,6 +177,71 @@ void DatabaseHierarchy::handleTableClick(const Table* table) {
     }
 }
 
+void DatabaseHierarchy::renderSchemaFilterBadge(const std::string& dbName,
+                                                std::vector<std::string> schemaNames,
+                                                const ImVec2& nodeMin, const ImVec2& nodeMax,
+                                                const void* popupKey) {
+    if (schemaNames.empty())
+        return;
+
+    const auto& colors = Application::getInstance().getCurrentColors();
+
+    const int total = static_cast<int>(schemaNames.size());
+    int hiddenCount = 0;
+    for (const auto& name : schemaNames) {
+        if (isSchemaHidden(dbName, name))
+            ++hiddenCount;
+    }
+    const int visibleCount = total - hiddenCount;
+
+    const std::string countStr =
+        hiddenCount > 0 ? std::format("{}/{}", visibleCount, total) : std::to_string(total);
+    const ImVec4& badgeColor = hiddenCount > 0 ? colors.peach : colors.overlay1;
+
+    const float textW = ImGui::CalcTextSize(countStr.c_str()).x;
+    constexpr float hPad = 4.0f;
+    const float btnW = textW + hPad * 2.0f;
+    const float rowH = nodeMax.y - nodeMin.y;
+    const float rightEdge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    const float btnX = rightEdge - btnW - hPad;
+
+    const ImVec2 textPos(btnX + hPad, nodeMin.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(badgeColor), countStr.c_str());
+
+    const std::string popupId = std::format("##schema_filter_popup_{:p}", popupKey);
+    const ImVec2 badgeMin(btnX, nodeMin.y);
+    const ImVec2 badgeMax(btnX + btnW, nodeMax.y);
+    const bool badgeHovered = ImGui::IsMouseHoveringRect(badgeMin, badgeMax);
+
+    if (badgeHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        ImGui::OpenPopup(popupId.c_str());
+    }
+
+    if (badgeHovered) {
+        ImGui::GetWindowDrawList()->AddRectFilled(badgeMin, badgeMax,
+                                                  ImGui::GetColorU32(colors.surface2), 3.0f);
+        ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(badgeColor),
+                                            countStr.c_str());
+    }
+
+    if (ImGui::BeginPopup(popupId.c_str())) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                            ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
+        std::sort(schemaNames.begin(), schemaNames.end());
+        for (const auto& name : schemaNames) {
+            bool visible = !isSchemaHidden(dbName, name);
+            if (ImGui::Checkbox(name.c_str(), &visible)) {
+                setSchemaHidden(dbName, name, !visible);
+            }
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+        ImGui::EndPopup();
+    }
+}
+
 void DatabaseHierarchy::renderMultiSelectMenuContent(
     ITableDataProvider* provider, const std::vector<Table>& nodeTables,
     std::function<void(const std::string&)> dropOne, DatabaseType dbType) {
@@ -800,6 +865,17 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
     const std::string nodeId = std::format("db_{}_{:p}", dbData->name, static_cast<void*>(dbData));
     const bool isOpen = renderTreeNodeWithIcon(dbData->name, nodeId, ICON_FK_DATABASE,
                                                ImGui::GetColorU32(colors.blue));
+    const ImVec2 pgNodeMin = ImGui::GetItemRectMin();
+    const ImVec2 pgNodeMax = ImGui::GetItemRectMax();
+    if (dbData->schemasLoaded && !dbData->schemas.empty()) {
+        std::vector<std::string> schemaNames;
+        schemaNames.reserve(dbData->schemas.size());
+        for (const auto& s : dbData->schemas)
+            if (s)
+                schemaNames.push_back(s->name);
+        renderSchemaFilterBadge(dbData->name, schemaNames, pgNodeMin, pgNodeMax,
+                                static_cast<const void*>(dbData));
+    }
 
     // Handle expand/collapse
     if (ImGui::IsItemToggledOpen()) {
@@ -883,6 +959,8 @@ void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData)
         } else if (dbData->schemasLoaded) {
             // Render each schema
             for (auto& schema : dbData->schemas) {
+                if (schema && isSchemaHidden(dbData->name, schema->name))
+                    continue;
                 renderPostgresSchemaNode(dbData, schema.get());
             }
         }
@@ -2256,6 +2334,17 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
     const std::string nodeId = std::format("db_{}_{:p}", dbData->name, static_cast<void*>(dbData));
     const bool isOpen = renderTreeNodeWithIcon(dbData->name, nodeId, ICON_FK_DATABASE,
                                                ImGui::GetColorU32(colors.purple));
+    const ImVec2 msNodeMin = ImGui::GetItemRectMin();
+    const ImVec2 msNodeMax = ImGui::GetItemRectMax();
+    if (dbData->schemasLoaded && !dbData->schemas.empty()) {
+        std::vector<std::string> schemaNames;
+        schemaNames.reserve(dbData->schemas.size());
+        for (const auto& s : dbData->schemas)
+            if (s)
+                schemaNames.push_back(s->name);
+        renderSchemaFilterBadge(dbData->name, schemaNames, msNodeMin, msNodeMax,
+                                static_cast<const void*>(dbData));
+    }
 
     if (ImGui::IsItemToggledOpen()) {
         dbData->expanded = isOpen;
@@ -2317,6 +2406,8 @@ void DatabaseHierarchy::renderMSSQLDatabaseNode(MSSQLDatabaseNode* dbData) {
             ImGui::PopStyleColor();
         } else if (dbData->schemasLoaded) {
             for (auto& schema : dbData->schemas) {
+                if (schema && isSchemaHidden(dbData->name, schema->name))
+                    continue;
                 renderMSSQLSchemaNode(dbData, schema.get());
             }
         }

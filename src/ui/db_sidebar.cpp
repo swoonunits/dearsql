@@ -663,24 +663,21 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
 
             if (connectionInfo.type == DatabaseType::ORACLE &&
                 OracleDatabase::needsClientInstall()) {
-                auto& installer = oracleClientInstaller_;
-                installer.checkStatus();
+                oracleClientInstaller_.checkStatus();
 
-                if (installer.isRunning()) {
+                if (oracleClientInstaller_.isRunning()) {
                     ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
-                    ImGui::Text("  %s", installer.getStatusMessage().c_str());
+                    ImGui::Text("  %s", oracleClientInstaller_.getStatusMessage().c_str());
                     ImGui::SameLine(0, Theme::Spacing::S);
                     UIUtils::Spinner("##oracle_install_spinner", 6.0f, 2,
                                      ImGui::GetColorU32(colors.peach));
                     ImGui::PopStyleColor();
-                } else if (installer.getStatus() == OracleClientInstaller::Status::Done) {
+                } else if (oracleClientInstaller_.getStatus() ==
+                           OracleClientInstaller::Status::Done) {
                     OracleDatabase::reinitContext();
                     db->startConnectionAsync();
                 } else {
                     ImGui::Indent(Theme::Spacing::M);
-                    if (ImGui::SmallButton(ICON_FA_DOWNLOAD " Install Oracle Instant Client")) {
-                        installer.startInstall();
-                    }
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
                             "Downloads Oracle Instant Client Basic Lite (~30MB) to ~/.dearsql/");
