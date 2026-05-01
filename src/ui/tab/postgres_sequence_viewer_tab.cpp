@@ -57,6 +57,11 @@ namespace {
     const char* cstr(const char* buf) {
         return buf;
     }
+
+    constexpr float kLabelWidth = 120.0f;
+    constexpr float kSmallLabelWidth = 100.0f;
+    constexpr float kInputWidth = 240.0f;
+    constexpr float kNumberWidth = 140.0f;
 } // namespace
 
 PostgresSequenceViewerTab::PostgresSequenceViewerTab(PostgresSchemaNode* schema,
@@ -103,11 +108,6 @@ void PostgresSequenceViewerTab::render() {
     }
 
     renderToolbar();
-
-    constexpr float kLabelWidth = 120.0f;
-    constexpr float kSmallLabelWidth = 100.0f;
-    constexpr float kInputWidth = 240.0f;
-    constexpr float kNumberWidth = 140.0f;
 
     ImGui::Dummy(ImVec2(0, Theme::Spacing::M));
 

@@ -35,6 +35,15 @@ endif()
 
 add_subdirectory(external/cassandra-cpp-driver EXCLUDE_FROM_ALL)
 
+if(MSVC)
+    target_compile_options(
+        cassandra_static
+        PRIVATE /FI${CMAKE_SOURCE_DIR}/cmake/msvc_cassandra_sparsehash_compat.hpp
+    )
+endif()
+
+target_compile_definitions(cassandra_static INTERFACE CASS_STATIC)
+
 # The driver's CMakeLists builds CASS_INCLUDES privately; re-expose the public
 # header via INTERFACE.
 target_include_directories(
