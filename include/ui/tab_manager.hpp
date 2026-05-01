@@ -10,6 +10,7 @@
 class IDatabaseNode;
 class MongoDBDatabaseNode;
 class RedisDatabase;
+class SQLiteDatabase;
 class DatabaseInterface;
 struct Table;
 struct Routine;
@@ -65,6 +66,9 @@ public:
     std::shared_ptr<Tab> createCsvEditorTab(const std::string& filePath);
 
     std::shared_ptr<Tab> createRoutineViewerTab(IDatabaseNode* node, const Routine& routine);
+
+    std::shared_ptr<Tab> createSQLiteSequenceViewerTab(SQLiteDatabase* db,
+                                                       const std::string& sequenceName);
 
     // UI rendering
     void renderTabs();

@@ -724,6 +724,69 @@ void DatabaseHierarchy::renderSQLiteNode() {
             ImGui::TreePop();
         }
     }
+
+    // Render Sequences section (sqlite_sequence — populated by INTEGER PRIMARY KEY AUTOINCREMENT)
+    {
+        const std::string seqNodeId =
+            std::format("sqlite_sequences_{:p}", static_cast<void*>(sqliteDb));
+        const bool seqOpen = renderTreeNodeWithIcon(
+            "Sequences", seqNodeId, ICON_FK_SORT_NUMERIC_ASC, ImGui::GetColorU32(colors.purple));
+
+        if (ImGui::BeginPopupContextItem(nullptr)) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+            if (ImGui::MenuItem(REFRESH_LABEL)) {
+                sqliteDb->startSequencesLoadAsync(true);
+            }
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+
+        if (seqOpen) {
+            if (!sqliteDb->sequencesLoaded && !sqliteDb->sequencesLoader.isRunning()) {
+                sqliteDb->startSequencesLoadAsync();
+            }
+
+            if (sqliteDb->sequencesLoader.isRunning()) {
+                sqliteDb->checkSequencesStatusAsync();
+                ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
+                ImGui::TextUnformatted(LOADING_LABEL);
+                ImGui::SameLine(0, Theme::Spacing::S);
+                UIUtils::Spinner("##loading_sqlite_sequences", 6.0f, 2,
+                                 ImGui::GetColorU32(colors.peach));
+                ImGui::PopStyleColor();
+            } else if (sqliteDb->sequencesLoaded) {
+                const auto& sequences = sqliteDb->getSequences();
+                if (sequences.empty()) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+                    ImGui::Text("  No sequences");
+                    ImGui::PopStyleColor();
+                } else {
+                    constexpr ImGuiTreeNodeFlags seqFlags = ImGuiTreeNodeFlags_Leaf |
+                                                            ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                            ImGuiTreeNodeFlags_FramePadding;
+                    for (const auto& seq : sequences) {
+                        const std::string seqItemId =
+                            std::format("sqlite_seq_{}_{:p}", seq, static_cast<const void*>(&seq));
+                        const std::string seqLabel = std::format("   {}###{}", seq, seqItemId);
+                        ImGui::TreeNodeEx(seqLabel.c_str(), seqFlags);
+
+                        const auto iconPos = ImVec2(
+                            ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing(),
+                            ImGui::GetItemRectMin().y +
+                                (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f);
+                        ImGui::GetWindowDrawList()->AddText(
+                            iconPos, ImGui::GetColorU32(colors.purple), ICON_FK_SORT_NUMERIC_ASC);
+
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                            app.getTabManager()->createSQLiteSequenceViewerTab(sqliteDb, seq);
+                        }
+                    }
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
 }
 
 void DatabaseHierarchy::renderPostgresDatabaseNode(PostgresDatabaseNode* dbData) {

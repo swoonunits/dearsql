@@ -380,6 +380,64 @@ std::vector<Table> SQLiteDatabase::getViewsAsync() const {
     return result;
 }
 
+void SQLiteDatabase::startSequencesLoadAsync(bool forceRefresh) {
+    spdlog::debug("startSequencesLoadAsync for SQLite database{}",
+                  (forceRefresh ? " (force refresh)" : ""));
+
+    if (sequencesLoader.isRunning()) {
+        return;
+    }
+
+    if (forceRefresh) {
+        sequences.clear();
+        sequencesLoaded = false;
+        lastSequencesError.clear();
+    }
+
+    if (!forceRefresh && sequencesLoaded) {
+        return;
+    }
+
+    sequences.clear();
+    sequencesLoader.start([this]() { return getSequencesAsync(); });
+}
+
+void SQLiteDatabase::checkSequencesStatusAsync() {
+    sequencesLoader.check([this](std::vector<std::string> result) {
+        sequences = std::move(result);
+        sequencesLoaded = true;
+        spdlog::debug("Sequence loading completed. Found {} sequences", sequences.size());
+    });
+}
+
+std::vector<std::string> SQLiteDatabase::getSequencesAsync() const {
+    std::vector<std::string> result;
+
+    if (!connected || !db_) {
+        return result;
+    }
+
+    try {
+        // sqlite_sequence is auto-created only when a table uses INTEGER PRIMARY KEY AUTOINCREMENT
+        const std::string existsQuery =
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'";
+        bool exists = false;
+        queryRows(db_, existsQuery, [&](sqlite3_stmt*) { exists = true; });
+
+        if (!exists) {
+            return result;
+        }
+
+        const std::string seqQuery = "SELECT name FROM sqlite_sequence ORDER BY name";
+        queryRows(db_, seqQuery,
+                  [&](sqlite3_stmt* stmt) { result.push_back(columnText(stmt, 0)); });
+    } catch (const std::exception& e) {
+        spdlog::error("Error loading sequences: {}", e.what());
+    }
+
+    return result;
+}
+
 // ITableDataProvider implementation
 std::vector<std::vector<std::string>>
 SQLiteDatabase::getTableData(const Table& table, int limit, int offset,
@@ -563,6 +621,7 @@ void SQLiteDatabase::checkLoadingStatus() {
         viewsLoaded = true;
         spdlog::debug("View loading completed. Found {} views", views.size());
     });
+    checkSequencesStatusAsync();
     for (auto it = tableRefreshLoaders.begin(); it != tableRefreshLoaders.end();) {
         const auto& tableName = it->first;
         it->second.check([this, &tableName](Table refreshedTable) {

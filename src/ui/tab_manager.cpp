@@ -11,6 +11,7 @@
 #include "ui/tab/redis_pubsub_tab.hpp"
 #include "ui/tab/routine_viewer_tab.hpp"
 #include "ui/tab/sql_editor_tab.hpp"
+#include "ui/tab/sqlite_sequence_viewer_tab.hpp"
 #include "ui/tab/table_editor_tab.hpp"
 #include "ui/tab/table_viewer_tab.hpp"
 #include <algorithm>
@@ -52,8 +53,9 @@ void TabManager::closeTabsForDatabase(DatabaseInterface* db) {
         return;
 
     auto* redisDb = dynamic_cast<RedisDatabase*>(db);
+    auto* sqliteDb = dynamic_cast<SQLiteDatabase*>(db);
 
-    std::erase_if(tabs, [db, redisDb](const std::shared_ptr<Tab>& tab) {
+    std::erase_if(tabs, [db, redisDb, sqliteDb](const std::shared_ptr<Tab>& tab) {
         IDatabaseNode* node = nullptr;
         if (auto* t = dynamic_cast<SQLEditorTab*>(tab.get()))
             node = t->getDatabaseNode();
@@ -68,6 +70,11 @@ void TabManager::closeTabsForDatabase(DatabaseInterface* db) {
 
         if (node)
             return node->ownerDatabase() == db;
+
+        if (sqliteDb) {
+            if (auto* t = dynamic_cast<SQLiteSequenceViewerTab*>(tab.get()))
+                return t->getDatabase() == sqliteDb;
+        }
 
         if (redisDb) {
             if (auto* t = dynamic_cast<RedisEditorTab*>(tab.get()))
@@ -548,6 +555,29 @@ std::shared_ptr<Tab> TabManager::createRoutineViewerTab(IDatabaseNode* node,
     }
 
     auto tab = std::make_shared<RoutineViewerTab>(node, routine);
+    registerOpenedTab(tab);
+    return tab;
+}
+
+std::shared_ptr<Tab> TabManager::createSQLiteSequenceViewerTab(SQLiteDatabase* db,
+                                                               const std::string& sequenceName) {
+    if (!db || sequenceName.empty()) {
+        return nullptr;
+    }
+
+    // reuse existing tab for same db + sequence name
+    for (auto& tab : tabs) {
+        if (tab->getType() == TabType::SQLITE_SEQUENCE_VIEWER) {
+            const auto seqTab = std::dynamic_pointer_cast<SQLiteSequenceViewerTab>(tab);
+            if (seqTab && seqTab->getDatabase() == db &&
+                seqTab->getSequenceName() == sequenceName) {
+                requestTabFocus(tab->getId());
+                return tab;
+            }
+        }
+    }
+
+    auto tab = std::make_shared<SQLiteSequenceViewerTab>(db, sequenceName);
     registerOpenedTab(tab);
     return tab;
 }

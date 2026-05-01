@@ -205,6 +205,7 @@ set(APP_SOURCES
     src/ui/text_editor_format.cpp
     src/ui/tab/csv_editor_tab.cpp
     src/ui/tab/routine_viewer_tab.cpp
+    src/ui/tab/sqlite_sequence_viewer_tab.cpp
     src/ui/tab/redis_editor_tab.cpp
     src/ui/tab/redis_key_viewer_tab.cpp
     src/ui/tab/redis_pubsub_tab.cpp

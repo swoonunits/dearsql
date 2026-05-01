@@ -58,6 +58,10 @@ public:
         return views;
     }
 
+    const std::vector<std::string>& getSequences() const override {
+        return sequences;
+    }
+
     // Overload without whereClause (internal use)
     std::vector<std::vector<std::string>> getTableData(const std::string& tableName, int limit,
                                                        int offset);
@@ -83,6 +87,8 @@ public:
 
     void startTablesLoadAsync(bool force = false) override;
     void startViewsLoadAsync(bool force = false) override;
+    void startSequencesLoadAsync(bool force = false);
+    void checkSequencesStatusAsync();
     void checkLoadingStatus() override;
 
     [[nodiscard]] const std::string& getLastTablesError() const override {
@@ -108,27 +114,32 @@ public:
 
     std::vector<Table> getTablesAsync() const;
     std::vector<Table> getViewsAsync() const;
+    std::vector<std::string> getSequencesAsync() const;
 
     // Session access
     sqlite3* getSession() const;
 
     // Async operation status
     [[nodiscard]] bool hasPendingAsyncWork() const override {
-        return isConnecting() || tablesLoader.isRunning() || viewsLoader.isRunning();
+        return isConnecting() || tablesLoader.isRunning() || viewsLoader.isRunning() ||
+               sequencesLoader.isRunning();
     }
 
     // Async operations
     AsyncOperation<std::vector<Table>> tablesLoader;
     AsyncOperation<std::vector<Table>> viewsLoader;
+    AsyncOperation<std::vector<std::string>> sequencesLoader;
     std::map<std::string, AsyncOperation<Table>> tableRefreshLoaders;
 
     // Loading state
     bool tablesLoaded = false;
     bool viewsLoaded = false;
+    bool sequencesLoaded = false;
 
     // Error tracking
     std::string lastTablesError;
     std::string lastViewsError;
+    std::string lastSequencesError;
 
 protected:
     std::vector<std::string> getTableNames() const;
@@ -140,6 +151,7 @@ private:
 
     std::vector<Table> tables;
     std::vector<Table> views;
+    std::vector<std::string> sequences;
 
     // Query execution
     std::pair<std::vector<std::string>, std::vector<std::vector<std::string>>>
