@@ -589,13 +589,17 @@ void TableRenderer::renderCell(int row, int col) {
             if (isBoolSentinel(cellValue)) {
                 bool checked = boolSentinelValue(cellValue);
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
                 float checkboxWidth = ImGui::GetFrameHeight();
                 float columnWidth = ImGui::GetColumnWidth();
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
                 ImGui::BeginDisabled();
                 ImGui::Checkbox("##bool", &checked);
                 ImGui::EndDisabled();
-                ImGui::PopStyleVar();
+                ImGui::PopStyleColor(2);
+                ImGui::PopStyleVar(2);
             } else if (isNullSentinel(cellValue)) {
                 ImGui::TextColored(colors.overlay1, "NULL");
             } else {
@@ -643,25 +647,30 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         }
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         float checkboxWidth = ImGui::GetFrameHeight();
         float columnWidth = ImGui::GetColumnWidth();
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
 
-        // make the checkbox background transparent so cell bg shows through
+        // make the checkbox background transparent so cell bg shows through;
+        // border is drawn explicitly via FrameBorderSize + ImGuiCol_Border.
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
         bool editable = config.allowEditing && !config.nonEditableColumns.contains(col) &&
                         (!cellEditableCb || cellEditableCb(row, col));
-        // suppress toggle when the user is dragging in from elsewhere —
-        // releasing on a bool cell in that case shouldn't flip the value.
-        const bool dragFromElsewhere =
-            isDragging && (rangeAnchorRow != row || rangeAnchorCol != col);
         const bool suppressBoolToggle = suppressBoolToggleUntilMouseUp &&
                                         suppressBoolToggleRow == row &&
                                         suppressBoolToggleCol == col;
-        const bool disableCheckbox = !editable || dragFromElsewhere || suppressBoolToggle;
+        // Read-only cells: dim normally to signal non-editable.
+        // Shift-click suppression: still disable the click but keep full alpha
+        // so the user doesn't see a flash on the cell they shift-clicked.
+        const bool disableCheckbox = !editable || suppressBoolToggle;
+        const bool transientDisable = suppressBoolToggle && editable;
+        if (transientDisable)
+            ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 1.0f);
         if (disableCheckbox)
             ImGui::BeginDisabled();
 
@@ -677,11 +686,13 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
 
         if (disableCheckbox)
             ImGui::EndDisabled();
+        if (transientDisable)
+            ImGui::PopStyleVar();
 
         updateDragFromItem(row, col);
 
-        ImGui::PopStyleColor(3);
-        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar(2);
 
         // select on click even if not toggling
         if (!suppressBoolToggle &&
