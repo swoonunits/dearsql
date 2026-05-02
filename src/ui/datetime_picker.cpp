@@ -273,6 +273,8 @@ namespace DateTimePicker {
             if (!isSel) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+            } else {
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
             }
 
             ImGui::PushID(d);
@@ -288,6 +290,8 @@ namespace DateTimePicker {
 
             if (!isSel)
                 ImGui::PopStyleColor(2);
+            else
+                ImGui::PopStyleVar();
 
             gridCol++;
             if (gridCol >= 7)
@@ -321,14 +325,20 @@ namespace DateTimePicker {
             float spinnerH = itemH * 7;
 
             auto renderSpinner = [&](const char* childId, int& value, int maxVal) {
+                // SetNextWindowScroll applies on child creation, avoiding the
+                // first-frame delay that SetScrollY suffers when ScrollMax is
+                // still 0 because content hasn't been laid out yet.
+                if (state.scrollTime) {
+                    float targetY = value * itemH - spinnerH * 0.5f + itemH * 0.5f;
+                    ImGui::SetNextWindowScroll(ImVec2(-1.0f, std::max(0.0f, targetY)));
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 9.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 4.0f);
                 if (ImGui::BeginChild(childId, ImVec2(SPINNER_W, spinnerH), ImGuiChildFlags_None)) {
                     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                                         ImVec2(Theme::Spacing::S, Theme::Spacing::S));
                     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, ITEM_GAP));
-                    if (state.scrollTime) {
-                        float targetY = value * itemH - spinnerH * 0.5f + itemH * 0.5f;
-                        ImGui::SetScrollY(std::max(0.0f, targetY));
-                    }
+                    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
 
                     for (int i = 0; i <= maxVal; i++) {
                         bool sel = (i == value);
@@ -346,9 +356,10 @@ namespace DateTimePicker {
                         ImGui::PopID();
                         ImGui::PopStyleColor();
                     }
-                    ImGui::PopStyleVar(2);
+                    ImGui::PopStyleVar(3);
                 }
                 ImGui::EndChild();
+                ImGui::PopStyleVar(2);
             };
 
             renderSpinner("##dtp_h", state.hour, 23);
