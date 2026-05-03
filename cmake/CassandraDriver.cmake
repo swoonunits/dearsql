@@ -43,6 +43,16 @@ if(MSVC)
     )
 endif()
 
+# GCC 13+ emits a false-positive -Wstringop-overread on the C++20 operator<=>
+# path for vector<unsigned char> in token_map_impl.hpp. The driver builds with
+# -Werror, so suppress just this diagnostic.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(
+        cassandra_static
+        PRIVATE -Wno-error=stringop-overread -Wno-stringop-overread
+    )
+endif()
+
 target_compile_definitions(cassandra_static INTERFACE CASS_STATIC)
 
 # The driver's CMakeLists builds CASS_INCLUDES privately; re-expose the public
