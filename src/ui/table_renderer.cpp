@@ -269,6 +269,7 @@ void TableRenderer::render(const char* tableId) {
                         editBuffer[1] = '\0';
                         justEnteredEditWithChar = true;
                         initialCursorPos = 1;
+                        editOverlayFrames = 0;
                         io.InputQueueCharacters.Size = 0;
                     }
                 }
@@ -538,15 +539,73 @@ void TableRenderer::renderCell(int row, int col) {
                 exitEditMode(false);
             }
         } else {
-            // store position for overlay edit input rendered after EndTable
-            editOverlayPosX = ImGui::GetCursorScreenPos().x;
-            editOverlayPosY = ImGui::GetCursorScreenPos().y;
-            editOverlayWidth = ImGui::GetColumnWidth();
-            pendingEditOverlay = true;
+            // multiline or long values use the overlay popup; short single-line
+            // values are edited inline within the cell
+            const std::string& curr = data[row][col];
+            const bool useOverlay = curr.find('\n') != std::string::npos || curr.size() > 80;
 
-            // single-line placeholder in cell
-            std::string firstLine = getFirstLine(data[row][col]);
-            ImGui::Text("%s", firstLine.empty() ? " " : firstLine.c_str());
+            if (useOverlay) {
+                editOverlayPosX = ImGui::GetCursorScreenPos().x;
+                editOverlayPosY = ImGui::GetCursorScreenPos().y;
+                editOverlayWidth = ImGui::GetColumnWidth();
+                pendingEditOverlay = true;
+
+                std::string firstLine = getFirstLine(curr);
+                ImGui::Text("%s", firstLine.empty() ? " " : firstLine.c_str());
+            } else {
+                int extraFlags = 0;
+                if (auto it = config.columnInputFlags.find(col);
+                    it != config.columnInputFlags.end()) {
+                    extraFlags = it->second;
+                }
+
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+
+                if (editOverlayFrames < 3) {
+                    ImGui::SetKeyboardFocusHere();
+                    editOverlayFrames++;
+                }
+
+                const ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | extraFlags;
+
+                bool committed = false;
+                if (justEnteredEditWithChar) {
+                    committed = ImGui::InputText(
+                        "##cell_inline", editBuffer, sizeof(editBuffer),
+                        flags | ImGuiInputTextFlags_CallbackAlways,
+                        [](ImGuiInputTextCallbackData* cbData) {
+                            auto* renderer = static_cast<TableRenderer*>(cbData->UserData);
+                            if (renderer->justEnteredEditWithChar) {
+                                cbData->CursorPos = renderer->initialCursorPos;
+                                cbData->SelectionStart = renderer->initialCursorPos;
+                                cbData->SelectionEnd = renderer->initialCursorPos;
+                                renderer->justEnteredEditWithChar = false;
+                            }
+                            return 0;
+                        },
+                        this);
+                } else {
+                    committed =
+                        ImGui::InputText("##cell_inline", editBuffer, sizeof(editBuffer), flags);
+                }
+
+                const bool inputActive = ImGui::IsItemActive();
+
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar(2);
+
+                if (committed) {
+                    exitEditMode(true);
+                } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                    exitEditMode(false);
+                } else if (editOverlayFrames >= 3 && !inputActive) {
+                    // commit on focus loss (clicked elsewhere)
+                    exitEditMode(true);
+                }
+            }
         }
     } else {
         ImGui::PushID(row * static_cast<int>(columns.size()) + col);
@@ -927,14 +986,15 @@ void TableRenderer::renderEditOverlay() {
 
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    float width = std::max(editOverlayWidth, 250.0f);
+    // min width must fit the three button-with-badge widgets on one row
+    float width = std::max(editOverlayWidth, 420.0f);
     int lineCount = 1;
     for (const char* p = editBuffer; *p; ++p) {
         if (*p == '\n')
             lineCount++;
     }
     float lineHeight = ImGui::GetTextLineHeightWithSpacing();
-    float lines = std::min(std::max(static_cast<float>(lineCount + 1), 3.0f), 15.0f);
+    float lines = std::min(std::max(static_cast<float>(lineCount + 1), 5.0f), 15.0f);
     float buttonBarH = ImGui::GetFrameHeightWithSpacing() + Theme::Spacing::XS;
     float height = lineHeight * lines + 12.0f + buttonBarH;
 
@@ -968,10 +1028,13 @@ void TableRenderer::renderEditOverlay() {
 
         float inputH = ImGui::GetContentRegionAvail().y - buttonBarH;
 
+        // word-wrap so long lines stay visible without horizontal scrolling
+        const ImGuiInputTextFlags inputBaseFlags = ImGuiInputTextFlags_WordWrap | extraFlags;
+
         if (justEnteredEditWithChar) {
             ImGui::InputTextMultiline(
                 "##edit_overlay_input", editBuffer, sizeof(editBuffer), ImVec2(-FLT_MIN, inputH),
-                ImGuiInputTextFlags_CallbackAlways | extraFlags,
+                inputBaseFlags | ImGuiInputTextFlags_CallbackAlways,
                 [](ImGuiInputTextCallbackData* cbData) {
                     auto* renderer = static_cast<TableRenderer*>(cbData->UserData);
                     if (renderer->justEnteredEditWithChar) {
@@ -985,7 +1048,7 @@ void TableRenderer::renderEditOverlay() {
                 this);
         } else {
             ImGui::InputTextMultiline("##edit_overlay_input", editBuffer, sizeof(editBuffer),
-                                      ImVec2(-FLT_MIN, inputH), extraFlags);
+                                      ImVec2(-FLT_MIN, inputH), inputBaseFlags);
         }
 
         // button bar

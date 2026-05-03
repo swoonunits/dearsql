@@ -985,6 +985,12 @@ std::vector<std::string> TableEditorTab::getCommonDataTypes() const {
         types = {"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"};
         break;
 
+    case DatabaseType::CASSANDRA:
+        types = {"text",     "ascii",     "varchar", "int",    "bigint",  "smallint", "tinyint",
+                 "varint",   "decimal",   "float",   "double", "boolean", "blob",     "uuid",
+                 "timeuuid", "timestamp", "date",    "time",   "inet",    "counter"};
+        break;
+
     default:
         types = {"INTEGER", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE"};
         break;
@@ -1108,6 +1114,8 @@ std::string TableEditorTab::generateCreateTableSQL() const {
     std::string schema;
     if (databaseType == DatabaseType::POSTGRESQL) {
         schema = schemaName.empty() ? "public" : schemaName;
+    } else if (databaseType == DatabaseType::CASSANDRA) {
+        schema = schemaName;
     }
 
     return builder->createTable(table, schema);

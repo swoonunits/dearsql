@@ -1,5 +1,6 @@
 #include "database/cassandra/cassandra_database_node.hpp"
 #include "database/cassandra.hpp"
+#include "database/sql_builder.hpp"
 #include <algorithm>
 #include <cassandra.h>
 #include <format>
@@ -337,4 +338,19 @@ std::pair<bool, std::string> CassandraDatabaseNode::dropTable(const std::string&
         return {false, err};
     std::erase_if(tables, [&](const Table& t) { return t.name == tableName; });
     return {true, ""};
+}
+
+std::pair<bool, std::string> CassandraDatabaseNode::createTable(const Table& table) {
+    if (!parentDb || !parentDb->session())
+        return {false, "Not connected"};
+    try {
+        const auto builder = createSQLBuilder(DatabaseType::CASSANDRA);
+        const std::string cql = builder->createTable(table, name);
+        auto [res, err] = runCql(parentDb->session(), cql);
+        if (!res)
+            return {false, err};
+        return {true, ""};
+    } catch (const std::exception& e) {
+        return {false, std::string(e.what())};
+    }
 }

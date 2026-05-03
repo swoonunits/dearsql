@@ -142,7 +142,8 @@ std::string ISQLBuilder::createTable(const Table& table, const std::string& sche
             trailingPkColumns.clear();
         }
 
-        if (col.isNotNull && !col.isPrimaryKey)
+        // CQL does not allow NOT NULL in CREATE TABLE
+        if (col.isNotNull && !col.isPrimaryKey && dbType != DatabaseType::CASSANDRA)
             sql += " NOT NULL";
 
         if (col.isAutoIncrement && dbType != DatabaseType::SQLITE &&

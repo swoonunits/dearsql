@@ -4135,6 +4135,8 @@ void DatabaseHierarchy::renderCassandraDatabaseNode(CassandraDatabaseNode* dbDat
         if (ImGui::BeginPopupContextItem(nullptr)) {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                 ImVec2(Theme::Spacing::M, Theme::Spacing::M));
+            if (ImGui::MenuItem(CREATE_TABLE_LABEL))
+                app.getTabManager()->createTableEditorTab(dbData, dbData->name);
             if (ImGui::MenuItem(REFRESH_LABEL))
                 dbData->startTablesLoadAsync(true);
             ImGui::PopStyleVar();

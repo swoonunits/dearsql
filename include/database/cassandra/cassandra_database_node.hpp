@@ -112,4 +112,6 @@ public:
     Table refreshTableSync(const std::string& tableName);
 
     std::pair<bool, std::string> dropTable(const std::string& tableName);
+
+    std::pair<bool, std::string> createTable(const Table& table) override;
 };

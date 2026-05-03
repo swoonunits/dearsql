@@ -2,16 +2,60 @@
 #include "IconsFontAwesome6.h"
 #include "application.hpp"
 #include "database/database_node.hpp"
+#include "database/ddl_utils.hpp"
 #include "imgui.h"
 #include "themes.hpp"
 #include "ui/query_history.hpp"
 #include "utils/spinner.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <format>
 #include <iostream>
 #include <spdlog/spdlog.h>
+#include <string_view>
 #include <utility>
+
+namespace {
+
+    bool isNumericColumnType(const std::string& type) {
+        std::string lower;
+        lower.reserve(type.size());
+        for (char c : type)
+            lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        // strip parameterized suffix like "decimal(10,2)"
+        if (const auto paren = lower.find('('); paren != std::string::npos)
+            lower.resize(paren);
+        while (!lower.empty() && std::isspace(static_cast<unsigned char>(lower.back())))
+            lower.pop_back();
+
+        static constexpr std::string_view numeric[] = {
+            "int",     "integer",    "smallint",    "bigint",
+            "tinyint", "mediumint",  "varint",      "int2",
+            "int4",    "int8",       "numeric",     "decimal",
+            "real",    "float",      "double",      "double precision",
+            "money",   "smallmoney", "counter",     "number",
+            "serial",  "bigserial",  "smallserial",
+        };
+        for (auto t : numeric) {
+            if (lower == t)
+                return true;
+        }
+        return false;
+    }
+
+    std::string formatSqlLiteral(const Column& col, const std::string& val) {
+        if (isNullSentinel(val))
+            return "NULL";
+        if (isBoolSentinel(val))
+            return boolSentinelValue(val) ? "TRUE" : "FALSE";
+        if (isNumericColumnType(col.type))
+            return val;
+        return "'" + ddl_utils::escapeSingleQuotes(val) + "'";
+    }
+
+} // namespace
 
 TableViewerTab::TableViewerTab(const std::string& name, std::string databasePath, Table table,
                                IDatabaseNode* node)
@@ -633,12 +677,10 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                 }
                 cols += std::format(R"("{}")", table_.columns[colIdx].name);
                 const std::string& val = tableData[rowIdx][colIdx];
-                if (val.empty() || isNullSentinel(val)) {
+                if (val.empty()) {
                     vals += "NULL";
-                } else if (isBoolSentinel(val)) {
-                    vals += boolSentinelValue(val) ? "TRUE" : "FALSE";
                 } else {
-                    vals += "'" + val + "'";
+                    vals += formatSqlLiteral(table_.columns[colIdx], val);
                 }
             }
             sqlStatements.push_back(
@@ -656,15 +698,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
 
             // Build UPDATE statement
             std::string sql = std::format(R"(UPDATE {} SET "{}" = )", tableRef, columnName);
-
-            // Add quoted value
-            if (isNullSentinel(newValue)) {
-                sql += "NULL";
-            } else if (isBoolSentinel(newValue)) {
-                sql += boolSentinelValue(newValue) ? "TRUE" : "FALSE";
-            } else {
-                sql += "'" + newValue + "'"; // Simple escaping - could be improved
-            }
+            sql += formatSqlLiteral(table_.columns[colIdx], newValue);
 
             sql += " WHERE ";
 
@@ -679,13 +713,8 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                         const int pkColIdx =
                             static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
                         const std::string& pkValue = originalData[rowIdx][pkColIdx];
-                        if (isBoolSentinel(pkValue)) {
-                            whereConditions.push_back(
-                                std::format("\"{}\" = {}", pkCol,
-                                            boolSentinelValue(pkValue) ? "TRUE" : "FALSE"));
-                        } else {
-                            whereConditions.push_back(std::format("\"{}\" = '{}'", pkCol, pkValue));
-                        }
+                        whereConditions.push_back(
+                            std::format("\"{}\" = {}", pkCol, formatSqlLiteral(*pkColIt, pkValue)));
                     }
                 }
             } else {
@@ -695,13 +724,10 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
                     if (isNullSentinel(condValue)) {
                         whereConditions.push_back(
                             std::format("\"{}\" IS NULL", table_.columns[condColIdx].name));
-                    } else if (isBoolSentinel(condValue)) {
+                    } else {
                         whereConditions.push_back(
                             std::format("\"{}\" = {}", table_.columns[condColIdx].name,
-                                        boolSentinelValue(condValue) ? "TRUE" : "FALSE"));
-                    } else {
-                        whereConditions.push_back(std::format(
-                            "\"{}\" = '{}'", table_.columns[condColIdx].name, condValue));
+                                        formatSqlLiteral(table_.columns[condColIdx], condValue)));
                     }
                 }
             }
