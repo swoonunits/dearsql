@@ -33,6 +33,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     set(CMAKE_CXX_COMPILER_ID "Clang")
 endif()
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory(external/cassandra-cpp-driver EXCLUDE_FROM_ALL)
 
 if(MSVC)
