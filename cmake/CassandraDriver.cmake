@@ -11,7 +11,15 @@ set(CASS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CASS_BUILD_INTEGRATION_TESTS OFF CACHE BOOL "" FORCE)
 set(CASS_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(CASS_USE_OPENSSL ON CACHE BOOL "" FORCE)
-set(CASS_USE_ZLIB ON CACHE BOOL "" FORCE)
+# vcpkg's zlib installs as zlib.lib on every triplet, but the driver's
+# Dependencies.cmake unconditionally rewrites zlib.lib -> zlibstatic.lib when
+# WIN32 AND CASS_USE_STATIC_LIBS, breaking the link. Wire-protocol compression
+# is optional, so disable zlib on Windows rather than fight the rename.
+if(WIN32)
+    set(CASS_USE_ZLIB OFF CACHE BOOL "" FORCE)
+else()
+    set(CASS_USE_ZLIB ON CACHE BOOL "" FORCE)
+endif()
 set(CASS_USE_KERBEROS OFF CACHE BOOL "" FORCE)
 set(CASS_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
 set(CASS_INSTALL_HEADER OFF CACHE BOOL "" FORCE)

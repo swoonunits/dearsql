@@ -16,7 +16,11 @@ $AppName = $metadata["APP_NAME"]
 if ($env:GITHUB_REF_NAME -match '^v(.+)$') {
     $AppVersion = $Matches[1]
 } else {
-    $AppVersion = (Select-String -Path "$RootDir\include\config.hpp.in" -Pattern 'APP_VERSION\s+"([^"]+)"').Matches.Groups[1].Value
+    $AppVersion = $metadata["APP_VERSION"]
+}
+if (-not $AppVersion) {
+    Write-Error "APP_VERSION not found (checked GITHUB_REF_NAME and APP_METADATA)"
+    exit 1
 }
 
 Write-Host "=== Building $AppName $AppVersion MSI installer ==="
