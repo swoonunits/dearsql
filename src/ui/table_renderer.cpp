@@ -315,6 +315,12 @@ void TableRenderer::render(const char* tableId) {
 
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(data.size()));
+        // ensure the scroll target row is rendered even if it's outside the
+        // currently visible range — otherwise the scroll-to-cell logic never runs.
+        if (shouldScrollToCell && scrollTargetRow >= 0 &&
+            scrollTargetRow < static_cast<int>(data.size())) {
+            clipper.IncludeItemByIndex(scrollTargetRow);
+        }
 
         while (clipper.Step()) {
             for (int rowIdx = clipper.DisplayStart; rowIdx < clipper.DisplayEnd; rowIdx++) {
@@ -355,40 +361,34 @@ void TableRenderer::render(const char* tableId) {
 
                     if (shouldScrollToCell && rowIdx == scrollTargetRow &&
                         colIdx == scrollTargetCol) {
-                        const ImVec2 cellMin = ImGui::GetItemRectMin();
-                        const ImVec2 cellMax = ImGui::GetItemRectMax();
-                        const ImVec2 windowContentMin = ImGui::GetWindowContentRegionMin();
-                        const ImVec2 windowContentMax = ImGui::GetWindowContentRegionMax();
-                        const ImVec2 windowPos = ImGui::GetWindowPos();
+                        // use the table's inner clip rect + column MinX/MaxX so the
+                        // visibility check reflects the actual scroll viewport, not the
+                        // window content extent (which would span the whole table width
+                        // and falsely report cells as visible/invisible).
+                        ImGuiTable* tbl = ImGui::GetCurrentTable();
+                        if (tbl) {
+                            const int tableColIdx = config.showRowNumbers ? colIdx + 1 : colIdx;
+                            const ImRect& clip = tbl->InnerClipRect;
+                            const ImVec2 cellMin = ImGui::GetItemRectMin();
+                            const ImVec2 cellMax = ImGui::GetItemRectMax();
 
-                        const ImVec2 contentMin = ImVec2(windowPos.x + windowContentMin.x,
-                                                         windowPos.y + windowContentMin.y);
-                        const ImVec2 contentMax = ImVec2(windowPos.x + windowContentMax.x,
-                                                         windowPos.y + windowContentMax.y);
-
-                        const bool cellVisibleX =
-                            (cellMax.x > contentMin.x && cellMin.x < contentMax.x);
-                        const bool cellVisibleY =
-                            (cellMax.y > contentMin.y && cellMin.y < contentMax.y);
-
-                        if (!cellVisibleY) {
-                            ImGui::SetScrollHereY(0.5f); // Center the row vertically
-                        }
-
-                        if (colIdx == 0) {
-                            float currentScrollX = ImGui::GetScrollX();
-                            if (currentScrollX > 0.0f) {
-                                ImGui::SetScrollHereX(0.0f);
-                            }
-                        } else if (!cellVisibleX) {
-                            float scrollRatio = 0.5f; // Default to center
-
-                            if (colIdx == static_cast<int>(columns.size()) - 1) {
-                                // Last column - scroll to right edge
-                                scrollRatio = 1.0f;
+                            // vertical: minimum scroll to bring the row into view
+                            if (cellMin.y < clip.Min.y) {
+                                ImGui::SetScrollY(ImGui::GetScrollY() + (cellMin.y - clip.Min.y));
+                            } else if (cellMax.y > clip.Max.y) {
+                                ImGui::SetScrollY(ImGui::GetScrollY() + (cellMax.y - clip.Max.y));
                             }
 
-                            ImGui::SetScrollHereX(scrollRatio);
+                            // horizontal: pull column bounds from the table directly so
+                            // a clipped column still has valid coordinates.
+                            if (tableColIdx >= 0 && tableColIdx < tbl->Columns.size()) {
+                                const ImGuiTableColumn& tc = tbl->Columns[tableColIdx];
+                                if (tc.MinX < clip.Min.x) {
+                                    ImGui::SetScrollX(ImGui::GetScrollX() + (tc.MinX - clip.Min.x));
+                                } else if (tc.MaxX > clip.Max.x) {
+                                    ImGui::SetScrollX(ImGui::GetScrollX() + (tc.MaxX - clip.Max.x));
+                                }
+                            }
                         }
 
                         shouldScrollToCell = false;
