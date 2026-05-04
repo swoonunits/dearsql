@@ -569,9 +569,14 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.bottomSeparator.boxType = NSBoxSeparator;
     [cv addSubview:self.bottomSeparator];
 
-    // Status label
-    self.statusLabel = [NSTextField labelWithString:@""];
+    // Status label (wraps to multiple lines for long error text)
+    self.statusLabel = [NSTextField wrappingLabelWithString:@""];
     self.statusLabel.textColor = [NSColor systemRedColor];
+    self.statusLabel.font = [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    self.statusLabel.selectable = YES;
+    self.statusLabel.maximumNumberOfLines = 0;
+    self.statusLabel.cell.wraps = YES;
+    self.statusLabel.cell.lineBreakMode = NSLineBreakByWordWrapping;
     [cv addSubview:self.statusLabel];
 
     // Spinner
@@ -736,6 +741,30 @@ static NSWindow* sActiveConnectionDialog = nil;
     [self.sslModePopup setAction:@selector(authChanged:)];
 }
 
+- (CGFloat)statusLabelWidth {
+    return kDialogWidth - 2 * kMargin - 24;
+}
+
+- (CGFloat)statusLabelHeight {
+    NSString* text = self.statusLabel.stringValue ?: @"";
+    if (text.length == 0) {
+        return 20;
+    }
+    NSFont* font = self.statusLabel.font ?: [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    NSRect bounds = [text
+        boundingRectWithSize:NSMakeSize([self statusLabelWidth], CGFLOAT_MAX)
+                     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                  attributes:@{NSFontAttributeName : font}];
+    return MAX(20, ceil(bounds.size.height));
+}
+
+- (void)setStatusText:(NSString*)text color:(NSColor*)color {
+    self.statusLabel.stringValue = text ?: @"";
+    self.statusLabel.textColor = color ?: [NSColor systemRedColor];
+    self.statusLabel.toolTip = (text.length > 0) ? text : nil;
+    [self layoutFields];
+}
+
 - (CGFloat)computeRequiredHeight {
     CGFloat h = kMargin;
     h += kRowHeight + kRowSpacing; // Name
@@ -784,10 +813,10 @@ static NSWindow* sActiveConnectionDialog = nil;
         }
     }
 
-    h += 20 + kRowSpacing; // Status
-    h += 1 + kRowSpacing;  // Bottom separator
-    h += kRowHeight;       // Buttons
-    h += kMargin;          // Bottom margin
+    h += [self statusLabelHeight] + kRowSpacing; // Status (wraps for long text)
+    h += 1 + kRowSpacing;                        // Bottom separator
+    h += kRowHeight;                             // Buttons
+    h += kMargin;                                // Bottom margin
     return h;
 }
 
@@ -1017,10 +1046,12 @@ static NSWindow* sActiveConnectionDialog = nil;
         }
     }
 
-    // Status label
-    y -= 20;
-    self.statusLabel.frame = NSMakeRect(kMargin, y, kDialogWidth - 2 * kMargin - 24, 20);
-    self.spinner.frame = NSMakeRect(kDialogWidth - kMargin - 20, y + 2, 16, 16);
+    // Status label (wraps for long error text)
+    CGFloat statusH = [self statusLabelHeight];
+    y -= statusH;
+    self.statusLabel.frame = NSMakeRect(kMargin, y, [self statusLabelWidth], statusH);
+    // Pin spinner to the top of the status row so it stays put as the label grows
+    self.spinner.frame = NSMakeRect(kDialogWidth - kMargin - 20, y + statusH - 18, 16, 16);
     y -= kRowSpacing;
 
     // Bottom separator
@@ -1085,13 +1116,11 @@ static NSWindow* sActiveConnectionDialog = nil;
     }
 
     // Clear status
-    self.statusLabel.stringValue = @"";
-    [self layoutFields];
+    [self setStatusText:@"" color:[NSColor systemRedColor]];
 }
 
 - (void)authChanged:(id)sender {
-    self.statusLabel.stringValue = @"";
-    [self layoutFields];
+    [self setStatusText:@"" color:[NSColor systemRedColor]];
 }
 
 - (void)browseClicked:(id)sender {
@@ -1173,8 +1202,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.connectButton.enabled = NO;
     [self setFormEnabled:NO];
     [self.spinner startAnimation:nil];
-    self.statusLabel.stringValue = @"Installing Oracle Instant Client...";
-    self.statusLabel.textColor = [NSColor secondaryLabelColor];
+    [self setStatusText:@"Installing Oracle Instant Client..." color:[NSColor secondaryLabelColor]];
 
     [self.oraclePollingTimer invalidate];
     self.oraclePollingTimer = [NSTimer
@@ -1187,22 +1215,22 @@ static NSWindow* sActiveConnectionDialog = nil;
                                        NSString* msg = [NSString
                                            stringWithUTF8String:_oracleInstaller.getStatusMessage()
                                                                     .c_str()];
-                                       self.statusLabel.stringValue = msg;
+                                       [self setStatusText:msg color:[NSColor secondaryLabelColor]];
                                        return;
                                    }
 
                                    auto status = _oracleInstaller.getStatus();
 
                                    if (status == OracleClientInstaller::Status::Done) {
-                                       self.statusLabel.stringValue = @"Connecting...";
+                                       [self setStatusText:@"Connecting..."
+                                                     color:[NSColor secondaryLabelColor]];
                                        [self connectServerAsync];
                                    } else if (status == OracleClientInstaller::Status::Failed) {
                                        [self.spinner stopAnimation:nil];
                                        NSString* err = [NSString
                                            stringWithUTF8String:_oracleInstaller.getError()
                                                                     .c_str()];
-                                       self.statusLabel.stringValue = err;
-                                       self.statusLabel.textColor = [NSColor systemRedColor];
+                                       [self setStatusText:err color:[NSColor systemRedColor]];
                                        self.connectButton.enabled = YES;
                                        [self setFormEnabled:YES];
                                    }
@@ -1217,15 +1245,14 @@ static NSWindow* sActiveConnectionDialog = nil;
         // Validate name
         NSString* nameNS = self.nameField.stringValue;
         if (nameNS.length == 0) {
-            self.statusLabel.stringValue = @"Please enter a connection name";
-            self.statusLabel.textColor = [NSColor systemRedColor];
+            [self setStatusText:@"Please enter a connection name" color:[NSColor systemRedColor]];
             return;
         }
 
         if (self.editingConnectionId == -1 && !self.app->canAddConnection()) {
-            self.statusLabel.stringValue =
-                @"Connection limit reached (free tier: 3). Activate a license to add more.";
-            self.statusLabel.textColor = [NSColor systemRedColor];
+            [self setStatusText:@"Connection limit reached (free tier: 3). Activate a license to "
+                                @"add more."
+                          color:[NSColor systemRedColor]];
             return;
         }
 
@@ -1248,16 +1275,15 @@ static NSWindow* sActiveConnectionDialog = nil;
         [self connectServerAsync];
     } @catch (NSException* exception) {
         NSLog(@"Exception in connectClicked: %@", exception);
-        self.statusLabel.stringValue = [NSString stringWithFormat:@"Error: %@", exception.reason];
-        self.statusLabel.textColor = [NSColor systemRedColor];
+        [self setStatusText:[NSString stringWithFormat:@"Error: %@", exception.reason]
+                      color:[NSColor systemRedColor]];
     }
 }
 
 - (void)connectSQLite {
     std::string sqlitePath = [self.sqlitePathField.stringValue UTF8String];
     if (sqlitePath.empty()) {
-        self.statusLabel.stringValue = @"Please select a database file";
-        self.statusLabel.textColor = [NSColor systemRedColor];
+        [self setStatusText:@"Please select a database file" color:[NSColor systemRedColor]];
         return;
     }
 
@@ -1275,8 +1301,8 @@ static NSWindow* sActiveConnectionDialog = nil;
         [self handleSuccess:db info:connInfo];
         [self.dialogWindow close];
     } else {
-        self.statusLabel.stringValue = [NSString stringWithUTF8String:("Failed: " + error).c_str()];
-        self.statusLabel.textColor = [NSColor systemRedColor];
+        [self setStatusText:[NSString stringWithUTF8String:("Failed: " + error).c_str()]
+                      color:[NSColor systemRedColor]];
     }
 }
 
@@ -1330,25 +1356,22 @@ static NSWindow* sActiveConnectionDialog = nil;
     // Validate
     if (authEnabled && username.empty() && type != DatabaseType::MONGODB &&
         type != DatabaseType::REDIS) {
-        self.statusLabel.stringValue = @"Please enter a username";
-        self.statusLabel.textColor = [NSColor systemRedColor];
+        [self setStatusText:@"Please enter a username" color:[NSColor systemRedColor]];
         return;
     }
 
     if (sshConfig.enabled) {
         if (sshConfig.host.empty()) {
-            self.statusLabel.stringValue = @"Please enter an SSH host";
-            self.statusLabel.textColor = [NSColor systemRedColor];
+            [self setStatusText:@"Please enter an SSH host" color:[NSColor systemRedColor]];
             return;
         }
         if (sshConfig.username.empty()) {
-            self.statusLabel.stringValue = @"Please enter an SSH username";
-            self.statusLabel.textColor = [NSColor systemRedColor];
+            [self setStatusText:@"Please enter an SSH username" color:[NSColor systemRedColor]];
             return;
         }
         if (sshConfig.authMethod == SSHAuthMethod::PrivateKey && sshConfig.privateKeyPath.empty()) {
-            self.statusLabel.stringValue = @"Please select an SSH private key file";
-            self.statusLabel.textColor = [NSColor systemRedColor];
+            [self setStatusText:@"Please select an SSH private key file"
+                          color:[NSColor systemRedColor]];
             return;
         }
     }
@@ -1357,8 +1380,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.connectButton.enabled = NO;
     [self setFormEnabled:NO];
     [self.spinner startAnimation:nil];
-    self.statusLabel.stringValue = @"Connecting...";
-    self.statusLabel.textColor = [NSColor secondaryLabelColor];
+    [self setStatusText:@"Connecting..." color:[NSColor secondaryLabelColor]];
 
     // Retain UI objects for async callback
     NSWindow* dialogRef = self.dialogWindow;
@@ -1480,14 +1502,17 @@ static NSWindow* sActiveConnectionDialog = nil;
             [dialogRef close];
         } else {
             NSString* errStr = [NSString stringWithUTF8String:("Failed: " + errorMsg).c_str()];
-            statusRef.stringValue = errStr;
-            statusRef.textColor = [NSColor systemRedColor];
             connectBtnRef.enabled = YES;
             [spinnerRef stopAnimation:nil];
-            // Re-enable form fields
+            // Re-enable form fields and route status update through the controller so the
+            // dialog re-lays out and grows to fit a wrapped multi-line error message.
             ConnectionDialogController* ctrl = objc_getAssociatedObject(dialogRef, "controller");
             if (ctrl) {
+                [ctrl setStatusText:errStr color:[NSColor systemRedColor]];
                 [ctrl setFormEnabled:YES];
+            } else {
+                statusRef.stringValue = errStr;
+                statusRef.textColor = [NSColor systemRedColor];
             }
         }
 
