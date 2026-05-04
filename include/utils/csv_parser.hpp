@@ -19,15 +19,34 @@ namespace CsvParser {
         if (!needsQuoting)
             return value;
 
-        std::string result = "\"";
+        std::string result;
+        result.reserve(value.size() + 2);
+        result.push_back('"');
         for (char c : value) {
             if (c == '"')
-                result += "\"\"";
+                result.append("\"\"", 2);
             else
-                result += c;
+                result.push_back(c);
         }
-        result += '"';
+        result.push_back('"');
         return result;
+    }
+
+    // append a quoted field directly into out (avoids the temp std::string)
+    inline void appendQuotedField(std::string& out, const std::string& value) {
+        const bool needsQuoting = value.find_first_of(",\"\n\r") != std::string::npos;
+        if (!needsQuoting) {
+            out.append(value);
+            return;
+        }
+        out.push_back('"');
+        for (char c : value) {
+            if (c == '"')
+                out.append("\"\"", 2);
+            else
+                out.push_back(c);
+        }
+        out.push_back('"');
     }
 
     template <typename Reader>
@@ -130,27 +149,38 @@ namespace CsvParser {
     // serialize headers + rows to a raw string (for the raw view)
     inline std::string serialize(const std::vector<std::string>& headers,
                                  const std::vector<std::vector<std::string>>& rows) {
-        std::ostringstream out;
+        // estimate total size to avoid repeated reallocations
+        size_t estimate = 0;
+        for (const auto& h : headers)
+            estimate += h.size() + 1;
+        for (const auto& row : rows) {
+            for (const auto& cell : row)
+                estimate += cell.size() + 1;
+        }
+
+        std::string out;
+        out.reserve(estimate);
+
         if (!headers.empty()) {
             for (size_t i = 0; i < headers.size(); ++i) {
                 if (i > 0)
-                    out << ',';
-                out << quoteField(headers[i]);
+                    out.push_back(',');
+                appendQuotedField(out, headers[i]);
             }
-            out << '\n';
+            out.push_back('\n');
         }
 
         for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
             const auto& row = rows[rowIndex];
             for (size_t i = 0; i < row.size(); ++i) {
                 if (i > 0)
-                    out << ',';
-                out << quoteField(row[i]);
+                    out.push_back(',');
+                appendQuotedField(out, row[i]);
             }
             if (rowIndex + 1 < rows.size())
-                out << '\n';
+                out.push_back('\n');
         }
-        return out.str();
+        return out;
     }
 
 } // namespace CsvParser

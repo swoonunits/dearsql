@@ -4,8 +4,7 @@
 #include "imgui.h"
 #include "themes.hpp"
 #include "utils/csv_parser.hpp"
-#include <filesystem>
-#include <format>
+#include "utils/spinner.hpp"
 #include <spdlog/spdlog.h>
 
 CsvEditorTab::CsvEditorTab(const std::string& name, std::string filePath)
@@ -13,8 +12,8 @@ CsvEditorTab::CsvEditorTab(const std::string& name, std::string filePath)
     rawEditor_.SetLanguage(dearsql::TextEditor::Language::PlainText);
     rawEditor_.SetShowLineNumbers(true);
     rawEditor_.SetTabSize(4);
-    loadFile();
     initTableRenderer();
+    startLoad();
 }
 
 void CsvEditorTab::clearValidationError() {
@@ -40,19 +39,40 @@ bool CsvEditorTab::hasUnsavedChanges() const {
     return hasPendingChanges();
 }
 
-void CsvEditorTab::loadFile() {
+void CsvEditorTab::startLoad() {
+    if (isLoading_)
+        return;
+
     loadError_ = false;
     errorMessage_.clear();
     clearValidationError();
+    isLoading_ = true;
 
-    if (!CsvParser::parseFile(filePath_, headers_, rows_)) {
+    const std::string path = filePath_;
+    loadOp_.start([path]() -> CsvLoadResult {
+        CsvLoadResult result;
+        result.ok = CsvParser::parseFile(path, result.headers, result.rows);
+        if (!result.ok)
+            result.error = "Failed to open file: " + path;
+        return result;
+    });
+}
+
+void CsvEditorTab::applyLoadResult(CsvLoadResult result) {
+    isLoading_ = false;
+
+    if (!result.ok) {
         loadError_ = true;
-        errorMessage_ = "Failed to open file: " + filePath_;
+        errorMessage_ = std::move(result.error);
         spdlog::error(errorMessage_);
+        headers_.clear();
+        rows_.clear();
         return;
     }
 
-    syncTableToRaw();
+    headers_ = std::move(result.headers);
+    rows_ = std::move(result.rows);
+    rawNeedsSync_ = true;
     tableRendererDataDirty_ = true;
     hasChanges_ = false;
     rawDirty_ = false;
@@ -64,8 +84,8 @@ void CsvEditorTab::saveFile() {
         tableRenderer_->exitEditMode(true);
     }
 
-    // always sync raw editor → table when in raw view
-    if (viewMode_ == ViewMode::Raw) {
+    // sync raw editor → table only when raw was actually edited
+    if (viewMode_ == ViewMode::Raw && rawDirty_) {
         if (!syncRawToTable())
             return;
     }
@@ -77,12 +97,15 @@ void CsvEditorTab::saveFile() {
 
     hasChanges_ = false;
     rawDirty_ = false;
-    syncTableToRaw();
+    rawNeedsSync_ = true;
+    if (viewMode_ == ViewMode::Raw)
+        syncTableToRaw();
     spdlog::debug("CSV saved: {}", filePath_);
 }
 
 void CsvEditorTab::syncTableToRaw() {
     rawEditor_.SetText(CsvParser::serialize(headers_, rows_));
+    rawNeedsSync_ = false;
 }
 
 bool CsvEditorTab::syncRawToTable() {
@@ -118,6 +141,7 @@ void CsvEditorTab::initTableRenderer() {
                 rows_[row][col] = newValue;
                 tableRendererDataDirty_ = true;
                 hasChanges_ = true;
+                rawNeedsSync_ = true;
             }
         }
     });
@@ -142,19 +166,33 @@ void CsvEditorTab::syncTableRendererData() {
 void CsvEditorTab::render() {
     const auto& colors = Application::getInstance().getCurrentColors();
 
+    // poll async load
+    loadOp_.check([this](CsvLoadResult r) { applyLoadResult(std::move(r)); });
+
     // Cmd+S / Ctrl+S to save
     const ImGuiIO& io = ImGui::GetIO();
-    if ((io.KeyCtrl || io.KeySuper) && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+    if (!isLoading_ && (io.KeyCtrl || io.KeySuper) && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
         if (hasPendingChanges())
             saveFile();
     }
 
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Theme::Spacing::M);
     renderToolbar();
-    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0.0f, Theme::Spacing::S));
 
     if (loadError_) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.red);
         ImGui::TextWrapped("%s", errorMessage_.c_str());
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    if (isLoading_) {
+        ImGui::Spacing();
+        UIUtils::Spinner("##csv_loading", 8.0f, 2, ImGui::GetColorU32(colors.peach));
+        ImGui::SameLine(0, Theme::Spacing::M);
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
+        ImGui::TextUnformatted("Loading...");
         ImGui::PopStyleColor();
         return;
     }
@@ -182,18 +220,6 @@ void CsvEditorTab::renderToolbar() {
     ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
-
-    // file path (truncated)
-    const std::string filename = std::filesystem::path(filePath_).filename().string();
-    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
-    ImGui::Text("%s %s", ICON_FA_FILE_CSV, filename.c_str());
-    ImGui::PopStyleColor();
-
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", filePath_.c_str());
-    }
-
-    ImGui::SameLine(0, Theme::Spacing::M);
 
     if (canSave) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
@@ -234,7 +260,6 @@ void CsvEditorTab::renderToolbar() {
             if (tableRenderer_ && tableRenderer_->isEditing()) {
                 tableRenderer_->exitEditMode(true);
             }
-            syncTableToRaw();
         }
         viewMode_ = ViewMode::Raw;
     }
@@ -268,7 +293,7 @@ void CsvEditorTab::renderToolbar() {
             if (tableRenderer_ && tableRenderer_->isEditing()) {
                 tableRenderer_->exitEditMode(false);
             }
-            loadFile();
+            startLoad();
         }
         ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
@@ -325,6 +350,9 @@ void CsvEditorTab::renderTableView() {
 }
 
 void CsvEditorTab::renderRawView() {
+    if (rawNeedsSync_)
+        syncTableToRaw();
+
     const auto& app = Application::getInstance();
     const bool darkTheme = app.isDarkTheme();
 

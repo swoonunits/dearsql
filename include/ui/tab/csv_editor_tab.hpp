@@ -1,11 +1,19 @@
 #pragma once
 
+#include "database/async_helper.hpp"
 #include "ui/tab/tab.hpp"
 #include "ui/table_renderer.hpp"
 #include "ui/text_editor.hpp"
 #include <memory>
 #include <string>
 #include <vector>
+
+struct CsvLoadResult {
+    bool ok = false;
+    std::string error;
+    std::vector<std::string> headers;
+    std::vector<std::vector<std::string>> rows;
+};
 
 class CsvEditorTab final : public Tab {
 public:
@@ -48,8 +56,15 @@ private:
 
     // raw view dirty flag (raw buffer was edited)
     bool rawDirty_ = false;
+    // raw editor needs to be repopulated from headers_/rows_ before next render
+    bool rawNeedsSync_ = true;
 
-    void loadFile();
+    // async file load
+    AsyncOperation<CsvLoadResult> loadOp_;
+    bool isLoading_ = false;
+
+    void startLoad();
+    void applyLoadResult(CsvLoadResult result);
     void saveFile();
 
     void syncTableToRaw();
