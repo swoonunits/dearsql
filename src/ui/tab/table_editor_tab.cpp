@@ -818,148 +818,60 @@ void TableEditorTab::initializeColumnTypeAutoComplete() {
 std::string TableEditorTab::generateAddColumnSQL() const {
     std::string tableName = std::strlen(tableNameBuffer) > 0 ? tableNameBuffer : originalTable.name;
 
-    std::string qualifiedTableName = tableName;
-    if (databaseType == DatabaseType::POSTGRESQL) {
-        if (qualifiedTableName.find('.') == std::string::npos) {
-            const std::string schema = schemaName.empty() ? "public" : schemaName;
-            qualifiedTableName = schema + "." + qualifiedTableName;
-        }
+    auto builder = createSQLBuilder(databaseType);
+
+    std::string qualifiedTableName;
+    if (databaseType == DatabaseType::POSTGRESQL && tableName.find('.') == std::string::npos) {
+        const std::string schema = schemaName.empty() ? "public" : schemaName;
+        qualifiedTableName = std::format("{}.{}", builder->quoteIdentifier(schema),
+                                         builder->quoteIdentifier(tableName));
+    } else {
+        qualifiedTableName = builder->quoteIdentifier(tableName);
     }
 
-    std::string colType = std::string(columnType);
-    if (isAutoIncrement && databaseType == DatabaseType::POSTGRESQL) {
-        std::string lower = colType;
-        std::ranges::transform(lower, lower.begin(), ::tolower);
-        if (lower == "bigint")
-            colType = "BIGSERIAL";
-        else if (lower == "smallint")
-            colType = "SMALLSERIAL";
-        else
-            colType = "SERIAL";
-    }
+    Column col;
+    col.name = columnName;
+    col.type = columnType;
+    col.isNotNull = isNotNull;
+    col.isUnique = isUnique;
+    col.isAutoIncrement = isAutoIncrement;
+    col.defaultValue = defaultValue;
+    col.comment = columnComment;
 
-    std::string sql = "ALTER TABLE " + qualifiedTableName + " ADD COLUMN " +
-                      std::string(columnName) + " " + colType;
-
-    if (isNotNull) {
-        sql += " NOT NULL";
-    }
-    if (isAutoIncrement && databaseType != DatabaseType::POSTGRESQL) {
-        sql += autoIncrementClause(databaseType);
-    }
-    if (isUnique) {
-        sql += " UNIQUE";
-    }
-    if (std::strlen(defaultValue) > 0) {
-        sql += " DEFAULT " + std::string(defaultValue);
-    }
-    if (std::strlen(columnComment) > 0) {
-        if (databaseType == DatabaseType::MYSQL || databaseType == DatabaseType::MARIADB) {
-            sql += " COMMENT '" + std::string(columnComment) + "'";
-        } else if (databaseType == DatabaseType::POSTGRESQL) {
-            sql += "; COMMENT ON COLUMN " + qualifiedTableName + "." + std::string(columnName) +
-                   " IS '" + std::string(columnComment) + "'";
-        }
-    }
-
-    return sql;
+    return builder->addColumn(qualifiedTableName, col);
 }
 
 std::string TableEditorTab::generateEditColumnSQL() const {
     std::string tableName = std::strlen(tableNameBuffer) > 0 ? tableNameBuffer : originalTable.name;
+    auto builder = createSQLBuilder(databaseType);
+
+    std::string qualifiedTableName;
+    if (databaseType == DatabaseType::POSTGRESQL && tableName.find('.') == std::string::npos) {
+        const std::string schema = schemaName.empty() ? "public" : schemaName;
+        qualifiedTableName = std::format("{}.{}", builder->quoteIdentifier(schema),
+                                         builder->quoteIdentifier(tableName));
+    } else {
+        qualifiedTableName = builder->quoteIdentifier(tableName);
+    }
+
+    Column col;
+    col.name = columnName;
+    col.type = columnType;
+    col.isNotNull = isNotNull;
+    col.isUnique = isUnique;
+    col.isAutoIncrement = isAutoIncrement;
+    col.defaultValue = defaultValue;
+    col.comment = columnComment;
+
     std::string sql;
-
-    switch (databaseType) {
-    case DatabaseType::POSTGRESQL: {
-        std::string qualifiedTableName = tableName;
-        if (qualifiedTableName.find('.') == std::string::npos) {
-            const std::string schema = schemaName.empty() ? "public" : schemaName;
-            qualifiedTableName = schema + "." + qualifiedTableName;
-        }
-
-        std::vector<std::string> statements;
-        if (std::string(columnName) != originalColumnName) {
-            statements.push_back("ALTER TABLE " + qualifiedTableName + " RENAME COLUMN " +
-                                 originalColumnName + " TO " + std::string(columnName));
-        }
-        statements.push_back("ALTER TABLE " + qualifiedTableName + " ALTER COLUMN " +
-                             std::string(columnName) + " TYPE " + std::string(columnType));
-
-        if (isNotNull) {
-            statements.push_back("ALTER TABLE " + qualifiedTableName + " ALTER COLUMN " +
-                                 std::string(columnName) + " SET NOT NULL");
-        } else {
-            statements.push_back("ALTER TABLE " + qualifiedTableName + " ALTER COLUMN " +
-                                 std::string(columnName) + " DROP NOT NULL");
-        }
-
-        if (std::strlen(defaultValue) > 0) {
-            statements.push_back("ALTER TABLE " + qualifiedTableName + " ALTER COLUMN " +
-                                 std::string(columnName) + " SET DEFAULT " +
-                                 std::string(defaultValue));
-        } else {
-            statements.push_back("ALTER TABLE " + qualifiedTableName + " ALTER COLUMN " +
-                                 std::string(columnName) + " DROP DEFAULT");
-        }
-
-        if (std::strlen(columnComment) > 0) {
-            statements.push_back("COMMENT ON COLUMN " + qualifiedTableName + "." +
-                                 std::string(columnName) + " IS '" + std::string(columnComment) +
-                                 "'");
-        }
-
-        for (size_t i = 0; i < statements.size(); ++i) {
-            if (i > 0) {
-                sql += "; ";
-            }
-            sql += statements[i];
-        }
-        break;
+    if (std::string(columnName) != originalColumnName) {
+        sql = builder->renameColumn(qualifiedTableName, originalColumnName, columnName);
+        const std::string alter = builder->alterColumn(qualifiedTableName, columnName, col);
+        if (!alter.empty())
+            sql += "; " + alter;
+    } else {
+        sql = builder->alterColumn(qualifiedTableName, originalColumnName, col);
     }
-
-    case DatabaseType::MYSQL:
-    case DatabaseType::MARIADB:
-        sql = "ALTER TABLE " + tableName + " MODIFY COLUMN " + std::string(columnName) + " " +
-              std::string(columnType);
-        if (isNotNull) {
-            sql += " NOT NULL";
-        }
-        if (isAutoIncrement) {
-            sql += autoIncrementClause(databaseType);
-        }
-        if (std::strlen(defaultValue) > 0) {
-            sql += " DEFAULT " + std::string(defaultValue);
-        }
-        if (std::strlen(columnComment) > 0) {
-            sql += " COMMENT '" + std::string(columnComment) + "'";
-        }
-        break;
-
-    case DatabaseType::MSSQL:
-        sql = "ALTER TABLE " + tableName + " ALTER COLUMN " + std::string(columnName) + " " +
-              std::string(columnType);
-        if (isNotNull) {
-            sql += " NOT NULL";
-        }
-        break;
-
-    case DatabaseType::ORACLE:
-        sql = "ALTER TABLE " + tableName + " MODIFY " + std::string(columnName) + " " +
-              std::string(columnType);
-        if (isNotNull) {
-            sql += " NOT NULL";
-        }
-        break;
-
-    case DatabaseType::SQLITE:
-        sql = "-- SQLite doesn't support column modification directly";
-        break;
-
-    default:
-        sql = "-- Column editing not supported for this database type";
-        break;
-    }
-
     return sql;
 }
 

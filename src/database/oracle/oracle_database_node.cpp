@@ -980,8 +980,8 @@ std::vector<Routine> OracleDatabaseNode::getRoutinesAsync() {
 
 std::pair<bool, std::string> OracleDatabaseNode::renameTable(const std::string& oldName,
                                                              const std::string& newName) {
-    auto sql = std::format("ALTER TABLE \"{}\".\"{}\" RENAME TO \"{}\"", name, oldName, newName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->renameTable(name, oldName, newName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -990,8 +990,8 @@ std::pair<bool, std::string> OracleDatabaseNode::renameTable(const std::string& 
 }
 
 std::pair<bool, std::string> OracleDatabaseNode::dropTable(const std::string& tableName) {
-    auto sql = std::format("DROP TABLE \"{}\".\"{}\" CASCADE CONSTRAINTS", name, tableName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->dropTable(name, tableName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -1000,8 +1000,8 @@ std::pair<bool, std::string> OracleDatabaseNode::dropTable(const std::string& ta
 }
 
 std::pair<bool, std::string> OracleDatabaseNode::truncateTable(const std::string& tableName) {
-    auto sql = "TRUNCATE TABLE " + quoteOracleTable(name, tableName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->truncateTable(name, tableName));
     if (r.success())
         return {true, ""};
     return {false, r.errorMessage()};
@@ -1009,9 +1009,10 @@ std::pair<bool, std::string> OracleDatabaseNode::truncateTable(const std::string
 
 std::pair<bool, std::string> OracleDatabaseNode::dropColumn(const std::string& tableName,
                                                             const std::string& columnName) {
-    auto sql =
-        std::format("ALTER TABLE \"{}\".\"{}\" DROP COLUMN \"{}\"", name, tableName, columnName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    const std::string qualifiedTable =
+        std::format("{}.{}", builder->quoteIdentifier(name), builder->quoteIdentifier(tableName));
+    auto r = executeQuery(builder->dropColumn(qualifiedTable, columnName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};

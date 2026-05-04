@@ -172,6 +172,7 @@ set(APP_SOURCES
     src/database/postgres/postgres_backup.cpp
     src/database/mysql.cpp
     src/database/mysql/mysql_database_node.cpp
+    src/database/mysql/mysql_internal.cpp
     src/database/redis.cpp
     src/database/mongodb.cpp
     src/database/mongodb/mongodb_database_node.cpp

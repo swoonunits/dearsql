@@ -136,25 +136,16 @@ namespace {
 
         auto quotedName = builder.quoteIdentifier(table.name);
 
-        // build column list for INSERTs
-        std::string columnList;
-        for (size_t i = 0; i < columns.size(); ++i) {
-            if (i > 0)
-                columnList += ", ";
-            columnList += builder.quoteIdentifier(columns[i]);
-        }
-
         int totalRows = provider->getRowCount(table);
         for (int offset = 0; offset < totalRows; offset += BATCH_SIZE) {
             auto rows = provider->getTableData(table, BATCH_SIZE, offset);
             for (const auto& row : rows) {
-                file << "INSERT INTO " << quotedName << " (" << columnList << ") VALUES (";
-                for (size_t i = 0; i < columns.size() && i < row.size(); ++i) {
-                    if (i > 0)
-                        file << ", ";
-                    file << quoteSqlValue(row[i]);
+                std::vector<std::string> valueLiterals;
+                valueLiterals.reserve(columns.size());
+                for (size_t i = 0; i < columns.size(); ++i) {
+                    valueLiterals.push_back(i < row.size() ? quoteSqlValue(row[i]) : "NULL");
                 }
-                file << ");\n";
+                file << builder.insertRow(quotedName, columns, valueLiterals) << ";\n";
             }
         }
 

@@ -3,6 +3,7 @@
 #include "application.hpp"
 #include "database/database_node.hpp"
 #include "database/ddl_utils.hpp"
+#include "database/sql_builder.hpp"
 #include "imgui.h"
 #include "themes.hpp"
 #include "ui/query_history.hpp"
@@ -570,7 +571,8 @@ void TableViewerTab::loadDataAsync() {
     // Build ORDER BY clause from sort state
     std::string orderByClause;
     if (sortColumn >= 0 && sortDirection != SortDirection::None && !sortColumnName.empty()) {
-        orderByClause = std::format("\"{}\" {}", sortColumnName,
+        const auto builder = createSQLBuilder(node_->getDatabaseType());
+        orderByClause = std::format("{} {}", builder->quoteIdentifier(sortColumnName),
                                     sortDirection == SortDirection::Ascending ? "ASC" : "DESC");
     }
 
@@ -615,14 +617,16 @@ void TableViewerTab::checkAsyncLoadStatus() {
 
         // Add to query history if load was successful
         if (!hasLoadingError && !tableData.empty()) {
+            const auto builder = createSQLBuilder(node_->getDatabaseType());
             const int offset = currentPage * rowsPerPage;
-            std::string query = std::format("SELECT * FROM {}", table_.name);
+            std::string query =
+                std::format("SELECT * FROM {}", builder->quoteIdentifier(table_.name));
             if (!currentFilter.empty()) {
                 query += std::format(" WHERE {}", currentFilter);
             }
             if (sortColumn >= 0 && sortDirection != SortDirection::None &&
                 !sortColumnName.empty()) {
-                query += std::format(" ORDER BY \"{}\" {}", sortColumnName,
+                query += std::format(" ORDER BY {} {}", builder->quoteIdentifier(sortColumnName),
                                      sortDirection == SortDirection::Ascending ? "ASC" : "DESC");
             }
             query += std::format(" LIMIT {} OFFSET {}", rowsPerPage, offset);
@@ -646,6 +650,7 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
     std::vector<std::string> sqlStatements;
 
     const std::vector<std::string> pkColumns = getPrimaryKeyColumns();
+    const auto builder = createSQLBuilder(node_->getDatabaseType());
 
     std::cout << "Generating UPDATE SQL for table: " << table_.name << std::endl;
     std::cout << "Primary key columns: ";
@@ -654,94 +659,80 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
     }
     std::cout << std::endl;
 
-    // Build table reference once
+    // Build table reference once (some node types pack "schema.table" into name)
     std::string tableRef;
     if (const auto dotPos = table_.name.find('.'); dotPos != std::string::npos) {
         const std::string schemaName = table_.name.substr(0, dotPos);
         const std::string tableNameOnly = table_.name.substr(dotPos + 1);
-        tableRef = std::format(R"("{}"."{}")", schemaName, tableNameOnly);
+        tableRef = std::format("{}.{}", builder->quoteIdentifier(schemaName),
+                               builder->quoteIdentifier(tableNameOnly));
     } else {
-        tableRef = std::format(R"("{}")", table_.name);
+        tableRef = builder->quoteIdentifier(table_.name);
     }
+
+    // Build a WHERE expression matching one row, by PK if available, else by every column
+    auto buildRowWhere = [&](int rowIdx) -> std::string {
+        std::vector<std::string> conditions;
+        if (!pkColumns.empty()) {
+            for (const auto& pkCol : pkColumns) {
+                auto pkColIt = std::ranges::find(table_.columns, pkCol, &Column::name);
+                if (pkColIt == table_.columns.end())
+                    continue;
+                const int pkColIdx =
+                    static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
+                const std::string& pkValue = originalData[rowIdx][pkColIdx];
+                conditions.push_back(std::format("{} = {}", builder->quoteIdentifier(pkCol),
+                                                 formatSqlLiteral(*pkColIt, pkValue)));
+            }
+        } else {
+            for (int colIdx = 0; colIdx < table_.columns.size(); colIdx++) {
+                const std::string quotedCol = builder->quoteIdentifier(table_.columns[colIdx].name);
+                const std::string& condValue = originalData[rowIdx][colIdx];
+                if (isNullSentinel(condValue)) {
+                    conditions.push_back(std::format("{} IS NULL", quotedCol));
+                } else {
+                    conditions.push_back(std::format(
+                        "{} = {}", quotedCol, formatSqlLiteral(table_.columns[colIdx], condValue)));
+                }
+            }
+        }
+        std::string expr;
+        for (size_t i = 0; i < conditions.size(); ++i) {
+            if (i > 0)
+                expr += " AND ";
+            expr += conditions[i];
+        }
+        return expr;
+    };
 
     // Process each edited cell
     for (int rowIdx = 0; rowIdx < editedCells.size(); rowIdx++) {
         // Generate INSERT for newly added rows
         if (rowIdx < static_cast<int>(isNewRow.size()) && isNewRow[rowIdx]) {
-            std::string cols;
-            std::string vals;
-            for (int colIdx = 0; colIdx < static_cast<int>(table_.columns.size()); colIdx++) {
-                if (colIdx > 0) {
-                    cols += ", ";
-                    vals += ", ";
-                }
-                cols += std::format(R"("{}")", table_.columns[colIdx].name);
+            std::vector<std::string> insertCols;
+            std::vector<std::string> insertVals;
+            insertCols.reserve(table_.columns.size());
+            insertVals.reserve(table_.columns.size());
+            for (size_t colIdx = 0; colIdx < table_.columns.size(); colIdx++) {
+                insertCols.push_back(table_.columns[colIdx].name);
                 const std::string& val = tableData[rowIdx][colIdx];
-                if (val.empty()) {
-                    vals += "NULL";
-                } else {
-                    vals += formatSqlLiteral(table_.columns[colIdx], val);
-                }
+                insertVals.push_back(val.empty() ? "NULL"
+                                                 : formatSqlLiteral(table_.columns[colIdx], val));
             }
-            sqlStatements.push_back(
-                std::format("INSERT INTO {} ({}) VALUES ({});", tableRef, cols, vals));
+            sqlStatements.push_back(builder->insertRow(tableRef, insertCols, insertVals) + ";");
             continue;
         }
 
         for (int colIdx = 0; colIdx < editedCells[rowIdx].size(); colIdx++) {
             if (!editedCells[rowIdx][colIdx]) {
-                continue; // Cell not edited
+                continue;
             }
-
             const std::string& columnName = table_.columns[colIdx].name;
             const std::string& newValue = tableData[rowIdx][colIdx];
-
-            // Build UPDATE statement
-            std::string sql = std::format(R"(UPDATE {} SET "{}" = )", tableRef, columnName);
-            sql += formatSqlLiteral(table_.columns[colIdx], newValue);
-
-            sql += " WHERE ";
-
-            // Build WHERE clause
-            std::vector<std::string> whereConditions;
-
-            if (!pkColumns.empty()) {
-                // Use primary key columns
-                for (const auto& pkCol : pkColumns) {
-                    auto pkColIt = std::ranges::find(table_.columns, pkCol, &Column::name);
-                    if (pkColIt != table_.columns.end()) {
-                        const int pkColIdx =
-                            static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
-                        const std::string& pkValue = originalData[rowIdx][pkColIdx];
-                        whereConditions.push_back(
-                            std::format("\"{}\" = {}", pkCol, formatSqlLiteral(*pkColIt, pkValue)));
-                    }
-                }
-            } else {
-                // For Postgres without primary key, use all columns as condition
-                for (int condColIdx = 0; condColIdx < table_.columns.size(); condColIdx++) {
-                    const std::string& condValue = originalData[rowIdx][condColIdx];
-                    if (isNullSentinel(condValue)) {
-                        whereConditions.push_back(
-                            std::format("\"{}\" IS NULL", table_.columns[condColIdx].name));
-                    } else {
-                        whereConditions.push_back(
-                            std::format("\"{}\" = {}", table_.columns[condColIdx].name,
-                                        formatSqlLiteral(table_.columns[condColIdx], condValue)));
-                    }
-                }
-            }
-
-            // Join conditions with AND
-            for (int i = 0; i < whereConditions.size(); i++) {
-                sql += whereConditions[i];
-                if (i < whereConditions.size() - 1) {
-                    sql += " AND ";
-                }
-            }
-
-            sql += ";";
-            sqlStatements.push_back(sql);
+            const std::vector<std::pair<std::string, std::string>> assignments = {
+                {columnName, formatSqlLiteral(table_.columns[colIdx], newValue)}};
+            sqlStatements.push_back(
+                builder->updateRow(tableRef, assignments, buildRowWhere(rowIdx)) + ";");
         }
     }
 

@@ -682,8 +682,8 @@ void SQLiteDatabase::checkTableRefreshStatusAsync(const std::string& tableName) 
 
 std::pair<bool, std::string> SQLiteDatabase::renameTable(const std::string& oldName,
                                                          const std::string& newName) {
-    auto sql = std::format(R"(ALTER TABLE "{}" RENAME TO "{}")", oldName, newName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(DatabaseType::SQLITE);
+    auto r = executeQuery(builder->renameTable("", oldName, newName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -692,8 +692,8 @@ std::pair<bool, std::string> SQLiteDatabase::renameTable(const std::string& oldN
 }
 
 std::pair<bool, std::string> SQLiteDatabase::dropTable(const std::string& tableName) {
-    auto sql = std::format(R"(DROP TABLE "{}")", tableName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(DatabaseType::SQLITE);
+    auto r = executeQuery(builder->dropTable("", tableName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -703,8 +703,8 @@ std::pair<bool, std::string> SQLiteDatabase::dropTable(const std::string& tableN
 
 std::pair<bool, std::string> SQLiteDatabase::dropColumn(const std::string& tableName,
                                                         const std::string& columnName) {
-    auto sql = std::format(R"(ALTER TABLE "{}" DROP COLUMN "{}")", tableName, columnName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(DatabaseType::SQLITE);
+    auto r = executeQuery(builder->dropColumn(builder->quoteIdentifier(tableName), columnName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};

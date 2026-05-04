@@ -1,5 +1,6 @@
 #include "utils/table_importer.hpp"
 #include "database/ddl_utils.hpp"
+#include "database/sql_builder.hpp"
 #include <format>
 #include <fstream>
 #include <nfd.h>
@@ -63,9 +64,11 @@ namespace {
 
 namespace TableImporter {
 
-    bool importFromCSV(IQueryExecutor* executor, const std::string& tableName) {
-        if (!executor)
+    bool importFromCSV(IDatabaseNode* node, const std::string& tableName) {
+        if (!node)
             return false;
+        const auto builder = createSQLBuilder(node->getDatabaseType());
+        const std::string quotedTable = builder->quoteIdentifier(tableName);
 
         nfdfilteritem_t filter = {"CSV Files", "csv"};
         nfdchar_t* outPath = nullptr;
@@ -100,13 +103,6 @@ namespace TableImporter {
             return false;
         }
 
-        std::string colList;
-        for (size_t i = 0; i < columns.size(); ++i) {
-            if (i > 0)
-                colList += ", ";
-            colList += columns[i];
-        }
-
         int inserted = 0;
         int failed = 0;
         std::string line;
@@ -118,19 +114,17 @@ namespace TableImporter {
 
             const auto values = parseLine(line);
 
-            std::string valueList;
+            std::vector<std::string> valueLiterals;
+            valueLiterals.reserve(columns.size());
             for (size_t i = 0; i < columns.size(); ++i) {
-                if (i > 0)
-                    valueList += ", ";
                 const std::string& val = i < values.size() ? values[i] : "";
-                valueList +=
-                    val.empty() ? "NULL" : ("'" + ddl_utils::escapeSingleQuotes(val) + "'");
+                valueLiterals.push_back(
+                    val.empty() ? "NULL" : "'" + ddl_utils::escapeSingleQuotes(val) + "'");
             }
 
-            const std::string sql =
-                std::format("INSERT INTO {} ({}) VALUES ({})", tableName, colList, valueList);
+            const std::string sql = builder->insertRow(quotedTable, columns, valueLiterals);
 
-            auto queryResult = executor->executeQuery(sql);
+            auto queryResult = node->executeQuery(sql);
             if (queryResult.success()) {
                 ++inserted;
             } else {

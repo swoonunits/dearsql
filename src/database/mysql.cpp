@@ -1,5 +1,6 @@
 #include "database/mysql.hpp"
 #include "database/ddl_utils.hpp"
+#include "database/mysql/mysql_internal.hpp"
 #include "database/sql_builder.hpp"
 #include <cctype>
 #include <format>
@@ -10,153 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace {
-
-    bool shouldApplySslCA(const DatabaseConnectionInfo& info) {
-        if (info.sslCACertPath.empty()) {
-            return false;
-        }
-
-        switch (info.sslmode) {
-        case SslMode::Require:
-        case SslMode::VerifyCA:
-        case SslMode::VerifyFull:
-        case SslMode::VerifyIdentity:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    struct MysqlResDeleter {
-        void operator()(MYSQL_RES* r) const {
-            if (r)
-                mysql_free_result(r);
-        }
-    };
-    using MysqlResPtr = std::unique_ptr<MYSQL_RES, MysqlResDeleter>;
-
-    // Build a MySQL connection factory from DatabaseConnectionInfo
-    std::function<MYSQL*()> makeMysqlFactory(const DatabaseConnectionInfo& info) {
-        return [info]() -> MYSQL* {
-            MYSQL* conn = mysql_init(nullptr);
-            if (!conn) {
-                throw std::runtime_error("mysql_init failed");
-            }
-
-            constexpr unsigned int connectTimeoutSeconds = 5;
-            mysql_options(conn, MYSQL_OPT_CONNECT_TIMEOUT, &connectTimeoutSeconds);
-
-            if (shouldApplySslCA(info)) {
-                mysql_options(conn, MYSQL_OPT_SSL_CA, info.sslCACertPath.c_str());
-            }
-
-            // SSL mode (MariaDB Connector/C API)
-            switch (info.sslmode) {
-            case SslMode::Disable: {
-                my_bool enforce = 0;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::Require: {
-                my_bool enforce = 1;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::VerifyCA: {
-                my_bool enforce = 1;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::VerifyFull:
-            case SslMode::VerifyIdentity: {
-                my_bool enforce = 1;
-                my_bool verify = 1;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                mysql_options(conn, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
-                break;
-            }
-            default:
-                // prefer: MariaDB negotiates SSL if server supports it (default behavior)
-                break;
-            }
-
-            // Enable multi-statement support
-            unsigned long flags = CLIENT_MULTI_STATEMENTS;
-
-            if (!mysql_real_connect(conn, info.host.c_str(), info.username.c_str(),
-                                    info.password.c_str(), info.database.c_str(), info.port,
-                                    nullptr, flags)) {
-                std::string err = mysql_error(conn);
-                mysql_close(conn);
-                throw std::runtime_error("MySQL connection failed: " + err);
-            }
-
-            // Set character set
-            mysql_set_character_set(conn, "utf8mb4");
-
-            return conn;
-        };
-    }
-
-    // Extract a single StatementResult from the current result set on a MYSQL* connection
-    StatementResult extractMysqlResult(MYSQL* conn, int rowLimit) {
-        StatementResult result;
-
-        MYSQL_RES* rawRes = mysql_store_result(conn);
-        if (rawRes) {
-            MysqlResPtr res(rawRes);
-            unsigned int nFields = mysql_num_fields(res.get());
-            MYSQL_FIELD* fields = mysql_fetch_fields(res.get());
-
-            for (unsigned int i = 0; i < nFields; i++) {
-                result.columnNames.emplace_back(fields[i].name);
-            }
-
-            int rowCount = 0;
-            MYSQL_ROW row;
-            while ((row = mysql_fetch_row(res.get())) != nullptr && rowCount < rowLimit) {
-                unsigned long* lengths = mysql_fetch_lengths(res.get());
-                std::vector<std::string> rowData;
-                rowData.reserve(nFields);
-                for (unsigned int i = 0; i < nFields; i++) {
-                    if (row[i] == nullptr) {
-                        rowData.emplace_back("NULL");
-                    } else {
-                        rowData.emplace_back(row[i], lengths[i]);
-                    }
-                }
-                result.tableData.push_back(std::move(rowData));
-                rowCount++;
-            }
-
-            result.message = std::format("Returned {} row{}", result.tableData.size(),
-                                         result.tableData.size() == 1 ? "" : "s");
-            my_ulonglong totalRows = mysql_num_rows(res.get());
-            if (static_cast<int>(totalRows) >= rowLimit) {
-                result.message += std::format(" (limited to {})", rowLimit);
-            }
-        } else {
-            // No result set - could be DML/DDL or error
-            if (mysql_field_count(conn) == 0) {
-                // DML/DDL statement
-                my_ulonglong affected = mysql_affected_rows(conn);
-                if (affected != (my_ulonglong)-1) {
-                    result.message = std::format("{} row(s) affected", affected);
-                } else {
-                    result.message = "Query executed successfully";
-                }
-            } else {
-                // Error
-                result.success = false;
-                result.errorMessage = mysql_error(conn);
-            }
-        }
-
-        return result;
-    }
-
-} // namespace
+using mysql_internal::extractMysqlResult;
+using mysql_internal::makeMysqlFactory;
+using mysql_internal::MysqlResPtr;
 
 MySQLDatabase::MySQLDatabase(const DatabaseConnectionInfo& connInfo) {
     this->connectionInfo = connInfo;

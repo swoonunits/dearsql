@@ -627,8 +627,8 @@ int MSSQLSchemaNode::getRowCount(const Table& table, const std::string& whereCla
 
 std::pair<bool, std::string> MSSQLSchemaNode::renameTable(const std::string& oldName,
                                                           const std::string& newName) {
-    auto sql = std::format("EXEC sp_rename '{}.{}', '{}'", name, oldName, newName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->renameTable(name, oldName, newName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -637,8 +637,8 @@ std::pair<bool, std::string> MSSQLSchemaNode::renameTable(const std::string& old
 }
 
 std::pair<bool, std::string> MSSQLSchemaNode::dropTable(const std::string& tableName) {
-    auto sql = std::format("DROP TABLE {}", qualifyName(tableName));
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->dropTable(name, tableName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -647,8 +647,8 @@ std::pair<bool, std::string> MSSQLSchemaNode::dropTable(const std::string& table
 }
 
 std::pair<bool, std::string> MSSQLSchemaNode::truncateTable(const std::string& tableName) {
-    auto sql = std::format("TRUNCATE TABLE {}", qualifyName(tableName));
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->truncateTable(name, tableName));
     if (r.success())
         return {true, ""};
     return {false, r.errorMessage()};
@@ -656,8 +656,8 @@ std::pair<bool, std::string> MSSQLSchemaNode::truncateTable(const std::string& t
 
 std::pair<bool, std::string> MSSQLSchemaNode::dropColumn(const std::string& tableName,
                                                          const std::string& columnName) {
-    auto sql = std::format("ALTER TABLE {} DROP COLUMN [{}]", qualifyName(tableName), columnName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->dropColumn(qualifyName(tableName), columnName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};

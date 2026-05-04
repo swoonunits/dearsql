@@ -332,8 +332,8 @@ int CassandraDatabaseNode::getRowCount(const Table& table, const std::string& wh
 std::pair<bool, std::string> CassandraDatabaseNode::dropTable(const std::string& tableName) {
     if (!parentDb || !parentDb->session())
         return {false, "Not connected"};
-    auto [res, err] = runCql(parentDb->session(),
-                             "DROP TABLE IF EXISTS " + quoteId(name) + "." + quoteId(tableName));
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto [res, err] = runCql(parentDb->session(), builder->dropTable(name, tableName));
     if (!res)
         return {false, err};
     std::erase_if(tables, [&](const Table& t) { return t.name == tableName; });

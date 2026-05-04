@@ -1,16 +1,16 @@
 #pragma once
 
-#include "database/query_executor.hpp"
+#include "database/database_node.hpp"
 #include "imgui.h"
 #include <string>
 
 namespace TableImporter {
-    bool importFromCSV(IQueryExecutor* executor, const std::string& tableName);
+    bool importFromCSV(IDatabaseNode* node, const std::string& tableName);
 
-    inline void renderImportMenu(IQueryExecutor* executor, const std::string& tableName) {
+    inline void renderImportMenu(IDatabaseNode* node, const std::string& tableName) {
         if (ImGui::BeginMenu("Import")) {
             if (ImGui::MenuItem("CSV")) {
-                importFromCSV(executor, tableName);
+                importFromCSV(node, tableName);
             }
             ImGui::EndMenu();
         }

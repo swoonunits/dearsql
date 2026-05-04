@@ -14,19 +14,6 @@
 
 namespace {
 
-    // escape a PostgreSQL identifier: double any embedded quotes
-    std::string quotePgId(const std::string& id) {
-        std::string out = "\"";
-        out.reserve(id.size() + 2);
-        for (char c : id) {
-            if (c == '"')
-                out += '"';
-            out += c;
-        }
-        out += '"';
-        return out;
-    }
-
     struct PgResultDeleter {
         void operator()(PGresult* r) const {
             if (r)
@@ -1026,8 +1013,8 @@ std::pair<bool, std::string> PostgresSchemaNode::dropSchema() {
 
 std::pair<bool, std::string> PostgresSchemaNode::renameTable(const std::string& oldName,
                                                              const std::string& newName) {
-    auto sql = std::format(R"(ALTER TABLE "{}"."{}" RENAME TO "{}")", name, oldName, newName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->renameTable(name, oldName, newName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -1036,8 +1023,8 @@ std::pair<bool, std::string> PostgresSchemaNode::renameTable(const std::string& 
 }
 
 std::pair<bool, std::string> PostgresSchemaNode::dropTable(const std::string& tableName) {
-    auto sql = std::format(R"(DROP TABLE "{}"."{}")", name, tableName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->dropTable(name, tableName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
@@ -1046,8 +1033,8 @@ std::pair<bool, std::string> PostgresSchemaNode::dropTable(const std::string& ta
 }
 
 std::pair<bool, std::string> PostgresSchemaNode::truncateTable(const std::string& tableName) {
-    auto sql = std::format("TRUNCATE TABLE ONLY {}.{}", quotePgId(name), quotePgId(tableName));
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    auto r = executeQuery(builder->truncateTable(name, tableName));
     if (r.success())
         return {true, ""};
     return {false, r.errorMessage()};
@@ -1055,9 +1042,10 @@ std::pair<bool, std::string> PostgresSchemaNode::truncateTable(const std::string
 
 std::pair<bool, std::string> PostgresSchemaNode::dropColumn(const std::string& tableName,
                                                             const std::string& columnName) {
-    auto sql =
-        std::format(R"(ALTER TABLE "{}"."{}" DROP COLUMN "{}")", name, tableName, columnName);
-    auto r = executeQuery(sql);
+    const auto builder = createSQLBuilder(getDatabaseType());
+    const std::string qualifiedTable =
+        std::format("{}.{}", builder->quoteIdentifier(name), builder->quoteIdentifier(tableName));
+    auto r = executeQuery(builder->dropColumn(qualifiedTable, columnName));
     if (r.success()) {
         startTablesLoadAsync(true);
         return {true, ""};
