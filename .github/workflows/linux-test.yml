@@ -13,6 +13,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -63,7 +64,14 @@ jobs:
       - name: Run tests
         env:
           CMAKE_GENERATOR: Ninja
-        run: ./scripts/run-tests
+          # ensure each test prints [ RUN ] / [ OK ] lines unbuffered so a
+          # hang shows the last-running test in the GitHub Actions log
+          GTEST_COLOR: "no"
+          GTEST_PRINT_TIME: "1"
+        run: |
+          # 30-min wall-clock cap per test binary so a single hung test
+          # cannot silently consume the whole job timeout
+          stdbuf -oL -eL timeout --foreground 30m ./scripts/run-tests
 
       - name: Dump container logs on failure
         if: failure()

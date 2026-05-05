@@ -62,7 +62,7 @@ namespace {
     constexpr double kMaximumWaitSeconds = 0.2;         // cap sleep to keep UI responsive
 
 #ifdef NDEBUG
-    constexpr std::size_t kFreeConnectionLimit = 3;
+    constexpr std::size_t kFreeConnectionLimit = 10;
 #else
     constexpr std::size_t kFreeConnectionLimit = 20;
 #endif
