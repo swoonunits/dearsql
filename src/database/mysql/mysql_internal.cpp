@@ -6,13 +6,14 @@
 
 namespace mysql_internal {
 
+    // setting MYSQL_OPT_SSL_CA implicitly enables CA verification, so only apply
+    // it for the verify-* modes. Require encrypts but does not verify.
     bool shouldApplySslCA(const DatabaseConnectionInfo& info) {
         if (info.sslCACertPath.empty()) {
             return false;
         }
 
         switch (info.sslmode) {
-        case SslMode::Require:
         case SslMode::VerifyCA:
         case SslMode::VerifyFull:
         case SslMode::VerifyIdentity:
@@ -32,36 +33,49 @@ namespace mysql_internal {
             constexpr unsigned int connectTimeoutSeconds = 5;
             mysql_options(conn, MYSQL_OPT_CONNECT_TIMEOUT, &connectTimeoutSeconds);
 
+            // force TCP so host="localhost" doesn't fall back to a unix socket
+            constexpr unsigned int tcpProtocol = MYSQL_PROTOCOL_TCP;
+            mysql_options(conn, MYSQL_OPT_PROTOCOL, &tcpProtocol);
+
             if (shouldApplySslCA(info)) {
                 mysql_options(conn, MYSQL_OPT_SSL_CA, info.sslCACertPath.c_str());
             }
 
-            switch (info.sslmode) {
-            case SslMode::Disable: {
+            // libmariadb verifies against the OS trust store by default once
+            // SSL is negotiated, which rejects self-signed certs. Explicitly
+            // disable verification for non-verify modes so connections to
+            // self-signed servers (local, docker, internal CAs) succeed, and
+            // explicitly enable it for verify-* modes so a user-supplied CA
+            // actually gates the connection.
+            //
+            // libmariadb does not expose MYSQL_OPT_SSL_MODE, so VerifyCA and
+            // VerifyFull/VerifyIdentity both end up performing cert + hostname
+            // verification (libmariadb cannot do CA-only without hostname).
+            {
                 my_bool enforce = 0;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::Require: {
-                my_bool enforce = 1;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::VerifyCA: {
-                my_bool enforce = 1;
-                mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
-                break;
-            }
-            case SslMode::VerifyFull:
-            case SslMode::VerifyIdentity: {
-                my_bool enforce = 1;
-                my_bool verify = 1;
+                my_bool verify = 0;
+                switch (info.sslmode) {
+                case SslMode::Disable:
+                    enforce = 0;
+                    verify = 0;
+                    break;
+                case SslMode::Require:
+                    enforce = 1;
+                    verify = 0;
+                    break;
+                case SslMode::VerifyCA:
+                case SslMode::VerifyFull:
+                case SslMode::VerifyIdentity:
+                    enforce = 1;
+                    verify = 1;
+                    break;
+                default: // Prefer / Allow: SSL if available, no verification
+                    enforce = 0;
+                    verify = 0;
+                    break;
+                }
                 mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &enforce);
                 mysql_options(conn, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify);
-                break;
-            }
-            default:
-                break;
             }
 
             unsigned long flags = CLIENT_MULTI_STATEMENTS;

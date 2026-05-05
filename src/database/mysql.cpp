@@ -503,6 +503,8 @@ std::pair<bool, std::string> MySQLDatabase::dropDatabase(const std::string& dbNa
             if (!tempConn) {
                 return {false, "mysql_init failed"};
             }
+            constexpr unsigned int tcpProtocol = MYSQL_PROTOCOL_TCP;
+            mysql_options(tempConn, MYSQL_OPT_PROTOCOL, &tcpProtocol);
             if (!mysql_real_connect(tempConn, tempInfo.host.c_str(), tempInfo.username.c_str(),
                                     tempInfo.password.c_str(), tempInfo.database.c_str(),
                                     tempInfo.port, nullptr, CLIENT_MULTI_STATEMENTS)) {

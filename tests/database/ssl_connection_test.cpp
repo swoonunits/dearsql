@@ -186,6 +186,32 @@ TEST_F(MySQLSSLTest, ConnectsWithSslModePrefer) {
     database->disconnect();
 }
 
+// Regression test: VerifyCA must actually verify the server cert. The MySQL
+// container in scripts/run-tests serves an auto-generated self-signed cert
+// that is not signed by the test CA, so a connect with VerifyCA + the test
+// CA must fail. If MYSQL_OPT_SSL_VERIFY_SERVER_CERT is left at 0 for
+// VerifyCA, this connect would erroneously succeed.
+TEST_F(MySQLSSLTest, RejectsSslModeVerifyCAWithUnrelatedCA) {
+    const char* caCert = std::getenv("DEARSQL_TEST_CA_CERT");
+    if (!caCert)
+        GTEST_SKIP() << "DEARSQL_TEST_CA_CERT not set";
+
+    connInfo.sslmode = SslMode::VerifyCA;
+    connInfo.sslCACertPath = caCert;
+    auto database = std::make_shared<MySQLDatabase>(connInfo);
+
+    auto [ok, err] = database->connect();
+    EXPECT_FALSE(ok) << "VerifyCA must reject server cert not signed by the supplied CA";
+    if (!ok) {
+        // sanity check that the failure is TLS-related, not e.g. a bad host
+        const bool tlsError =
+            err.find("SSL") != std::string::npos || err.find("TLS") != std::string::npos ||
+            err.find("certificate") != std::string::npos || err.find("verify") != std::string::npos;
+        EXPECT_TRUE(tlsError) << "expected an SSL/TLS error, got: " << err;
+    }
+    database->disconnect();
+}
+
 TEST_F(MySQLSSLTest, ConnectsWithSslModeDisable) {
     connInfo.sslmode = SslMode::Disable;
     auto database = std::make_shared<MySQLDatabase>(connInfo);
