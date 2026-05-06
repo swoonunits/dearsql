@@ -656,10 +656,25 @@ void Application::setupFonts() {
         }
     }
 
-    // tab font: same monospace base + system CJK font merged in. pushed only
-    // inside tab content (sql editor, table viewer) so unexpected unicode in
-    // user data renders, while the rest of the UI atlas stays small.
+    // sidebar shows user-supplied identifiers (db / schema / table / view names),
+    // many of which are CJK on international servers. Merge the system CJK font
+    // into the default font too so the sidebar renders them. ~3-4MB atlas growth
+    // for the Japanese range, which also covers common Chinese ideographs.
     const std::string cjkPath = findSystemCjkFontPath();
+    if (!cjkPath.empty()) {
+        ImFontConfig defaultCjkConfig;
+        defaultCjkConfig.MergeMode = true;
+        const ImFont* defaultCjk = io.Fonts->AddFontFromFileTTF(
+            cjkPath.c_str(), 16.0f, &defaultCjkConfig, io.Fonts->GetGlyphRangesJapanese());
+        if (defaultCjk) {
+            spdlog::info("merged system cjk font into default font: {}", cjkPath);
+        } else {
+            spdlog::warn("failed to merge system cjk font into default font at {}", cjkPath);
+        }
+    }
+
+    // tab font: same monospace base + system CJK font merged in. pushed only
+    // inside tab content (sql editor, table viewer) for monospace SQL editing.
     if (primaryFontEntry && !cjkPath.empty()) {
         ImFontConfig baseConfig;
         configureEmbeddedFont(baseConfig, false);
