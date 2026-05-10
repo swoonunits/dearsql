@@ -332,7 +332,8 @@ void DatabaseSidebarNew::render() {
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
 
     const float availableHeight = ImGui::GetContentRegionAvail().y;
-    const float sidebarWidth = ImGui::GetContentRegionAvail().x;
+    // extend past parent's right WindowPadding so scrollbar sits flush on the right
+    const float sidebarWidth = ImGui::GetContentRegionAvail().x + Theme::Spacing::M;
     constexpr float historyHeight = 300.0f;
     constexpr float stripWidth = 22.0f;
     const float historyButtonH = getHistoryButtonHeight();
@@ -346,11 +347,20 @@ void DatabaseSidebarNew::render() {
             ImGui::GetCursorScreenPos(),
             ImVec2(ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x,
                    ImGui::GetCursorScreenPos().y + structureSectionHeight));
-        ImGuiWindowFlags structureFlags = structureHovered ? 0 : ImGuiWindowFlags_NoScrollbar;
-        ImGui::BeginChild("StructureSection", ImVec2(0, structureSectionHeight), false,
-                          structureFlags);
+        // gutter reserved only when scrollable; hide visuals when not hovered
+        if (!structureHovered) {
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, ImVec4(0, 0, 0, 0));
+        }
+        ImGui::BeginChild("StructureSection", ImVec2(sidebarWidth, structureSectionHeight), false,
+                          0);
         renderStructure();
         ImGui::EndChild();
+        if (!structureHovered) {
+            ImGui::PopStyleColor(4);
+        }
     }
 
     if (historyPanelOpen) {
@@ -420,10 +430,18 @@ void DatabaseSidebarNew::render() {
             const bool historyHovered = ImGui::IsMouseHoveringRect(
                 historyCursorPos, ImVec2(historyCursorPos.x + ImGui::GetContentRegionAvail().x,
                                          historyCursorPos.y + ImGui::GetContentRegionAvail().y));
-            ImGuiWindowFlags historyFlags = historyHovered ? 0 : ImGuiWindowFlags_NoScrollbar;
-            ImGui::BeginChild("HistoryList", ImVec2(0, 0), false, historyFlags);
+            if (!historyHovered) {
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, ImVec4(0, 0, 0, 0));
+            }
+            ImGui::BeginChild("HistoryList", ImVec2(0, 0), false, 0);
             renderHistory();
             ImGui::EndChild();
+            if (!historyHovered) {
+                ImGui::PopStyleColor(4);
+            }
         }
         ImGui::EndChild();
     } else {
