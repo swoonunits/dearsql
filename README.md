@@ -23,6 +23,18 @@
 - Run SQL queries with formatted results display
 - Query history
 
+## Installation
+
+Download the latest release for macOS, Linux, and Windows from [GitHub Releases](https://github.com/dunkbing/dearsql/releases).
+
+### Arch Linux ([AUR](https://aur.archlinux.org/packages/dearsql))
+
+```bash
+yay -S dearsql
+# or
+paru -S dearsql
+```
+
 ## Built With
 
 - [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI
