@@ -5,7 +5,10 @@
   "description": "Cross-platform SQL database client",
   "builtin-baseline": "77df67cfff9c12ccfdb52284e07c87c75092f723",
   "dependencies": [
-    "sqlite3",
+    {
+      "name": "sqlite3",
+      "features": ["dbstat"]
+    },
     "nlohmann-json",
     {
       "name": "libpq",

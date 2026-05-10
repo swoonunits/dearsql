@@ -1681,6 +1681,19 @@ void DatabaseHierarchy::renderTableNode(Table& table, PostgresSchemaNode* schema
     const bool tableOpen = renderTreeNodeWithIcon(table.name, tableNodeId, ICON_FK_TABLE,
                                                   ImGui::GetColorU32(colors.green), tableFlags);
 
+    // dim size badge anchored to the right edge of the sidebar
+    if (table.sizeBytes >= 0) {
+        const std::string sizeText = formatByteSize(table.sizeBytes);
+        const ImVec2 textSize = ImGui::CalcTextSize(sizeText.c_str());
+        const float rightEdge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        const ImVec2 itemMin = ImGui::GetItemRectMin();
+        const float yCenter =
+            itemMin.y + (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f;
+        const ImVec2 textPos = ImVec2(rightEdge - textSize.x - Theme::Spacing::M, yCenter);
+        ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(colors.subtext0),
+                                            sizeText.c_str());
+    }
+
     if (ImGui::IsItemClicked(0) && !ImGui::IsItemToggledOpen()) {
         handleTableClick(&table);
     }
@@ -3633,6 +3646,19 @@ void DatabaseHierarchy::renderSQLiteTableNode(Table& table, SQLiteDatabase* sqli
         std::format("sqlite_table_{}_{:p}", table.name, static_cast<const void*>(&table));
     const bool tableOpen = renderTreeNodeWithIcon(table.name, tableNodeId, ICON_FK_TABLE,
                                                   ImGui::GetColorU32(colors.green), tableFlags);
+
+    // dim size badge anchored to the right edge of the sidebar
+    if (table.sizeBytes >= 0) {
+        const std::string sizeText = formatByteSize(table.sizeBytes);
+        const ImVec2 textSize = ImGui::CalcTextSize(sizeText.c_str());
+        const float rightEdge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        const ImVec2 itemMin = ImGui::GetItemRectMin();
+        const float yCenter =
+            itemMin.y + (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f;
+        const ImVec2 textPos = ImVec2(rightEdge - textSize.x - Theme::Spacing::M, yCenter);
+        ImGui::GetWindowDrawList()->AddText(textPos, ImGui::GetColorU32(colors.subtext0),
+                                            sizeText.c_str());
+    }
 
     if (ImGui::IsItemClicked(0) && !ImGui::IsItemToggledOpen()) {
         handleTableClick(&table);

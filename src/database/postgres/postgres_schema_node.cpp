@@ -216,6 +216,42 @@ std::vector<Table> PostgresSchemaNode::getTablesAsync() {
             }
         }
 
+        // Build a query to get on-disk size for all tables at once
+        std::string sizeQuery = "SELECT c.relname, pg_total_relation_size(c.oid) "
+                                "FROM pg_catalog.pg_class c "
+                                "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                                "WHERE n.nspname = '" +
+                                name + "' AND c.relkind = 'r' AND c.relname IN (";
+        for (size_t i = 0; i < tableNames.size(); ++i) {
+            sizeQuery += "'" + tableNames[i] + "'";
+            if (i < tableNames.size() - 1) {
+                sizeQuery += ", ";
+            }
+        }
+        sizeQuery += ")";
+
+        std::unordered_map<std::string, int64_t> tableSizes;
+        {
+            auto session = parentDbNode->getSession();
+            PGconn* conn = session.get();
+            PgResultPtr res(PQexec(conn, sizeQuery.c_str()));
+
+            if (res && PQresultStatus(res.get()) == PGRES_TUPLES_OK) {
+                int nRows = PQntuples(res.get());
+                for (int i = 0; i < nRows; i++) {
+                    if (!tablesLoader.isRunning()) {
+                        break;
+                    }
+                    auto tableName = std::string(PQgetvalue(res.get(), i, 0));
+                    try {
+                        tableSizes[tableName] = std::stoll(PQgetvalue(res.get(), i, 1));
+                    } catch (...) {
+                        tableSizes[tableName] = -1;
+                    }
+                }
+            }
+        }
+
         // Build the result tables
         for (const auto& tableName : tableNames) {
             if (!tablesLoader.isRunning()) {
@@ -228,6 +264,9 @@ std::vector<Table> PostgresSchemaNode::getTablesAsync() {
             table.fullName = parentDbNode->name + "." + name + "." + tableName;
             table.columns = std::move(tableColumns[tableName]);
             table.foreignKeys = std::move(tableForeignKeys[tableName]);
+            if (auto it = tableSizes.find(tableName); it != tableSizes.end()) {
+                table.sizeBytes = it->second;
+            }
 
             result.push_back(table);
             spdlog::debug("Loaded table: {} with {} columns and {} foreign keys", tableName,
@@ -876,6 +915,22 @@ Table PostgresSchemaNode::refreshTableAsync(const std::string& tableName) {
                     fk.targetColumn = PQgetvalue(res.get(), i, 2);
                     fk.name = PQgetvalue(res.get(), i, 3);
                     refreshedTable.foreignKeys.push_back(fk);
+                }
+            }
+        }
+
+        // Get total on-disk size
+        const std::string sizeQuery = std::format(
+            "SELECT pg_total_relation_size('\"{}\".\"{}\"'::regclass)", name, tableName);
+
+        {
+            PgResultPtr res(PQexec(conn, sizeQuery.c_str()));
+            if (res && PQresultStatus(res.get()) == PGRES_TUPLES_OK && PQntuples(res.get()) > 0 &&
+                !PQgetisnull(res.get(), 0, 0)) {
+                try {
+                    refreshedTable.sizeBytes = std::stoll(PQgetvalue(res.get(), 0, 0));
+                } catch (...) {
+                    refreshedTable.sizeBytes = -1;
                 }
             }
         }

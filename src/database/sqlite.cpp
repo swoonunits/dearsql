@@ -54,6 +54,27 @@ namespace {
         }
         return 0;
     }
+
+    // total bytes used by the table and its indexes via the dbstat virtual table.
+    // returns -1 if dbstat is unavailable (SQLite built without SQLITE_ENABLE_DBSTAT_VTAB).
+    int64_t getTableSizeBytes(sqlite3* db, const std::string& tableName) {
+        static constexpr const char* sql = "SELECT SUM(d.pgsize) FROM sqlite_master m "
+                                           "LEFT JOIN dbstat d ON d.name = m.name "
+                                           "WHERE m.tbl_name = ? AND m.type IN ('table', 'index')";
+        sqlite3_stmt* raw = nullptr;
+        if (sqlite3_prepare_v2(db, sql, -1, &raw, nullptr) != SQLITE_OK) {
+            return -1;
+        }
+        StmtPtr stmt(raw);
+        sqlite3_bind_text(raw, 1, tableName.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(raw) != SQLITE_ROW) {
+            return -1;
+        }
+        if (sqlite3_column_type(raw, 0) == SQLITE_NULL) {
+            return -1;
+        }
+        return sqlite3_column_int64(raw, 0);
+    }
 } // namespace
 
 SQLiteDatabase::SQLiteDatabase(const DatabaseConnectionInfo& connInfo) {
@@ -306,6 +327,7 @@ std::vector<Table> SQLiteDatabase::getTablesAsync() const {
                 table.indexes.push_back(std::move(idx));
             });
 
+            table.sizeBytes = getTableSizeBytes(db_, tableName);
             buildForeignKeyLookup(table);
             result.push_back(std::move(table));
         }
@@ -661,6 +683,7 @@ void SQLiteDatabase::startTableRefreshAsync(const std::string& tableName) {
 
             refreshedTable.indexes = getTableIndexes(tableName);
             refreshedTable.foreignKeys = getTableForeignKeys(tableName);
+            refreshedTable.sizeBytes = getTableSizeBytes(db_, tableName);
             buildForeignKeyLookup(refreshedTable);
 
         } catch (const std::exception& e) {

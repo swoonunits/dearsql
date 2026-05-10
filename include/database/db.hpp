@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -77,7 +79,29 @@ struct Table {
 
     // Fast lookup for foreign keys by source column
     std::unordered_map<std::string, ForeignKey> foreignKeysByColumn;
+
+    // total on-disk size in bytes (table + indexes + toast); -1 if unknown
+    int64_t sizeBytes = -1;
 };
+
+inline std::string formatByteSize(int64_t bytes) {
+    if (bytes < 0)
+        return {};
+    constexpr double kKB = 1024.0;
+    constexpr double kMB = kKB * 1024.0;
+    constexpr double kGB = kMB * 1024.0;
+    constexpr double kTB = kGB * 1024.0;
+    const double b = static_cast<double>(bytes);
+    if (b < kKB)
+        return std::format("{} B", bytes);
+    if (b < kMB)
+        return std::format("{:.1f} KB", b / kKB);
+    if (b < kGB)
+        return std::format("{:.1f} MB", b / kMB);
+    if (b < kTB)
+        return std::format("{:.2f} GB", b / kGB);
+    return std::format("{:.2f} TB", b / kTB);
+}
 
 enum class RoutineKind { Function, Procedure };
 
