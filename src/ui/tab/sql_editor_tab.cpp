@@ -900,7 +900,6 @@ void SQLEditorTab::renderConnectionInfoPostgres() {
 
     auto* serverDb = dbNode->parentDb;
     const auto& connInfo = serverDb->getConnectionInfo();
-    const auto& colors = Application::getInstance().getCurrentColors();
 
     const auto& dbMap = serverDb->getDatabaseDataMap();
     std::vector<std::string> dbNames;
@@ -947,10 +946,7 @@ void SQLEditorTab::renderConnectionInfoPostgres() {
         }
     }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::S, Theme::Spacing::S));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     if (queryExecutionOp_.isRunning())
         ImGui::BeginDisabled();
@@ -1011,8 +1007,7 @@ void SQLEditorTab::renderConnectionInfoPostgres() {
     if (queryExecutionOp_.isRunning())
         ImGui::EndDisabled();
 
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar();
 }
 
 void SQLEditorTab::renderConnectionInfoMySQL() {
@@ -1123,8 +1118,6 @@ void SQLEditorTab::renderDatabaseCombo(const std::string& host, const char* labe
                                        const std::string& currentName,
                                        const std::vector<std::string>& dbNames,
                                        const std::function<void(const std::string&)>& onSelect) {
-    const auto& colors = Application::getInstance().getCurrentColors();
-
     ImGui::AlignTextToFramePadding();
     ImGui::Text("%s", host.c_str());
     ImGui::SameLine(0, Theme::Spacing::L);
@@ -1133,10 +1126,7 @@ void SQLEditorTab::renderDatabaseCombo(const std::string& host, const char* labe
     ImGui::Text("%s", label);
     ImGui::SameLine(0, Theme::Spacing::S);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::S, Theme::Spacing::S));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     if (queryExecutionOp_.isRunning())
         ImGui::BeginDisabled();
@@ -1164,8 +1154,7 @@ void SQLEditorTab::renderDatabaseCombo(const std::string& host, const char* labe
     if (queryExecutionOp_.isRunning())
         ImGui::EndDisabled();
 
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar();
 }
 
 void SQLEditorTab::switchNode(IDatabaseNode* newNode) {
@@ -1183,8 +1172,6 @@ void SQLEditorTab::switchNode(IDatabaseNode* newNode) {
 
 void SQLEditorTab::renderToolbar() {
     const auto& colors = Application::getInstance().getCurrentColors();
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     if (queryExecutionOp_.isRunning()) {
         ImGui::BeginDisabled();
@@ -1217,9 +1204,6 @@ void SQLEditorTab::renderToolbar() {
         ImGui::TextUnformatted(inlineMessage.c_str());
         ImGui::PopStyleColor();
     }
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 
 void SQLEditorTab::renderQueryResults() const {
@@ -2145,12 +2129,13 @@ void SQLEditorTab::renderScriptHeader() {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext0);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                             ImVec2(Theme::Spacing::XS, Theme::Spacing::XS));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
         if (ImGui::SmallButton(ICON_FA_PENCIL "##rename_script")) {
             std::strncpy(renameBuffer_, scriptName_.c_str(), sizeof(renameBuffer_) - 1);
             renamingScript_ = true;
             renamingFocusNeeded_ = true;
         }
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(4);
 
         if (ImGui::IsItemHovered())

@@ -318,8 +318,7 @@ void RedisPubSubTab::render() {
         statusTopOffset = ImGui::GetCursorPosY();
         statusHeight = ImGui::GetContentRegionAvail().y;
 
-        // border on all input fields
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        // stronger border on all input fields
         ImGui::PushStyleColor(ImGuiCol_Border, colors.surface2);
 
         // main content area (between header and publish bar)
@@ -339,7 +338,6 @@ void RedisPubSubTab::render() {
         renderPublishBar(colors);
 
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
     }
     ImGui::EndChild();
 
@@ -393,20 +391,11 @@ void RedisPubSubTab::renderToolbar(const Theme::Colors& colors) {
 
     // subscribe / unsubscribe button
     if (subscribed) {
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-        ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
         if (ImGui::Button(ICON_FA_CIRCLE_MINUS " Unsubscribe")) {
             unsubscribe();
             subState_.store(SubState::Idle);
         }
-        ImGui::PopStyleColor(4);
-        ImGui::PopStyleVar();
     } else {
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
         ImGui::PushStyleColor(ImGuiCol_Button,
                               ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -423,24 +412,16 @@ void RedisPubSubTab::renderToolbar(const Theme::Colors& colors) {
         }
         if (busy)
             ImGui::EndDisabled();
-        ImGui::PopStyleColor(5);
-        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
     }
 
     ImGui::SameLine(0, Theme::Spacing::S);
 
     // clear button
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
     if (ImGui::Button(ICON_FA_TRASH_CAN " Clear")) {
         displayMessages_.clear();
         totalMessageCount_.store(0);
     }
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
 
     // error display
     const std::string subError = getSubError();
@@ -521,8 +502,6 @@ void RedisPubSubTab::renderPublishBar(const Theme::Colors& colors) {
     if (!canPublish)
         ImGui::BeginDisabled();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
     ImGui::PushStyleColor(ImGuiCol_Button,
                           ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -536,8 +515,7 @@ void RedisPubSubTab::renderPublishBar(const Theme::Colors& colors) {
         publishMessageBuf_[0] = '\0';
         refocusMessageInput_ = true;
     }
-    ImGui::PopStyleColor(5);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
 
     if (!canPublish)
         ImGui::EndDisabled();

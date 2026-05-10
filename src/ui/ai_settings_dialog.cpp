@@ -82,15 +82,9 @@ void AISettingsDialog::render() {
                             ImVec2(Theme::Spacing::L, Theme::Spacing::L));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, colors.surface0);
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, colors.surface1);
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, colors.surface1);
-        ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface1);
 
         // API Key
@@ -133,8 +127,8 @@ void AISettingsDialog::render() {
             ImGui::CloseCurrentPopup();
         }
 
-        ImGui::PopStyleColor(7);
-        ImGui::PopStyleVar(4);
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(3);
 
         ImGui::EndPopup();
     }

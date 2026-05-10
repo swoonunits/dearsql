@@ -227,8 +227,6 @@ void DatabaseHierarchy::renderSchemaFilterBadge(const std::string& dbName,
     if (ImGui::BeginPopup(popupId.c_str())) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                             ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
         std::sort(schemaNames.begin(), schemaNames.end());
         for (const auto& name : schemaNames) {
             bool visible = !isSchemaHidden(dbName, name);
@@ -236,8 +234,7 @@ void DatabaseHierarchy::renderSchemaFilterBadge(const std::string& dbName,
                 setSchemaHidden(dbName, name, !visible);
             }
         }
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar();
         ImGui::EndPopup();
     }
 }

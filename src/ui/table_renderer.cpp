@@ -648,17 +648,15 @@ void TableRenderer::renderCell(int row, int col) {
             if (isBoolSentinel(cellValue)) {
                 bool checked = boolSentinelValue(cellValue);
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
-                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
                 float checkboxWidth = ImGui::GetFrameHeight();
                 float columnWidth = ImGui::GetColumnWidth();
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
                 ImGui::BeginDisabled();
                 ImGui::Checkbox("##bool", &checked);
                 ImGui::EndDisabled();
-                ImGui::PopStyleColor(2);
-                ImGui::PopStyleVar(2);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar();
             } else if (isNullSentinel(cellValue)) {
                 ImGui::TextColored(colors.overlay1, "NULL");
             } else {
@@ -706,17 +704,14 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         }
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         float checkboxWidth = ImGui::GetFrameHeight();
         float columnWidth = ImGui::GetColumnWidth();
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - checkboxWidth) * 0.5f);
 
-        // make the checkbox background transparent so cell bg shows through;
-        // border is drawn explicitly via FrameBorderSize + ImGuiCol_Border.
+        // make the checkbox background transparent so cell bg shows through
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
         bool editable = config.allowEditing && !config.nonEditableColumns.contains(col) &&
                         (!cellEditableCb || cellEditableCb(row, col));
@@ -750,8 +745,8 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
 
         updateDragFromItem(row, col);
 
-        ImGui::PopStyleColor(4);
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
 
         // select on click even if not toggling
         if (!suppressBoolToggle &&
@@ -1169,8 +1164,6 @@ void TableRenderer::renderColumnHeader(int colIdx, const std::string& colName) {
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 8.0f));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
     if (ImGui::BeginPopup(popupId.c_str())) {
         bool isAsc = (sortColumn == colIdx && sortDirection == SortDirection::Ascending);
         if (ImGui::MenuItem(ICON_FA_ARROW_UP_SHORT_WIDE " Order by ASC", nullptr, isAsc)) {
@@ -1208,8 +1201,7 @@ void TableRenderer::renderColumnHeader(int colIdx, const std::string& colName) {
 
         ImGui::EndPopup();
     }
-    ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 
     ImGui::PopID();
 }

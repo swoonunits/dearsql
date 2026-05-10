@@ -83,16 +83,6 @@ void TableViewerTab::render() {
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
-    // Style for buttons and inputs in this tab
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, colors.mantle);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
-
     // Filter input with auto-completion
     ImGui::AlignTextToFramePadding();
     ImGui::Text(ICON_FA_FILTER);
@@ -168,9 +158,6 @@ void TableViewerTab::render() {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(%d rows)", totalRows);
     }
 
-    // Pop button/input styles
-    ImGui::PopStyleColor(7);
-    ImGui::PopStyleVar();
     ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
 
     // Show loading error if any
@@ -245,12 +232,6 @@ void TableViewerTab::render() {
 
     // Pagination controls at the bottom
     ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
-
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
 
     const int totalPages = (totalRows + rowsPerPage - 1) / rowsPerPage;
 
@@ -338,9 +319,6 @@ void TableViewerTab::render() {
         ImGui::SameLine();
         ImGui::Text("Loading...");
     }
-
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
 
     // Check async SQL execution status
     checkSQLExecutionStatus();

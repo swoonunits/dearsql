@@ -100,9 +100,6 @@ void RoutineViewerTab::renderToolbar() {
     const auto& colors = Application::getInstance().getCurrentColors();
     const bool saving = saveOp_.isRunning();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-
     if (saving)
         ImGui::BeginDisabled();
 
@@ -136,9 +133,6 @@ void RoutineViewerTab::renderToolbar() {
         ImGui::TextUnformatted(ICON_FA_CIRCLE "  unsaved");
         ImGui::PopStyleColor();
     }
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 
 void RoutineViewerTab::fetchDefinitionAsync() {

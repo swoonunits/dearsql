@@ -147,7 +147,6 @@ void TableEditorTab::renderContent(bool& closeRequested) {
     const auto& colors = Application::getInstance().getCurrentColors();
 
     constexpr float saveButtonWidth = 120.0f;
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, withAlpha(colors.surface1, 0.5f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, withAlpha(colors.surface2, 0.5f));
@@ -163,7 +162,6 @@ void TableEditorTab::renderContent(bool& closeRequested) {
         markDirty();
     }
     ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
 
     ImGui::SameLine(0, Theme::Spacing::M);
     renderButtons(closeRequested);
@@ -173,7 +171,6 @@ void TableEditorTab::renderContent(bool& closeRequested) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                         ImVec2(Theme::Spacing::M + 2.0f, Theme::Spacing::S + 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(Theme::Spacing::M, Theme::Spacing::M));
@@ -255,7 +252,7 @@ void TableEditorTab::renderContent(bool& closeRequested) {
     renderPreviewPopup(closeRequested);
 
     ImGui::PopStyleColor(6);
-    ImGui::PopStyleVar(8);
+    ImGui::PopStyleVar(7);
 }
 
 void TableEditorTab::renderLeftPanel() {
@@ -471,7 +468,6 @@ void TableEditorTab::renderColumnEditor() {
     renderSectionTitle(colors, colors.blue, ICON_FA_PEN_TO_SQUARE, editorTitle,
                        "Adjust the selected column definition and constraints.");
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(colors.overlay0, 0.9f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, withAlpha(colors.surface0, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, withAlpha(colors.surface1, 1.0f));
@@ -593,7 +589,6 @@ void TableEditorTab::renderColumnEditor() {
     }
 
     ImGui::PopStyleColor(5);
-    ImGui::PopStyleVar();
 
     ImGui::Spacing();
 }
@@ -630,8 +625,6 @@ void TableEditorTab::renderPreviewPopup(bool& closeRequested) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
     ImGui::PushStyleColor(ImGuiCol_Button,
                           ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -675,10 +668,9 @@ void TableEditorTab::renderPreviewPopup(bool& closeRequested) {
         }
     }
 
-    ImGui::PopStyleColor(5);
+    ImGui::PopStyleColor(4);
     ImGui::SameLine();
 
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
     ImGui::PushStyleColor(ImGuiCol_Button, colors.overlay0);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.overlay1);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.overlay2);
@@ -687,16 +679,13 @@ void TableEditorTab::renderPreviewPopup(bool& closeRequested) {
         ImGui::CloseCurrentPopup();
     }
 
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
     ImGui::EndPopup();
 }
 
 void TableEditorTab::renderButtons(bool& closeRequested) {
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
     ImGui::PushStyleColor(ImGuiCol_Button,
                           ImVec4(colors.green.x, colors.green.y, colors.green.z, 0.85f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -725,8 +714,7 @@ void TableEditorTab::renderButtons(bool& closeRequested) {
         }
     }
 
-    ImGui::PopStyleColor(5);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
 }
 
 void TableEditorTab::startAddColumn() {
@@ -917,7 +905,6 @@ void TableEditorTab::renderTableProperties() {
     renderSectionTitle(colors, colors.teal, ICON_FA_SLIDERS, "Table Properties",
                        "Manage table identity and high-level options.");
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(colors.overlay0, 0.9f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, withAlpha(colors.surface0, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, withAlpha(colors.surface1, 1.0f));
@@ -938,7 +925,6 @@ void TableEditorTab::renderTableProperties() {
     }
 
     ImGui::PopStyleColor(5);
-    ImGui::PopStyleVar();
 
     ImGui::Separator();
     ImGui::Spacing();

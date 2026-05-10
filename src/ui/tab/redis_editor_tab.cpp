@@ -550,11 +550,6 @@ void RedisEditorTab::renderHeader() const {
 }
 
 void RedisEditorTab::renderToolbar() {
-    const auto& colors = Application::getInstance().getCurrentColors();
-
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-
     if (queryOp_.isRunning()) {
         ImGui::BeginDisabled();
         ImGui::Button(ICON_FA_PLAY " Run");
@@ -577,9 +572,6 @@ void RedisEditorTab::renderToolbar() {
             resultHistory_.clear();
         }
     }
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 
     ImGui::SameLine(0, Theme::Spacing::L);
     ImGui::Checkbox("Auto clear", &autoClearEditor_);

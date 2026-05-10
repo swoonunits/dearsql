@@ -111,9 +111,7 @@ void PostgresSequenceViewerTab::render() {
 
     ImGui::Dummy(ImVec2(0, Theme::Spacing::M));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     auto textInput = [&](const char* label, const char* id, char* buf, std::size_t bufSize,
                          float labelW = kLabelWidth, float inputW = kInputWidth) {
@@ -203,8 +201,7 @@ void PostgresSequenceViewerTab::render() {
     }
     ImGui::EndGroup();
 
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleVar();
 
     ImGui::Dummy(ImVec2(0, Theme::Spacing::L));
 
@@ -262,12 +259,6 @@ void PostgresSequenceViewerTab::renderToolbar() {
     const auto& colors = Application::getInstance().getCurrentColors();
     const bool dirty = isDirty();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
-
     if (dirty) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.green);
         if (ImGui::Button(ICON_FA_FLOPPY_DISK " Save")) {
@@ -303,9 +294,6 @@ void PostgresSequenceViewerTab::renderToolbar() {
         ImGui::SameLine(0, Theme::Spacing::L);
         ImGui::TextColored(colors.peach, "Unsaved changes");
     }
-
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
 }
 
 void PostgresSequenceViewerTab::saveChanges() {

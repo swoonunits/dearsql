@@ -254,7 +254,6 @@ void TabManager::renderTabs() {
     ImGui::PushStyleColor(ImGuiCol_TabHovered, colors.surface0);
     ImGui::PushStyleColor(ImGuiCol_TabSelected, colors.surface1);
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0)); // transparent
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.surface0);
     // Keep same colors when unfocused
     ImGui::PushStyleColor(ImGuiCol_TabDimmed, colors.mantle);
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, colors.surface1);
@@ -280,7 +279,9 @@ void TabManager::renderTabs() {
 
         // Docked tabs copy tab item data into LastItemData on Begin(), so right-click on
         // the tab label can open a popup reliably from here.
+        ImGui::PushStyleColor(ImGuiCol_Border, colors.surface0);
         const bool beginOpen = ImGui::Begin(windowName.c_str(), &isOpen, windowFlags);
+        ImGui::PopStyleColor();
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
             activeTabId_ = tabId;
         }
@@ -288,8 +289,6 @@ void TabManager::renderTabs() {
             pendingFocusTabId_ = 0;
         }
         ImGui::PushID(windowName.c_str());
-        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
         ImGui::OpenPopupOnItemClick("TabContextMenu", ImGuiPopupFlags_MouseButtonRight);
         if (ImGui::BeginPopup("TabContextMenu")) {
             const bool hasOthers = tabs.size() > 1;
@@ -321,8 +320,6 @@ void TabManager::renderTabs() {
             ImGui::PopStyleVar();
             ImGui::EndPopup();
         }
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
         ImGui::PopID();
 
         if (beginOpen) {
@@ -385,7 +382,7 @@ void TabManager::renderTabs() {
         pendingCloseTargetId_ = 0;
     }
 
-    ImGui::PopStyleColor(9);
+    ImGui::PopStyleColor(8);
     ImGui::PopStyleVar(3);
 }
 

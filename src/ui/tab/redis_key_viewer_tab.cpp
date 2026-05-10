@@ -347,12 +347,6 @@ void RedisKeyViewerTab::cancelChanges() {
 void RedisKeyViewerTab::renderToolbar() {
     const auto& colors = Application::getInstance().getCurrentColors();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
-
     const bool busy = isLoading_ || saveOp_.isRunning();
     if (busy)
         ImGui::BeginDisabled();
@@ -440,7 +434,5 @@ void RedisKeyViewerTab::renderToolbar() {
     if (busy)
         ImGui::EndDisabled();
 
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
     ImGui::Separator();
 }

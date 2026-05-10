@@ -163,10 +163,6 @@ void MongoEditorTab::renderHeader() const {
 }
 
 void MongoEditorTab::renderToolbar() {
-    const auto& colors = Application::getInstance().getCurrentColors();
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-
     if (queryExecutionOp_.isRunning()) {
         ImGui::BeginDisabled();
         ImGui::Button(ICON_FA_PLAY " Run");
@@ -185,9 +181,6 @@ void MongoEditorTab::renderToolbar() {
             formatJSON();
         }
     }
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 
 void MongoEditorTab::renderQueryResults() const {

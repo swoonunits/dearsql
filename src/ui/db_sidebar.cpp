@@ -327,7 +327,6 @@ void DatabaseSidebarNew::render() {
     ImGui::PushStyleColor(ImGuiCol_HeaderActive,
                           ImVec4(colors.blue.x, colors.blue.y, colors.blue.z, 0.3f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
 
@@ -460,7 +459,7 @@ void DatabaseSidebarNew::render() {
         renderHistoryToggleButton(btnMin, buttonW, buttonH, true);
     }
 
-    ImGui::PopStyleColor(5);
+    ImGui::PopStyleColor(4);
     ImGui::End();
 
     ImGui::PopStyleVar(); // PopupRounding
@@ -640,8 +639,6 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
             if (ImGui::BeginPopup(popupId.c_str())) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
                                     ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
                 std::sort(dbNames.begin(), dbNames.end());
                 for (const auto& name : dbNames) {
                     bool visible = !(hierarchy && hierarchy->isDatabaseHidden(name));
@@ -650,8 +647,7 @@ void DatabaseSidebarNew::renderDatabaseNode(const std::shared_ptr<DatabaseInterf
                             hierarchy->setDatabaseHidden(name, !visible);
                     }
                 }
-                ImGui::PopStyleColor();
-                ImGui::PopStyleVar(2);
+                ImGui::PopStyleVar();
                 ImGui::EndPopup();
             }
         }

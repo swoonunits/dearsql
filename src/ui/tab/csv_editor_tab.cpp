@@ -215,12 +215,6 @@ void CsvEditorTab::renderToolbar() {
     const auto& colors = Application::getInstance().getCurrentColors();
     const bool canSave = hasPendingChanges();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
-    ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
-
     if (canSave) {
         ImGui::PushStyleColor(ImGuiCol_Text, colors.peach);
         ImGui::TextUnformatted("Edited");
@@ -232,30 +226,29 @@ void CsvEditorTab::renderToolbar() {
     const bool tableActive = (viewMode_ == ViewMode::Table);
     const bool rawActive = (viewMode_ == ViewMode::Raw);
 
-    if (tableActive) {
+    if (tableActive)
         ImGui::PushStyleColor(ImGuiCol_Button, colors.surface2);
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    }
-    if (ImGui::Button(ICON_FA_TABLE " Table")) {
+    const bool tableClicked = ImGui::Button(ICON_FA_TABLE " Table");
+    if (tableActive)
+        ImGui::PopStyleColor();
+    if (tableClicked) {
         if (viewMode_ == ViewMode::Raw && rawDirty_) {
             if (!syncRawToTable())
                 return;
         }
         viewMode_ = ViewMode::Table;
     }
-    ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Table view");
 
     ImGui::SameLine(0, Theme::Spacing::XS);
 
-    if (rawActive) {
+    if (rawActive)
         ImGui::PushStyleColor(ImGuiCol_Button, colors.surface2);
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, colors.surface0);
-    }
-    if (ImGui::Button(ICON_FA_CODE " Raw")) {
+    const bool rawClicked = ImGui::Button(ICON_FA_CODE " Raw");
+    if (rawActive)
+        ImGui::PopStyleColor();
+    if (rawClicked) {
         if (viewMode_ == ViewMode::Table) {
             if (tableRenderer_ && tableRenderer_->isEditing()) {
                 tableRenderer_->exitEditMode(true);
@@ -263,7 +256,6 @@ void CsvEditorTab::renderToolbar() {
         }
         viewMode_ = ViewMode::Raw;
     }
-    ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Raw text view");
 
@@ -310,9 +302,6 @@ void CsvEditorTab::renderToolbar() {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Save");
     }
-
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar();
 }
 
 void CsvEditorTab::renderTableView() {

@@ -1326,7 +1326,6 @@ namespace dearsql {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 3));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         // Derive panel colors from the editor palette
         ImU32 bgCol = palette_.currentLineBackground;
         int bgR = (bgCol >> 0) & 0xFF, bgG = (bgCol >> 8) & 0xFF, bgB = (bgCol >> 16) & 0xFF;
@@ -1470,7 +1469,7 @@ namespace dearsql {
         ImGui::End();
 
         ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar(5);
+        ImGui::PopStyleVar(4);
     }
 
     void TextEditor::renderFindHighlights(ImDrawList* drawList, int startLine, int endLine) {

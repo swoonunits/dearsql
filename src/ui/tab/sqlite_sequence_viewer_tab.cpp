@@ -69,10 +69,8 @@ void SQLiteSequenceViewerTab::render() {
     // top padding so the form doesn't hug the tab title bar
     ImGui::Dummy(ImVec2(0, Theme::Spacing::M));
 
-    // borders + breathing room between rows for the entire form
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    // breathing room between rows for the entire form
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(Theme::Spacing::M, Theme::Spacing::M));
-    ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
     // left column: Name + Description
     ImGui::BeginGroup();
@@ -116,8 +114,7 @@ void SQLiteSequenceViewerTab::render() {
     }
     ImGui::EndGroup();
 
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleVar();
 }
 
 void SQLiteSequenceViewerTab::fetchAsync() {

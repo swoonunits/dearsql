@@ -280,7 +280,6 @@ void AIChatPanel::renderInputArea() {
             std::format("{} {}", MODEL_OPTIONS[modelIndex_].label, ICON_FA_ANGLE_DOWN);
         ImGui::PushItemWidth(ImGui::CalcTextSize(modelPreview.c_str()).x +
                              ImGui::GetStyle().FramePadding.x * 2 + Theme::Spacing::S);
-        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
                             ImVec2(Theme::Spacing::S, Theme::Spacing::S));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
@@ -303,7 +302,7 @@ void AIChatPanel::renderInputArea() {
             ImGui::EndCombo();
         }
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
+        ImGui::PopStyleVar(2);
         ImGui::PopItemWidth();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
@@ -311,9 +310,6 @@ void AIChatPanel::renderInputArea() {
         float sendBtnWidth = ImGui::GetFrameHeight();
         ImGui::SameLine(rowStartX + ImGui::GetContentRegionAvail().x - sendBtnWidth -
                         rowRightPadding);
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.overlay0);
 
         if (client_->isStreaming() || chatState_->isBuildingPrompt()) {
             if (ImGui::Button(ICON_FA_STOP, ImVec2(sendBtnWidth, 0))) {
@@ -325,9 +321,6 @@ void AIChatPanel::renderInputArea() {
                 sendMessage();
             }
         }
-
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
     }
     ImGui::EndChild();
 
