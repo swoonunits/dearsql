@@ -29,10 +29,15 @@ Download the latest release for macOS, Linux, and Windows from [GitHub Releases]
 
 ### Arch Linux ([AUR](https://aur.archlinux.org/packages/dearsql))
 
-```bash
+```sh
 yay -S dearsql
 # or
 paru -S dearsql
+```
+## Build instructions
+
+```sh
+claude "build this project"
 ```
 
 ## Built With
