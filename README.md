@@ -10,6 +10,10 @@
   <a href="https://dearsql.dev/">Download</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/dunkbing/dearsql/releases"><img src="https://img.shields.io/github/downloads/dunkbing/dearsql/total?label=downloads&logo=github" alt="GitHub all releases"></a>
+</p>
+
 ![Screenshot](assets/sc.webp)
 
 ## Features
