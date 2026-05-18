@@ -196,10 +196,10 @@ void TableEditorTab::renderContent(bool& closeRequested) {
     const float rightPanelWidth =
         std::max(minRightPanelWidth, panelRegion.x - leftPanelWidth - splitterWidth);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Spacing::L, Theme::Spacing::M));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, Theme::Spacing::M));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, withAlpha(colors.mantle, 0.72f));
-    ImGui::BeginChild("LeftPanel", ImVec2(leftPanelWidth, panelHeight), true);
-    renderLeftPanel();
+    ImGui::BeginChild("left_panel", ImVec2(leftPanelWidth, panelHeight), true);
+    renderTableTree();
     ImGui::EndChild();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
@@ -255,18 +255,6 @@ void TableEditorTab::renderContent(bool& closeRequested) {
     ImGui::PopStyleVar(7);
 }
 
-void TableEditorTab::renderLeftPanel() {
-    const auto& colors = Application::getInstance().getCurrentColors();
-    ImGui::Indent(Theme::Spacing::M);
-    ImGui::Dummy(ImVec2(0, Theme::Spacing::XS));
-    ImGui::PushStyleColor(ImGuiCol_Text, colors.subtext1);
-    renderSectionTitle(colors, colors.green, ICON_FA_SITEMAP, "Table Structure",
-                       "Navigate the table tree and select a node to edit.");
-    ImGui::PopStyleColor();
-    renderTableTree();
-    ImGui::Unindent(Theme::Spacing::M);
-}
-
 void TableEditorTab::renderRightPanel() {
     ImGui::Indent(Theme::Spacing::M);
     switch (rightPanelMode) {
@@ -291,9 +279,9 @@ void TableEditorTab::renderTableTree() {
 
 void TableEditorTab::renderColumnsNode() {
     const auto& colors = Application::getInstance().getCurrentColors();
-    ImGuiTreeNodeFlags columnsFlags = ImGuiTreeNodeFlags_DefaultOpen |
-                                      ImGuiTreeNodeFlags_OpenOnArrow |
-                                      ImGuiTreeNodeFlags_FramePadding;
+    constexpr ImGuiTreeNodeFlags columnsFlags = ImGuiTreeNodeFlags_DefaultOpen |
+                                                ImGuiTreeNodeFlags_OpenOnArrow |
+                                                ImGuiTreeNodeFlags_FramePadding;
 
     const std::string columnsLabel =
         std::format("   Columns ({})      ", editingTable.columns.size());
