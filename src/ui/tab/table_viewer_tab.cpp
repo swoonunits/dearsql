@@ -369,6 +369,7 @@ void TableViewerTab::refreshData() {
         selectedRow = -1;
         selectedCol = -1;
         hasChanges = false;
+        deletedRows.clear();
         hasLoadingError = false;
         loadingError.clear();
 
@@ -392,6 +393,9 @@ void TableViewerTab::saveChanges() {
     if (pendingUpdateSQL.empty()) {
         // No valid SQL generated, just clear changes
         hasChanges = false;
+        deletedRows.clear();
+        originalData = tableData;
+        isNewRow.assign(tableData.size(), false);
         for (auto& row : editedCells) {
             std::fill(row.begin(), row.end(), false);
         }
@@ -412,6 +416,16 @@ void TableViewerTab::cancelChanges() {
             isNewRow.erase(isNewRow.begin() + i);
         }
     }
+
+    std::ranges::sort(deletedRows, {}, &DeletedRow::index);
+    for (const auto& deleted : deletedRows) {
+        const int insertIdx = std::clamp(deleted.index, 0, static_cast<int>(originalData.size()));
+        originalData.insert(originalData.begin() + insertIdx, deleted.values);
+        editedCells.insert(editedCells.begin() + insertIdx,
+                           std::vector<bool>(table_.columns.size(), false));
+        isNewRow.insert(isNewRow.begin() + insertIdx, false);
+    }
+    deletedRows.clear();
 
     // Restore original data for remaining rows
     tableData = originalData;
@@ -489,6 +503,7 @@ void TableViewerTab::loadDataAsync() {
 
             originalData = tableData;
             hasChanges = false;
+            deletedRows.clear();
 
             editedCells = std::vector<std::vector<bool>>(
                 tableData.size(), std::vector<bool>(table_.columns.size(), false));
@@ -550,64 +565,94 @@ std::vector<std::string> TableViewerTab::getPrimaryKeyColumns() const {
     return pkColumns;
 }
 
+std::string TableViewerTab::buildTableRef() const {
+    const auto builder = createSQLBuilder(node_->getDatabaseType());
+    if (const auto dotPos = table_.name.find('.'); dotPos != std::string::npos) {
+        const std::string schemaName = table_.name.substr(0, dotPos);
+        const std::string tableNameOnly = table_.name.substr(dotPos + 1);
+        return std::format("{}.{}", builder->quoteIdentifier(schemaName),
+                           builder->quoteIdentifier(tableNameOnly));
+    }
+    return builder->quoteIdentifier(table_.name);
+}
+
+std::string TableViewerTab::buildRowWhere(const std::vector<std::string>& rowValues) const {
+    const std::vector<std::string> pkColumns = getPrimaryKeyColumns();
+    const auto builder = createSQLBuilder(node_->getDatabaseType());
+    std::vector<std::string> conditions;
+
+    if (!pkColumns.empty()) {
+        for (const auto& pkCol : pkColumns) {
+            auto pkColIt = std::ranges::find(table_.columns, pkCol, &Column::name);
+            if (pkColIt == table_.columns.end())
+                continue;
+            const int pkColIdx = static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
+            if (pkColIdx < 0 || pkColIdx >= static_cast<int>(rowValues.size()))
+                continue;
+            const std::string quotedCol = builder->quoteIdentifier(pkCol);
+            const std::string& pkValue = rowValues[pkColIdx];
+            if (isNullSentinel(pkValue)) {
+                conditions.push_back(std::format("{} IS NULL", quotedCol));
+            } else {
+                conditions.push_back(
+                    std::format("{} = {}", quotedCol, formatSqlLiteral(*pkColIt, pkValue)));
+            }
+        }
+    } else {
+        for (int colIdx = 0; colIdx < static_cast<int>(table_.columns.size()) &&
+                             colIdx < static_cast<int>(rowValues.size());
+             colIdx++) {
+            const std::string quotedCol = builder->quoteIdentifier(table_.columns[colIdx].name);
+            const std::string& condValue = rowValues[colIdx];
+            if (isNullSentinel(condValue)) {
+                conditions.push_back(std::format("{} IS NULL", quotedCol));
+            } else {
+                conditions.push_back(std::format(
+                    "{} = {}", quotedCol, formatSqlLiteral(table_.columns[colIdx], condValue)));
+            }
+        }
+    }
+
+    std::string expr;
+    for (size_t i = 0; i < conditions.size(); ++i) {
+        if (i > 0)
+            expr += " AND ";
+        expr += conditions[i];
+    }
+    return expr;
+}
+
+bool TableViewerTab::hasPendingChanges() const {
+    if (!deletedRows.empty())
+        return true;
+    if (std::ranges::any_of(isNewRow, [](bool value) { return value; }))
+        return true;
+    return std::ranges::any_of(editedCells, [](const auto& row) {
+        return std::ranges::any_of(row, [](bool value) { return value; });
+    });
+}
+
 std::vector<std::string> TableViewerTab::generateUpdateSQL() {
     std::vector<std::string> sqlStatements;
 
-    const std::vector<std::string> pkColumns = getPrimaryKeyColumns();
     const auto builder = createSQLBuilder(node_->getDatabaseType());
 
     std::cout << "Generating UPDATE SQL for table: " << table_.name << std::endl;
+    const std::vector<std::string> pkColumns = getPrimaryKeyColumns();
     std::cout << "Primary key columns: ";
     for (const auto& pk : pkColumns) {
         std::cout << pk << " ";
     }
     std::cout << std::endl;
 
-    // Build table reference once (some node types pack "schema.table" into name)
-    std::string tableRef;
-    if (const auto dotPos = table_.name.find('.'); dotPos != std::string::npos) {
-        const std::string schemaName = table_.name.substr(0, dotPos);
-        const std::string tableNameOnly = table_.name.substr(dotPos + 1);
-        tableRef = std::format("{}.{}", builder->quoteIdentifier(schemaName),
-                               builder->quoteIdentifier(tableNameOnly));
-    } else {
-        tableRef = builder->quoteIdentifier(table_.name);
-    }
+    const std::string tableRef = buildTableRef();
 
-    // Build a WHERE expression matching one row, by PK if available, else by every column
-    auto buildRowWhere = [&](int rowIdx) -> std::string {
-        std::vector<std::string> conditions;
-        if (!pkColumns.empty()) {
-            for (const auto& pkCol : pkColumns) {
-                auto pkColIt = std::ranges::find(table_.columns, pkCol, &Column::name);
-                if (pkColIt == table_.columns.end())
-                    continue;
-                const int pkColIdx =
-                    static_cast<int>(std::distance(table_.columns.begin(), pkColIt));
-                const std::string& pkValue = originalData[rowIdx][pkColIdx];
-                conditions.push_back(std::format("{} = {}", builder->quoteIdentifier(pkCol),
-                                                 formatSqlLiteral(*pkColIt, pkValue)));
-            }
-        } else {
-            for (int colIdx = 0; colIdx < table_.columns.size(); colIdx++) {
-                const std::string quotedCol = builder->quoteIdentifier(table_.columns[colIdx].name);
-                const std::string& condValue = originalData[rowIdx][colIdx];
-                if (isNullSentinel(condValue)) {
-                    conditions.push_back(std::format("{} IS NULL", quotedCol));
-                } else {
-                    conditions.push_back(std::format(
-                        "{} = {}", quotedCol, formatSqlLiteral(table_.columns[colIdx], condValue)));
-                }
-            }
+    for (const auto& deleted : deletedRows) {
+        const std::string whereExpr = buildRowWhere(deleted.values);
+        if (!whereExpr.empty()) {
+            sqlStatements.push_back(builder->deleteRow(tableRef, whereExpr) + ";");
         }
-        std::string expr;
-        for (size_t i = 0; i < conditions.size(); ++i) {
-            if (i > 0)
-                expr += " AND ";
-            expr += conditions[i];
-        }
-        return expr;
-    };
+    }
 
     // Process each edited cell
     for (int rowIdx = 0; rowIdx < editedCells.size(); rowIdx++) {
@@ -636,7 +681,8 @@ std::vector<std::string> TableViewerTab::generateUpdateSQL() {
             const std::vector<std::pair<std::string, std::string>> assignments = {
                 {columnName, formatSqlLiteral(table_.columns[colIdx], newValue)}};
             sqlStatements.push_back(
-                builder->updateRow(tableRef, assignments, buildRowWhere(rowIdx)) + ";");
+                builder->updateRow(tableRef, assignments, buildRowWhere(originalData[rowIdx])) +
+                ";");
         }
     }
 
@@ -774,6 +820,8 @@ void TableViewerTab::checkSQLExecutionStatus() {
         if (success) {
             hasChanges = false;
             originalData = tableData;
+            deletedRows.clear();
+            isNewRow.assign(tableData.size(), false);
             for (auto& row : editedCells) {
                 std::fill(row.begin(), row.end(), false);
             }
@@ -881,6 +929,67 @@ void TableViewerTab::initializeTableRenderer() {
             col < static_cast<int>(editedCells[row].size())) {
             editedCells[row][col] = true;
         }
+    });
+
+    tableRenderer->setOnFilterByValue([this](int row, int col, const std::string& value) {
+        if (row < 0 || row >= static_cast<int>(tableData.size()) || col < 0 ||
+            col >= static_cast<int>(table_.columns.size())) {
+            return;
+        }
+
+        const auto builder = createSQLBuilder(node_->getDatabaseType());
+        const std::string quotedCol = builder->quoteIdentifier(table_.columns[col].name);
+        std::string predicate;
+        if (isNullSentinel(value)) {
+            predicate = std::format("{} IS NULL", quotedCol);
+        } else {
+            predicate =
+                std::format("{} = {}", quotedCol, formatSqlLiteral(table_.columns[col], value));
+        }
+
+        const std::string nextFilter = currentFilter.empty()
+                                           ? predicate
+                                           : std::format("({}) AND ({})", currentFilter, predicate);
+        std::strncpy(filterBuffer, nextFilter.c_str(), sizeof(filterBuffer) - 1);
+        filterBuffer[sizeof(filterBuffer) - 1] = '\0';
+        applyFilter();
+    });
+
+    tableRenderer->setOnDeleteRow([this](int row) {
+        if (row < 0 || row >= static_cast<int>(tableData.size())) {
+            return;
+        }
+
+        if (row < static_cast<int>(isNewRow.size()) && isNewRow[row]) {
+            tableData.erase(tableData.begin() + row);
+            originalData.erase(originalData.begin() + row);
+            editedCells.erase(editedCells.begin() + row);
+            isNewRow.erase(isNewRow.begin() + row);
+        } else {
+            int originalIndex = row;
+            for (const auto& deleted : deletedRows) {
+                if (deleted.index <= originalIndex)
+                    originalIndex++;
+            }
+            deletedRows.push_back({originalIndex, originalData[row]});
+            tableData.erase(tableData.begin() + row);
+            originalData.erase(originalData.begin() + row);
+            editedCells.erase(editedCells.begin() + row);
+            isNewRow.erase(isNewRow.begin() + row);
+            totalRows = std::max(0, totalRows - 1);
+        }
+
+        if (tableData.empty()) {
+            selectedRow = -1;
+            selectedCol = -1;
+        } else {
+            selectedRow = std::min(row, static_cast<int>(tableData.size()) - 1);
+            selectedCol =
+                table_.columns.empty()
+                    ? -1
+                    : std::clamp(selectedCol, 0, static_cast<int>(table_.columns.size()) - 1);
+        }
+        hasChanges = hasPendingChanges();
     });
 }
 

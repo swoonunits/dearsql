@@ -54,6 +54,11 @@ private:
     std::vector<std::vector<std::string>> originalData;
     std::vector<std::vector<bool>> editedCells;
     std::vector<bool> isNewRow;
+    struct DeletedRow {
+        int index = 0;
+        std::vector<std::string> values;
+    };
+    std::vector<DeletedRow> deletedRows;
     bool initialSelectionDone = false;
     int currentPage = 0;
     int rowsPerPage = 100;
@@ -107,6 +112,9 @@ private:
     void selectCell(int row, int col);
     void applyFilter();
     void initializeFilterAutoComplete();
+    [[nodiscard]] std::string buildTableRef() const;
+    [[nodiscard]] std::string buildRowWhere(const std::vector<std::string>& rowValues) const;
+    [[nodiscard]] bool hasPendingChanges() const;
 
     // Right panel methods
     void renderRightPanelToggleStrip(float stripWidth, float availableHeight);

@@ -45,6 +45,39 @@ namespace {
             return boolSentinelValue(v) ? "true" : "false";
         return v;
     }
+
+    bool paddedMenuItem(const char* label, bool enabled = true) {
+        const auto& colors = Application::getInstance().getCurrentColors();
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImVec2 textSize = ImGui::CalcTextSize(label);
+        const float padX = style.FramePadding.x + Theme::Spacing::S;
+        const float padY = style.FramePadding.y + Theme::Spacing::XS;
+        const float width = std::max(ImGui::GetContentRegionAvail().x, textSize.x + padX * 2.0f);
+        const float height = textSize.y + padY * 2.0f;
+
+        if (!enabled)
+            ImGui::BeginDisabled();
+        const bool pressed = ImGui::InvisibleButton(label, ImVec2(width, height));
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active = ImGui::IsItemActive();
+        if (!enabled)
+            ImGui::EndDisabled();
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        if (enabled && (hovered || active)) {
+            drawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height),
+                                    ImGui::GetColorU32(active ? colors.surface2 : colors.surface1),
+                                    style.FrameRounding);
+        }
+
+        const ImU32 textColor = ImGui::GetColorU32(enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        drawList->AddText(ImVec2(pos.x + padX, pos.y + padY), textColor, label);
+
+        if (pressed)
+            ImGui::CloseCurrentPopup();
+        return pressed && enabled;
+    }
 } // namespace
 
 TableRenderer::TableRenderer() {
@@ -814,21 +847,7 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
             ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(colors.surface1));
         }
 
-        // right-click: allow Set NULL on boolean columns
-        if (config.allowEditing && onSetNull && columnNullableCb && columnNullableCb(col)) {
-            const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
-            if (ImGui::BeginPopupContextItem(menuId.c_str())) {
-                if (selectedRow != row || selectedCol != col) {
-                    collapseSelectionToCell(row, col);
-                    if (onCellSelect)
-                        onCellSelect(row, col);
-                }
-                if (ImGui::MenuItem("Set NULL")) {
-                    onSetNull(row, col);
-                }
-                ImGui::EndPopup();
-            }
-        }
+        renderCellContextMenu(row, col);
         return;
     }
 
@@ -896,21 +915,89 @@ void TableRenderer::handleCellInteraction(int row, int col, bool isSelected) {
         ImGui::SetTooltip("%s", cellValue.c_str());
     }
 
-    // right-click context menu — only when there's something to show
-    if (config.allowEditing && onSetNull && !isNull && columnNullableCb && columnNullableCb(col)) {
-        const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
-        if (ImGui::BeginPopupContextItem(menuId.c_str())) {
-            if (selectedRow != row || selectedCol != col) {
-                collapseSelectionToCell(row, col);
-                if (onCellSelect)
-                    onCellSelect(row, col);
-            }
-            if (ImGui::MenuItem("Set NULL")) {
-                onSetNull(row, col);
-            }
-            ImGui::EndPopup();
-        }
+    renderCellContextMenu(row, col);
+}
+
+void TableRenderer::copyCellToClipboard(int row, int col) const {
+    if (row < 0 || row >= static_cast<int>(data.size()) || col < 0 ||
+        col >= static_cast<int>(data[row].size())) {
+        return;
     }
+
+    const std::string raw = exportValue(data[row][col]);
+    ImGui::SetClipboardText(raw.c_str());
+}
+
+void TableRenderer::copyRowToClipboard(int row) const {
+    if (row < 0 || row >= static_cast<int>(data.size())) {
+        return;
+    }
+
+    const auto& rowData = data[row];
+    const int colCount =
+        std::min(static_cast<int>(rowData.size()), static_cast<int>(columns.size()));
+    std::string csv;
+    for (int col = 0; col < colCount; ++col) {
+        if (col > 0)
+            csv.push_back(',');
+        csv += csvEscape(exportValue(rowData[col]));
+    }
+    ImGui::SetClipboardText(csv.c_str());
+}
+
+void TableRenderer::renderCellContextMenu(int row, int col) {
+    const std::string menuId = std::format("##cell_ctx_{}_{}", row, col);
+    if (!ImGui::BeginPopupContextItem(menuId.c_str())) {
+        return;
+    }
+
+    if (selectedRow != row || selectedCol != col) {
+        collapseSelectionToCell(row, col);
+        if (onCellSelect)
+            onCellSelect(row, col);
+    }
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x, 0.0f));
+
+    if (paddedMenuItem(ICON_FA_COPY " Copy cell")) {
+        copyCellToClipboard(row, col);
+    }
+    if (paddedMenuItem(ICON_FA_CLONE " Copy row")) {
+        copyRowToClipboard(row);
+    }
+
+    const bool canFilter = onFilterByValue && row >= 0 && row < static_cast<int>(data.size()) &&
+                           col >= 0 && col < static_cast<int>(data[row].size());
+    if (paddedMenuItem(ICON_FA_FILTER " Filter by value", canFilter)) {
+        onFilterByValue(row, col, data[row][col]);
+    }
+
+    ImGui::Separator();
+
+    const bool canEdit = config.allowEditing && !config.nonEditableColumns.contains(col) &&
+                         (!cellEditableCb || cellEditableCb(row, col));
+    if (paddedMenuItem(ICON_FA_PEN_TO_SQUARE " Edit row", canEdit)) {
+        enterEditMode(row, col);
+    }
+
+    ImGui::Separator();
+
+    const bool canSetNull =
+        config.allowEditing && onSetNull && columnNullableCb && columnNullableCb(col) && row >= 0 &&
+        row < static_cast<int>(data.size()) && col >= 0 &&
+        col < static_cast<int>(data[row].size()) && !isNullSentinel(data[row][col]);
+    if (canSetNull && paddedMenuItem("Set NULL")) {
+        onSetNull(row, col);
+    }
+
+    const bool canDelete = static_cast<bool>(onDeleteRow);
+    if (paddedMenuItem(ICON_FA_TRASH_CAN " Delete row", canDelete)) {
+        onDeleteRow(row);
+    }
+
+    ImGui::PopStyleVar();
+    ImGui::EndPopup();
 }
 
 void TableRenderer::enterEditMode(int row, int col) {

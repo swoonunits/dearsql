@@ -38,6 +38,8 @@ public:
     using ColumnNullableCallback = std::function<bool(int col)>;
     // called when user selects "Set NULL" from context menu
     using OnSetNullCallback = std::function<void(int row, int col)>;
+    using OnFilterByValueCallback = std::function<void(int row, int col, const std::string& value)>;
+    using OnDeleteRowCallback = std::function<void(int row)>;
 
     TableRenderer();
     explicit TableRenderer(const Config& config);
@@ -77,6 +79,12 @@ public:
     }
     void setOnSetNull(OnSetNullCallback callback) {
         onSetNull = callback;
+    }
+    void setOnFilterByValue(OnFilterByValueCallback callback) {
+        onFilterByValue = callback;
+    }
+    void setOnDeleteRow(OnDeleteRowCallback callback) {
+        onDeleteRow = callback;
     }
 
     // Sorting
@@ -172,6 +180,8 @@ private:
     CellEditableCallback cellEditableCb;
     ColumnNullableCallback columnNullableCb;
     OnSetNullCallback onSetNull;
+    OnFilterByValueCallback onFilterByValue;
+    OnDeleteRowCallback onDeleteRow;
 
     // Sorting state
     int sortColumn = -1;
@@ -179,6 +189,9 @@ private:
 
     void renderCell(int row, int col);
     void handleCellInteraction(int row, int col, bool isSelected);
+    void renderCellContextMenu(int row, int col);
+    void copyCellToClipboard(int row, int col) const;
+    void copyRowToClipboard(int row) const;
     void renderColumnHeader(int colIdx, const std::string& colName);
     void renderEditOverlay();
     void updateDragFromItem(int row, int col);
