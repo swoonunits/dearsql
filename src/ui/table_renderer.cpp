@@ -207,19 +207,53 @@ void TableRenderer::render(const char* tableId) {
         const int c0 = std::min(rangeAnchorCol, rangeEndCol);
         const int c1 = std::max(rangeAnchorCol, rangeEndCol);
 
-        std::string csv;
-        for (int r = r0; r <= r1 && r < static_cast<int>(data.size()); ++r) {
-            const auto& rowData = data[r];
-            for (int c = c0; c <= c1; ++c) {
-                if (c > c0)
-                    csv.push_back(',');
-                if (c < static_cast<int>(rowData.size()))
-                    csv += csvEscape(exportValue(rowData[c]));
+        // single cell: copy raw value (no csv quoting or trailing newline)
+        if (r0 == r1 && c0 == c1 && r0 < static_cast<int>(data.size()) &&
+            c0 < static_cast<int>(data[r0].size())) {
+            const std::string raw = exportValue(data[r0][c0]);
+            ImGui::SetClipboardText(raw.c_str());
+        } else {
+            std::string csv;
+            for (int r = r0; r <= r1 && r < static_cast<int>(data.size()); ++r) {
+                const auto& rowData = data[r];
+                for (int c = c0; c <= c1; ++c) {
+                    if (c > c0)
+                        csv.push_back(',');
+                    if (c < static_cast<int>(rowData.size()))
+                        csv += csvEscape(exportValue(rowData[c]));
+                }
+                csv.push_back('\n');
             }
-            csv.push_back('\n');
+            if (!csv.empty())
+                ImGui::SetClipboardText(csv.c_str());
         }
-        if (!csv.empty())
-            ImGui::SetClipboardText(csv.c_str());
+    }
+
+    // Cmd/Ctrl+V → paste clipboard into the selected cell and enter edit mode
+    if (config.allowEditing && editingRow == -1 && selectedRow >= 0 && selectedCol >= 0 &&
+        selectedRow < static_cast<int>(data.size()) &&
+        selectedCol < static_cast<int>(columns.size()) &&
+        !config.nonEditableColumns.contains(selectedCol) &&
+        (!cellEditableCb || cellEditableCb(selectedRow, selectedCol)) &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_V)) {
+        if (const char* clip = ImGui::GetClipboardText(); clip && *clip) {
+            std::string val(clip);
+            // strip a single trailing CRLF/LF (common when pasting our own csv copy)
+            if (!val.empty() && val.back() == '\n')
+                val.pop_back();
+            if (!val.empty() && val.back() == '\r')
+                val.pop_back();
+
+            enterEditMode(selectedRow, selectedCol);
+            if (editingRow == selectedRow && editingCol == selectedCol) {
+                std::strncpy(editBuffer, val.c_str(), sizeof(editBuffer) - 1);
+                editBuffer[sizeof(editBuffer) - 1] = '\0';
+                initialCursorPos = static_cast<int>(strnlen(editBuffer, sizeof(editBuffer)));
+                justEnteredEditWithChar = true;
+                editOverlayFrames = 0;
+            }
+        }
     }
 
     int colCount = static_cast<int>(columns.size());
@@ -540,9 +574,12 @@ void TableRenderer::renderCell(int row, int col) {
             }
         } else {
             // multiline or long values use the overlay popup; short single-line
-            // values are edited inline within the cell
+            // values are edited inline within the cell. also check editBuffer so
+            // a freshly pasted multiline/long value routes to the overlay too.
             const std::string& curr = data[row][col];
-            const bool useOverlay = curr.find('\n') != std::string::npos || curr.size() > 80;
+            const size_t bufLen = strnlen(editBuffer, sizeof(editBuffer));
+            const bool useOverlay = curr.find('\n') != std::string::npos || curr.size() > 80 ||
+                                    std::strchr(editBuffer, '\n') != nullptr || bufLen > 80;
 
             if (useOverlay) {
                 editOverlayPosX = ImGui::GetCursorScreenPos().x;
@@ -671,6 +708,21 @@ void TableRenderer::renderCell(int row, int col) {
 
         if (hasColorOverride)
             ImGui::PopStyleColor();
+
+        // prominent border around the selected cell so it stands out from the
+        // subtle bg tint. clipped to the table's inner area so it doesn't bleed
+        // past the scroll viewport when the cell is partially scrolled off.
+        if (isSelected) {
+            if (ImGuiTable* tbl = ImGui::GetCurrentTable()) {
+                const int tableColIdx = config.showRowNumbers ? col + 1 : col;
+                const ImRect cellRect = ImGui::TableGetCellBgRect(tbl, tableColIdx);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->PushClipRect(tbl->InnerClipRect.Min, tbl->InnerClipRect.Max, true);
+                dl->AddRect(cellRect.Min, cellRect.Max, ImGui::GetColorU32(colors.blue), 0.0f, 0,
+                            2.0f);
+                dl->PopClipRect();
+            }
+        }
 
         ImGui::PopID();
     }
