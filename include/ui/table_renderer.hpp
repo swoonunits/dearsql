@@ -182,6 +182,7 @@ private:
     void renderColumnHeader(int colIdx, const std::string& colName);
     void renderEditOverlay();
     void updateDragFromItem(int row, int col);
+    void handleKeyboardNavigation();
     bool isInSelectionRange(int row, int col) const;
     void collapseSelectionToCell(int row, int col);
     void setSelectionRange(int anchorRow, int anchorCol, int endRow, int endCol);

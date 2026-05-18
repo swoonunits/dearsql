@@ -105,7 +105,6 @@ private:
     // Helper methods
     void initializeTableRenderer();
     void selectCell(int row, int col);
-    void handleKeyboardNavigation();
     void applyFilter();
     void initializeFilterAutoComplete();
 

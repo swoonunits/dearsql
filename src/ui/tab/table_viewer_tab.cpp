@@ -200,11 +200,6 @@ void TableViewerTab::render() {
             tableRenderer->setSortColumn(sortColumn, sortDirection);
 
             tableRenderer->render("TableData");
-
-            // Handle keyboard navigation - skip when editing a cell so arrow keys work in the input
-            if (selectedRow >= 0 && selectedCol >= 0 && !tableRenderer->isEditing()) {
-                handleKeyboardNavigation();
-            }
         } else {
             if (!currentFilter.empty()) {
                 ImGui::Text("No rows match the filter: %s", currentFilter.c_str());
@@ -245,7 +240,7 @@ void TableViewerTab::render() {
     }
     ImGui::SameLine(0, Theme::Spacing::M);
 
-    ImGui::Text("Page %d of %d (%d rows total)", currentPage + 1, totalPages, totalRows);
+    ImGui::Text("Page %d of %d (%d rows)", currentPage + 1, totalPages, totalRows);
     ImGui::SameLine(0, Theme::Spacing::M);
 
     if (ImGui::Button(">") && currentPage < totalPages - 1) {
@@ -263,7 +258,7 @@ void TableViewerTab::render() {
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Rows per page:");
-    ImGui::SameLine();
+    ImGui::SameLine(0, Theme::Spacing::S);
     ImGui::SetNextItemWidth(80.0f);
 
     static const int pageSizeOptions[] = {10, 25, 50, 100, 200, 500};
@@ -462,75 +457,6 @@ void TableViewerTab::selectCell(const int row, const int col) {
     if (row >= 0 && row < tableSize && col >= 0 && col < totalCols) {
         selectedRow = row;
         selectedCol = col;
-    }
-}
-
-void TableViewerTab::handleKeyboardNavigation() {
-    // Basic validation
-    if (selectedRow < 0 || selectedCol < 0 || tableData.empty() || table_.columns.empty()) {
-        return;
-    }
-
-    // Only handle keyboard input if this window/tab is focused
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        return;
-    }
-
-    // skip when a text input (e.g. filter box) has keyboard focus
-    if (ImGui::GetIO().WantTextInput) {
-        return;
-    }
-
-    const int maxRows = static_cast<int>(tableData.size());
-    const int maxCols = static_cast<int>(table_.columns.size());
-
-    int newRow = selectedRow;
-    int newCol = selectedCol;
-    bool moved = false;
-
-    // Handle arrow key navigation - try both with and without repeat
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) || ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) {
-        if (selectedRow > 0) {
-            newRow = selectedRow - 1;
-            moved = true;
-        } else if (currentPage > 0) {
-            previousPage();
-            return;
-        }
-    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) ||
-               ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) {
-        if (selectedRow < maxRows - 1) {
-            newRow = selectedRow + 1;
-            moved = true;
-        } else {
-            const int totalPages = (totalRows + rowsPerPage - 1) / rowsPerPage;
-            if (currentPage < totalPages - 1) {
-                nextPage();
-                return;
-            }
-        }
-    } else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) ||
-               ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
-        if (selectedCol > 0) {
-            newCol = selectedCol - 1;
-            moved = true;
-        }
-    } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) ||
-               ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
-        if (selectedCol < maxCols - 1) {
-            newCol = selectedCol + 1;
-            moved = true;
-        }
-    }
-
-    // Update selection if we moved
-    if (moved) {
-        selectCell(newRow, newCol);
-
-        // Scroll to the new cell to keep it visible
-        if (tableRenderer) {
-            tableRenderer->scrollToCell(newRow, newCol);
-        }
     }
 }
 

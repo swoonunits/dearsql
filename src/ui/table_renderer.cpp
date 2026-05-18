@@ -256,6 +256,8 @@ void TableRenderer::render(const char* tableId) {
         }
     }
 
+    handleKeyboardNavigation();
+
     int colCount = static_cast<int>(columns.size());
     if (config.showRowNumbers) {
         colCount++; // Add one for row number column
@@ -969,6 +971,44 @@ void TableRenderer::exitEditMode(bool saveEdit) {
         datePickerNeedsOpen = false;
         datePickerDirty = false;
         memset(editBuffer, 0, sizeof(editBuffer));
+    }
+}
+
+void TableRenderer::handleKeyboardNavigation() {
+    if (selectedRow < 0 || selectedCol < 0 || data.empty() || columns.empty())
+        return;
+    if (editingRow != -1 || editingCol != -1)
+        return;
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        return;
+    if (ImGui::GetIO().WantTextInput)
+        return;
+
+    const int maxRows = static_cast<int>(data.size());
+    const int maxCols = static_cast<int>(columns.size());
+    int newRow = selectedRow;
+    int newCol = selectedCol;
+    bool moved = false;
+
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && selectedRow > 0) {
+        newRow = selectedRow - 1;
+        moved = true;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selectedRow < maxRows - 1) {
+        newRow = selectedRow + 1;
+        moved = true;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && selectedCol > 0) {
+        newCol = selectedCol - 1;
+        moved = true;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && selectedCol < maxCols - 1) {
+        newCol = selectedCol + 1;
+        moved = true;
+    }
+
+    if (moved) {
+        collapseSelectionToCell(newRow, newCol);
+        if (onCellSelect)
+            onCellSelect(newRow, newCol);
+        scrollToCell(newRow, newCol);
     }
 }
 
