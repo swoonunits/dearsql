@@ -64,7 +64,6 @@ private:
     float leftPanelWidth = 300.0f;
 
     void renderContent(bool& closeRequested);
-    void renderLeftPanel();
     void renderRightPanel();
     void renderTableTree();
     void renderColumnsNode();

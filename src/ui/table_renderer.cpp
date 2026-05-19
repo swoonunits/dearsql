@@ -1334,11 +1334,13 @@ void TableRenderer::renderColumnHeader(int colIdx, const std::string& colName) {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.surface1);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.surface2);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 
     if (ImGui::SmallButton(ICON_FA_CHEVRON_DOWN)) {
         ImGui::OpenPopup(popupId.c_str());
     }
 
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
