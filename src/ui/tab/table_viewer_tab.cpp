@@ -145,6 +145,37 @@ void TableViewerTab::render() {
         ImGui::SetTooltip("Add row");
     }
 
+    const bool hasRowSelected =
+        selectedRow >= 0 && selectedRow < static_cast<int>(tableData.size());
+
+    ImGui::SameLine();
+    if (!hasRowSelected)
+        ImGui::BeginDisabled();
+    ImGui::PushStyleColor(ImGuiCol_Text, colors.blue);
+    if (ImGui::Button(ICON_FA_CLONE)) {
+        duplicateRow(selectedRow);
+    }
+    ImGui::PopStyleColor();
+    if (!hasRowSelected)
+        ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Duplicate row");
+    }
+
+    ImGui::SameLine();
+    if (!hasRowSelected)
+        ImGui::BeginDisabled();
+    ImGui::PushStyleColor(ImGuiCol_Text, colors.red);
+    if (ImGui::Button(ICON_FA_TRASH_CAN)) {
+        deleteRow(selectedRow);
+    }
+    ImGui::PopStyleColor();
+    if (!hasRowSelected)
+        ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Delete row");
+    }
+
     if (hasChanges) {
         ImGui::SameLine(0, Theme::Spacing::L);
         ImGui::TextColored(colors.peach, "Unsaved changes");
@@ -441,6 +472,61 @@ void TableViewerTab::cancelChanges() {
     selectedCol = -1;
 }
 
+void TableViewerTab::deleteRow(int row) {
+    if (row < 0 || row >= static_cast<int>(tableData.size())) {
+        return;
+    }
+
+    if (row < static_cast<int>(isNewRow.size()) && isNewRow[row]) {
+        tableData.erase(tableData.begin() + row);
+        originalData.erase(originalData.begin() + row);
+        editedCells.erase(editedCells.begin() + row);
+        isNewRow.erase(isNewRow.begin() + row);
+    } else {
+        int originalIndex = row;
+        for (const auto& deleted : deletedRows) {
+            if (deleted.index <= originalIndex)
+                originalIndex++;
+        }
+        deletedRows.push_back({originalIndex, originalData[row]});
+        tableData.erase(tableData.begin() + row);
+        originalData.erase(originalData.begin() + row);
+        editedCells.erase(editedCells.begin() + row);
+        isNewRow.erase(isNewRow.begin() + row);
+        totalRows = std::max(0, totalRows - 1);
+    }
+
+    if (tableData.empty()) {
+        selectedRow = -1;
+        selectedCol = -1;
+    } else {
+        selectedRow = std::min(row, static_cast<int>(tableData.size()) - 1);
+        selectedCol = table_.columns.empty()
+                          ? -1
+                          : std::clamp(selectedCol, 0, static_cast<int>(table_.columns.size()) - 1);
+    }
+    hasChanges = hasPendingChanges();
+}
+
+void TableViewerTab::duplicateRow(int row) {
+    if (row < 0 || row >= static_cast<int>(tableData.size()) || table_.columns.empty())
+        return;
+
+    const int insertIdx = row + 1;
+    std::vector<std::string> newRow = tableData[row];
+
+    tableData.insert(tableData.begin() + insertIdx, newRow);
+    originalData.insert(originalData.begin() + insertIdx,
+                        std::vector<std::string>(table_.columns.size(), ""));
+    editedCells.insert(editedCells.begin() + insertIdx,
+                       std::vector<bool>(table_.columns.size(), true));
+    isNewRow.insert(isNewRow.begin() + insertIdx, true);
+
+    hasChanges = true;
+    selectedRow = insertIdx;
+    selectedCol = 0;
+}
+
 void TableViewerTab::addRow() {
     if (table_.columns.empty())
         return;
@@ -708,7 +794,9 @@ void TableViewerTab::showSaveConfirmationDialog() {
         }
         saveDialogEditor_.SetLanguage(dearsql::TextEditor::Language::SQL);
         saveDialogEditor_.SetShowLineNumbers(true);
+        saveDialogEditor_.SetReadOnly(false);
         saveDialogEditor_.SetText(combined);
+        saveDialogEditor_.SetFocus();
 
         ImGui::SetNextWindowSize(ImVec2(760, 520), ImGuiCond_Always);
         ImGui::OpenPopup("Confirm Save Changes");
@@ -955,42 +1043,7 @@ void TableViewerTab::initializeTableRenderer() {
         applyFilter();
     });
 
-    tableRenderer->setOnDeleteRow([this](int row) {
-        if (row < 0 || row >= static_cast<int>(tableData.size())) {
-            return;
-        }
-
-        if (row < static_cast<int>(isNewRow.size()) && isNewRow[row]) {
-            tableData.erase(tableData.begin() + row);
-            originalData.erase(originalData.begin() + row);
-            editedCells.erase(editedCells.begin() + row);
-            isNewRow.erase(isNewRow.begin() + row);
-        } else {
-            int originalIndex = row;
-            for (const auto& deleted : deletedRows) {
-                if (deleted.index <= originalIndex)
-                    originalIndex++;
-            }
-            deletedRows.push_back({originalIndex, originalData[row]});
-            tableData.erase(tableData.begin() + row);
-            originalData.erase(originalData.begin() + row);
-            editedCells.erase(editedCells.begin() + row);
-            isNewRow.erase(isNewRow.begin() + row);
-            totalRows = std::max(0, totalRows - 1);
-        }
-
-        if (tableData.empty()) {
-            selectedRow = -1;
-            selectedCol = -1;
-        } else {
-            selectedRow = std::min(row, static_cast<int>(tableData.size()) - 1);
-            selectedCol =
-                table_.columns.empty()
-                    ? -1
-                    : std::clamp(selectedCol, 0, static_cast<int>(table_.columns.size()) - 1);
-        }
-        hasChanges = hasPendingChanges();
-    });
+    tableRenderer->setOnDeleteRow([this](int row) { deleteRow(row); });
 }
 
 void TableViewerTab::initializeFilterAutoComplete() {

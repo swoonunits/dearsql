@@ -39,6 +39,8 @@ public:
     void saveChanges();
     void cancelChanges();
     void addRow();
+    void deleteRow(int row);
+    void duplicateRow(int row);
 
     // SQL generation and confirmation dialog
     std::vector<std::string> generateUpdateSQL();
