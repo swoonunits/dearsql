@@ -59,10 +59,23 @@ fi
 LINUXDEPLOY="$BUILD_DIR/linuxdeploy-x86_64.AppImage"
 LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
 
+# bundle the newer type2-runtime instead of the default one shipped by
+# linuxdeploy. the old runtime segfaults on modern Arch / FUSE3 systems
+# right after process init (see issue #16) — the type2-runtime supports
+# both FUSE2/FUSE3 and falls back to extract-and-run when FUSE is unusable.
+RUNTIME_FILE="$BUILD_DIR/appimage-runtime-x86_64"
+RUNTIME_URL="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"
+
 if [[ ! -x "$LINUXDEPLOY" ]]; then
     echo "Downloading linuxdeploy..."
     curl -fSL -o "$LINUXDEPLOY" "$LINUXDEPLOY_URL"
     chmod +x "$LINUXDEPLOY"
+fi
+
+if [[ ! -f "$RUNTIME_FILE" ]]; then
+    echo "Downloading AppImage type2-runtime..."
+    curl -fSL -o "$RUNTIME_FILE" "$RUNTIME_URL"
+    chmod +x "$RUNTIME_FILE"
 fi
 
 APPDIR="$BUILD_DIR/AppDir"
@@ -81,7 +94,7 @@ install -m644 "$ROOT_DIR/packaging/$APP_IDENTIFIER.desktop" \
 install -m644 "$ROOT_DIR/assets/appicon.png" \
     "$APPDIR/usr/share/icons/hicolor/256x256/apps/$APP_IDENTIFIER.png"
 
-OUTPUT="$APPIMAGE_FILE" "$LINUXDEPLOY" \
+OUTPUT="$APPIMAGE_FILE" LDAI_RUNTIME_FILE="$RUNTIME_FILE" "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/$APP_IDENTIFIER.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$APP_IDENTIFIER.png" \
