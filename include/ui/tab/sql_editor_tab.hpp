@@ -101,6 +101,7 @@ private:
                              const std::function<void(const std::string&)>& onSelect);
     void renderToolbar();
     void renderQueryResults() const;
+    void renderServerMessages() const;
     void renderSingleResult(const StatementResult& r, size_t index) const;
 
     // Switch the active database node (clears results, resets autocomplete)

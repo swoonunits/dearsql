@@ -144,6 +144,9 @@ struct QueryResult {
     std::vector<StatementResult> statements;
     double executionTimeMs = 0.0;
 
+    // informational messages (e.g. SQL Server PRINT / RAISERROR <= 10 output)
+    std::vector<std::string> messages;
+
     [[nodiscard]] bool success() const {
         if (statements.empty())
             return false;

@@ -8,6 +8,8 @@
 
 // thread-local error string captured by db-lib callbacks
 thread_local std::string tls_lastError;
+// thread-local informational messages (PRINT output, low-severity RAISERROR)
+thread_local std::vector<std::string> tls_infoMessages;
 
 namespace {
 
@@ -25,10 +27,25 @@ namespace {
         return INT_CANCEL;
     }
 
-    int dblibMessageHandler(DBPROCESS* /*dbproc*/, DBINT /*msgno*/, int /*msgstate*/, int severity,
+    int dblibMessageHandler(DBPROCESS* /*dbproc*/, DBINT msgno, int /*msgstate*/, int severity,
                             char* msgtext, char* /*srvname*/, char* /*procname*/, int /*line*/) {
-        if (severity > 10 && msgtext) {
+        if (!msgtext) {
+            return 0;
+        }
+        if (severity > 10) {
             tls_lastError = msgtext;
+        } else if (msgtext[0]) {
+            // informational messages (PRINT, low-severity RAISERROR); skip db-lib
+            // session noise so it reads like the SSMS "Messages" tab
+            switch (msgno) {
+            case 5701: // changed database context
+            case 5703: // changed language setting
+            case 5704: // changed charset
+                break;
+            default:
+                tls_infoMessages.emplace_back(msgtext);
+                break;
+            }
         }
         return 0;
     }

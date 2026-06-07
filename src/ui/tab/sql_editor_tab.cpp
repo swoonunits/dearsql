@@ -1206,8 +1206,19 @@ void SQLEditorTab::renderToolbar() {
     }
 }
 
+void SQLEditorTab::renderServerMessages() const {
+    if (queryResult.messages.empty()) {
+        return;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.8f, 1.0f, 1.0f));
+    for (const auto& msg : queryResult.messages) {
+        ImGui::TextWrapped("%s", msg.c_str());
+    }
+    ImGui::PopStyleColor();
+}
+
 void SQLEditorTab::renderQueryResults() const {
-    if (queryResult.empty()) {
+    if (queryResult.empty() && queryResult.messages.empty()) {
         ImGui::Text("%s", LABEL_NO_RESULTS);
         return;
     }
@@ -1215,6 +1226,14 @@ void SQLEditorTab::renderQueryResults() const {
     // Show execution time above results
     if (queryResult.executionTimeMs > 0) {
         ImGui::Text("Execution time: %.2f ms", queryResult.executionTimeMs);
+    }
+
+    // server informational messages (e.g. SQL Server PRINT output)
+    renderServerMessages();
+
+    // only messages, no result sets (e.g. a proc that just PRINTs)
+    if (queryResult.empty()) {
+        return;
     }
 
     // Single result — render directly without tabs

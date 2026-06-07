@@ -13,9 +13,15 @@
 
 // thread-local error string captured by db-lib error/message callbacks
 extern thread_local std::string tls_lastError;
+// thread-local informational messages (PRINT output, low-severity RAISERROR)
+extern thread_local std::vector<std::string> tls_infoMessages;
 
 inline void clearLastError() {
     tls_lastError.clear();
+}
+
+inline void clearInfoMessages() {
+    tls_infoMessages.clear();
 }
 
 inline std::string getLastError() {
@@ -197,6 +203,7 @@ inline QueryResult executeQueryOnProcess(DBPROCESS* dbproc, const std::string& q
     QueryResult result;
 
     clearLastError();
+    clearInfoMessages();
     dbcmd(dbproc, query.c_str());
 
     if (dbsqlexec(dbproc) == FAIL) {
@@ -204,6 +211,7 @@ inline QueryResult executeQueryOnProcess(DBPROCESS* dbproc, const std::string& q
         r.success = false;
         r.errorMessage = getLastError();
         result.statements.push_back(r);
+        result.messages = std::move(tls_infoMessages);
         dbcancel(dbproc);
         return result;
     }
@@ -222,6 +230,10 @@ inline QueryResult executeQueryOnProcess(DBPROCESS* dbproc, const std::string& q
             result.statements.push_back(std::move(r));
         }
     }
+
+    // PRINT / informational messages arrive via the db-lib message handler
+    // during exec/results/rows; collect them after the batch drains
+    result.messages = std::move(tls_infoMessages);
     return result;
 }
 
