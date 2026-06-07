@@ -12,7 +12,9 @@ add_executable(
     tests/database/ssl_connection_test.cpp
     tests/database/ssh_tunnel_test.cpp
     tests/database/sql_builder_test.cpp
+    tests/database/connection_url_test.cpp
     src/database/db_factory.cpp
+    src/database/connection_url.cpp
     src/database/sqlite.cpp
     src/database/postgresql.cpp
     src/database/postgres/postgres_database_node.cpp

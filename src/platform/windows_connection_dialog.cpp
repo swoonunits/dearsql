@@ -3,6 +3,7 @@
 #include "app_state.hpp"
 #include "application.hpp"
 #include "database/cassandra.hpp"
+#include "database/connection_url.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -70,6 +71,10 @@ enum {
     IDC_STATUS_LABEL,
     IDC_CONNECT_BTN,
     IDC_CANCEL_BTN,
+    // URL field — bidirectionally sync'd with the form fields below.
+    IDC_URL_EDIT,
+    IDC_URL_LABEL,
+    IDC_URL_ERROR_LABEL,
     // labels (static text)
     IDC_LABEL_NAME,
     IDC_LABEL_TYPE,
@@ -127,6 +132,10 @@ struct ConnectionDialogData {
     COLORREF btnColor = RGB(255, 255, 255);
     COLORREF btnHoverColor = RGB(240, 240, 240);
     COLORREF btnTextColor = RGB(0, 0, 0);
+
+    // Reentrancy guard: set while we programmatically update a field, so the
+    // EN_CHANGE handler doesn't trigger another round of syncing.
+    bool suppressFieldSync = false;
 };
 
 struct AsyncConnectResult {
@@ -300,6 +309,11 @@ static void updateFieldVisibility(HWND dialog, DatabaseType type) {
     bool isServer = !isSQLite;
     bool isRedis = (type == DatabaseType::REDIS);
 
+    // URL row — hidden for SQLite (no useful URL form).
+    showCtrl(dialog, IDC_URL_LABEL, isServer);
+    showCtrl(dialog, IDC_URL_EDIT, isServer);
+    showCtrl(dialog, IDC_URL_ERROR_LABEL, isServer);
+
     // SQLite fields
     showCtrl(dialog, IDC_LABEL_PATH, isSQLite);
     showCtrl(dialog, IDC_SQLITE_PATH_EDIT, isSQLite);
@@ -395,6 +409,109 @@ static void rebuildSslModes(HWND dialog, DatabaseType type) {
         SendMessageA(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(cfg.labels[i]));
     }
     SendMessage(combo, CB_SETCURSEL, cfg.defaultIdx, 0);
+}
+
+static void applyParsedUrlToDialog(HWND dialog, ConnectionDialogData* data,
+                                   const DatabaseConnectionInfo& info) {
+    int typeIdx = static_cast<int>(info.type);
+    SendMessage(GetDlgItem(dialog, IDC_TYPE_COMBO), CB_SETCURSEL, typeIdx, 0);
+    if (data)
+        data->currentTypeIndex = typeIdx;
+    rebuildSslModes(dialog, info.type);
+
+    if (info.type == DatabaseType::SQLITE) {
+        SetWindowTextA(GetDlgItem(dialog, IDC_SQLITE_PATH_EDIT), info.path.c_str());
+        updateFieldVisibility(dialog, info.type);
+        return;
+    }
+
+    SetWindowTextA(GetDlgItem(dialog, IDC_HOST_EDIT), info.host.c_str());
+    if (info.port > 0)
+        SetWindowTextA(GetDlgItem(dialog, IDC_PORT_EDIT), std::to_string(info.port).c_str());
+    SetWindowTextA(GetDlgItem(dialog, IDC_DATABASE_EDIT), info.database.c_str());
+
+    if (!info.username.empty() || !info.password.empty()) {
+        SendMessage(GetDlgItem(dialog, IDC_AUTH_PASSWORD_RADIO), BM_SETCHECK, BST_CHECKED, 0);
+        SendMessage(GetDlgItem(dialog, IDC_AUTH_NONE_RADIO), BM_SETCHECK, BST_UNCHECKED, 0);
+        SetWindowTextA(GetDlgItem(dialog, IDC_USERNAME_EDIT), info.username.c_str());
+        SetWindowTextA(GetDlgItem(dialog, IDC_PASSWORD_EDIT), info.password.c_str());
+    } else {
+        SendMessage(GetDlgItem(dialog, IDC_AUTH_NONE_RADIO), BM_SETCHECK, BST_CHECKED, 0);
+        SendMessage(GetDlgItem(dialog, IDC_AUTH_PASSWORD_RADIO), BM_SETCHECK, BST_UNCHECKED, 0);
+        SetWindowTextA(GetDlgItem(dialog, IDC_USERNAME_EDIT), "");
+        SetWindowTextA(GetDlgItem(dialog, IDC_PASSWORD_EDIT), "");
+    }
+
+    auto sslCfg = getSslConfig(info.type);
+    for (int i = 0; i < sslCfg.count; ++i) {
+        if (sslCfg.values[i] == info.sslmode) {
+            SendMessage(GetDlgItem(dialog, IDC_SSL_MODE_COMBO), CB_SETCURSEL, i, 0);
+            break;
+        }
+    }
+    SetWindowTextA(GetDlgItem(dialog, IDC_SSL_CA_CERT_EDIT), info.sslCACertPath.c_str());
+
+    updateFieldVisibility(dialog, info.type);
+}
+
+// Snapshot of the current form fields, used to keep the URL field synced.
+// Mirrors what the connect path reads (minus SSH — no URL representation).
+static DatabaseConnectionInfo snapshotFormInfo(HWND dialog, ConnectionDialogData* data) {
+    DatabaseConnectionInfo info;
+    if (data)
+        info.type = static_cast<DatabaseType>(data->currentTypeIndex);
+    info.name = getWindowText(GetDlgItem(dialog, IDC_NAME_EDIT));
+    if (info.type == DatabaseType::SQLITE) {
+        info.path = getWindowText(GetDlgItem(dialog, IDC_SQLITE_PATH_EDIT));
+        return info;
+    }
+    info.host = getWindowText(GetDlgItem(dialog, IDC_HOST_EDIT));
+    std::string portStr = getWindowText(GetDlgItem(dialog, IDC_PORT_EDIT));
+    info.port = portStr.empty() ? 0 : atoi(portStr.c_str());
+    info.database = getWindowText(GetDlgItem(dialog, IDC_DATABASE_EDIT));
+    bool authPw =
+        SendMessage(GetDlgItem(dialog, IDC_AUTH_PASSWORD_RADIO), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (authPw) {
+        info.username = getWindowText(GetDlgItem(dialog, IDC_USERNAME_EDIT));
+        info.password = getWindowText(GetDlgItem(dialog, IDC_PASSWORD_EDIT));
+    }
+    auto cfg = getSslConfig(info.type);
+    int sslIdx =
+        static_cast<int>(SendMessage(GetDlgItem(dialog, IDC_SSL_MODE_COMBO), CB_GETCURSEL, 0, 0));
+    if (sslIdx >= 0 && sslIdx < cfg.count)
+        info.sslmode = cfg.values[sslIdx];
+    info.sslCACertPath = getWindowText(GetDlgItem(dialog, IDC_SSL_CA_CERT_EDIT));
+    return info;
+}
+
+static void rebuildUrlFromForm(HWND dialog, ConnectionDialogData* data) {
+    if (!data || data->suppressFieldSync)
+        return;
+    DatabaseConnectionInfo info = snapshotFormInfo(dialog, data);
+    std::string url = buildConnectionUrl(info);
+    data->suppressFieldSync = true;
+    SetWindowTextA(GetDlgItem(dialog, IDC_URL_EDIT), url.c_str());
+    SetWindowTextA(GetDlgItem(dialog, IDC_URL_ERROR_LABEL), "");
+    data->suppressFieldSync = false;
+}
+
+static void applyUrlToForm(HWND dialog, ConnectionDialogData* data) {
+    if (!data || data->suppressFieldSync)
+        return;
+    std::string url = getWindowText(GetDlgItem(dialog, IDC_URL_EDIT));
+    if (url.empty()) {
+        SetWindowTextA(GetDlgItem(dialog, IDC_URL_ERROR_LABEL), "");
+        return;
+    }
+    auto result = parseConnectionUrl(url);
+    if (!result.ok) {
+        SetWindowTextA(GetDlgItem(dialog, IDC_URL_ERROR_LABEL), ("Error: " + result.error).c_str());
+        return;
+    }
+    SetWindowTextA(GetDlgItem(dialog, IDC_URL_ERROR_LABEL), "");
+    data->suppressFieldSync = true;
+    applyParsedUrlToDialog(dialog, data, result.info);
+    data->suppressFieldSync = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +972,13 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         SetWindowTextA(GetDlgItem(hwnd, IDC_NAME_EDIT), "untitled connection");
         y += RS;
 
+        // URL row — bidirectionally sync'd with the form fields below.
+        makeCtrl("STATIC", "URL:", IDC_URL_LABEL, SS_RIGHT, LX, y + 3, LW, RH);
+        makeCtrl("EDIT", "", IDC_URL_EDIT, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, FX, y, FW, RH);
+        y += RS;
+        makeCtrl("STATIC", "", IDC_URL_ERROR_LABEL, SS_LEFT, FX, y, FW, RH);
+        y += RS;
+
         // SQLite path
         makeCtrl("STATIC", "Path:", IDC_LABEL_PATH, SS_RIGHT, LX, y + 3, LW, RH);
         makeCtrl("EDIT", "", IDC_SQLITE_PATH_EDIT, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, FX, y,
@@ -1054,7 +1178,17 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
         int id = LOWORD(wParam);
         int notif = HIWORD(wParam);
 
-        if (id == IDC_TYPE_COMBO && notif == CBN_SELCHANGE) {
+        // URL field edits → parse into form.
+        if (id == IDC_URL_EDIT && notif == EN_CHANGE) {
+            applyUrlToForm(hwnd, data);
+        }
+        // Form text edits → rebuild URL.
+        else if (notif == EN_CHANGE &&
+                 (id == IDC_NAME_EDIT || id == IDC_SQLITE_PATH_EDIT || id == IDC_HOST_EDIT ||
+                  id == IDC_PORT_EDIT || id == IDC_DATABASE_EDIT || id == IDC_USERNAME_EDIT ||
+                  id == IDC_PASSWORD_EDIT || id == IDC_SSL_CA_CERT_EDIT)) {
+            rebuildUrlFromForm(hwnd, data);
+        } else if (id == IDC_TYPE_COMBO && notif == CBN_SELCHANGE) {
             HWND combo = GetDlgItem(hwnd, IDC_TYPE_COMBO);
             int sel = static_cast<int>(SendMessage(combo, CB_GETCURSEL, 0, 0));
             if (data) {
@@ -1068,13 +1202,16 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
 
             rebuildSslModes(hwnd, type);
             updateFieldVisibility(hwnd, type);
+            rebuildUrlFromForm(hwnd, data);
         } else if (id == IDC_SSL_MODE_COMBO && notif == CBN_SELCHANGE) {
             if (data) {
                 updateFieldVisibility(hwnd, static_cast<DatabaseType>(data->currentTypeIndex));
+                rebuildUrlFromForm(hwnd, data);
             }
         } else if (id == IDC_AUTH_PASSWORD_RADIO || id == IDC_AUTH_NONE_RADIO) {
             if (data) {
                 updateFieldVisibility(hwnd, static_cast<DatabaseType>(data->currentTypeIndex));
+                rebuildUrlFromForm(hwnd, data);
             }
         } else if (id == IDC_SSH_ENABLED_CHECK) {
             if (data) {
@@ -1129,6 +1266,7 @@ static LRESULT CALLBACK ConnectionDialogProc(HWND hwnd, UINT msg, WPARAM wParam,
                     "Connection limit reached (free tier: 3). Activate a license to add more.");
                 break;
             }
+
             auto type = static_cast<DatabaseType>(data->currentTypeIndex);
             if (type == DatabaseType::SQLITE) {
                 connectSQLite(data);
@@ -1365,6 +1503,9 @@ static void showConnectionDialogInternal(Application* app,
         // change connect button text
         SetWindowTextA(GetDlgItem(hwnd, IDC_CONNECT_BTN), "Update");
     }
+
+    // Seed the URL field from the form's initial state.
+    rebuildUrlFromForm(hwnd, data);
 }
 
 void showConnectionDialog(Application* app) {

@@ -1,6 +1,7 @@
 #include "app_state.hpp"
 #include "application.hpp"
 #include "database/cassandra.hpp"
+#include "database/connection_url.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -34,10 +35,13 @@ static const CGFloat kFieldWidth = kDialogWidth - kFieldX - kMargin;
 
 // MARK: - ConnectionDialogController
 
-@interface ConnectionDialogController : NSObject <NSWindowDelegate> {
+@interface ConnectionDialogController : NSObject <NSWindowDelegate, NSTextFieldDelegate> {
     std::shared_ptr<DatabaseInterface> _editingDb;
     std::atomic<bool> _cancelled;
     OracleClientInstaller _oracleInstaller;
+    // Reentrancy guard: set while we programmatically update a field, so the
+    // change handler doesn't try to re-sync (which would loop).
+    BOOL _suppressFieldSync;
 }
 
 @property(nonatomic, assign) Application* app;
@@ -51,6 +55,11 @@ static const CGFloat kFieldWidth = kDialogWidth - kFieldX - kMargin;
 @property(nonatomic, strong) NSPopUpButton* typePopup;
 @property(nonatomic, strong) NSImageView* typeIconView;
 @property(nonatomic, strong) NSBox* topSeparator;
+
+// URL field — bidirectionally sync'd with the form fields below.
+@property(nonatomic, strong) NSTextField* urlLabel;
+@property(nonatomic, strong) NSTextField* urlField;
+@property(nonatomic, strong) NSTextField* urlErrorLabel;
 
 // SQLite
 @property(nonatomic, strong) NSTextField* sqlitePathLabel;
@@ -161,10 +170,16 @@ static void attachDialogToMainWindow(NSWindow* dialogWindow, NSWindow* mainWindo
     [dialogWindow setLevel:NSNormalWindowLevel];
     [dialogWindow setHidesOnDeactivate:YES];
 
+    // Pin the dialog's top edge ~15% below the main window's top instead of
+    // centering — the dialog's height changes when the user picks a taller
+    // database type (SQLite is shortest), and growing downward from a fixed
+    // top keeps it visually anchored. layoutFields already keeps the top edge
+    // stable during type-driven resizes.
     NSRect mainFrame = mainWindow.frame;
     NSRect dialogFrame = dialogWindow.frame;
     CGFloat x = NSMidX(mainFrame) - dialogFrame.size.width / 2;
-    CGFloat y = NSMidY(mainFrame) - dialogFrame.size.height / 2;
+    CGFloat dialogTop = NSMaxY(mainFrame) - mainFrame.size.height * 0.15;
+    CGFloat y = dialogTop - dialogFrame.size.height;
     [dialogWindow setFrameOrigin:NSMakePoint(x, y)];
 
     if (dialogWindow.parentWindow != mainWindow) {
@@ -239,6 +254,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     [self ensureEditMenu];
     [self buildControls];
     [self layoutFields];
+    [self rebuildUrlFromForm];
 
     NSWindow* mainWindow = getMainAppWindow(self.app);
     attachDialogToMainWindow(self.dialogWindow, mainWindow);
@@ -367,6 +383,7 @@ static NSWindow* sActiveConnectionDialog = nil;
     }
 
     [self layoutFields];
+    [self rebuildUrlFromForm];
 }
 
 // MARK: - Build UI
@@ -419,6 +436,19 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.typeIconView.imageScaling = NSImageScaleProportionallyUpOrDown;
     self.typeIconView.hidden = YES;
     [cv addSubview:self.typeIconView];
+
+    // URL field — always visible, two-way sync'd with the form fields below.
+    self.urlLabel = [self makeLabel:@"URL"];
+    [cv addSubview:self.urlLabel];
+    self.urlField = [self makeTextField:@"postgresql://user:password@host:5432/dbname"];
+    self.urlField.delegate = self;
+    [cv addSubview:self.urlField];
+
+    self.urlErrorLabel = [NSTextField wrappingLabelWithString:@""];
+    self.urlErrorLabel.font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+    self.urlErrorLabel.textColor = [NSColor systemRedColor];
+    self.urlErrorLabel.maximumNumberOfLines = 0;
+    [cv addSubview:self.urlErrorLabel];
 
     // Top separator
     self.topSeparator = [[NSBox alloc] init];
@@ -604,6 +634,17 @@ static NSWindow* sActiveConnectionDialog = nil;
     [self.cancelButton setTarget:self];
     [self.cancelButton setAction:@selector(cancelClicked:)];
     [cv addSubview:self.cancelButton];
+
+    // Hook text-change notifications for two-way URL sync. controlTextDidChange:
+    // gets dispatched to whichever field's delegate this is, so set self on
+    // every form field. We branch on sender inside controlTextDidChange:.
+    NSArray<NSTextField*>* syncFields = @[
+        self.sqlitePathField, self.hostField, self.portField, self.databaseField,
+        self.usernameField, self.passwordField, self.sslCACertPathField
+    ];
+    for (NSTextField* f in syncFields) {
+        f.delegate = self;
+    }
 }
 
 - (NSTextField*)makeLabel:(NSString*)text {
@@ -687,7 +728,8 @@ static NSWindow* sActiveConnectionDialog = nil;
              self.sshUsernameField,   self.sshAuthLabel,
              self.sshAuthSegment,     self.sshPasswordLabel,
              self.sshPasswordField,   self.sshKeyPathLabel,
-             self.sshKeyPathField,    self.sshKeyBrowseButton
+             self.sshKeyPathField,    self.sshKeyBrowseButton,
+             self.urlErrorLabel
          ]) {
         v.hidden = YES;
     }
@@ -767,12 +809,18 @@ static NSWindow* sActiveConnectionDialog = nil;
 
 - (CGFloat)computeRequiredHeight {
     CGFloat h = kMargin;
-    h += kRowHeight + kRowSpacing; // Name
-    h += kRowHeight + kRowSpacing; // Type
-    h += 1 + kRowSpacing;          // Top separator
-
     DatabaseType type = [self selectedDatabaseType];
     bool authIsCredentials = (self.authSegment.selectedSegment == 0);
+
+    h += kRowHeight + kRowSpacing; // Name
+    h += kRowHeight + kRowSpacing; // Type
+    if (type != DatabaseType::SQLITE) {
+        h += kRowHeight + kRowSpacing; // URL
+        if (self.urlErrorLabel.stringValue.length > 0) {
+            h += 20 + kRowSpacing; // URL error
+        }
+    }
+    h += 1 + kRowSpacing; // Top separator
 
     if (type == DatabaseType::SQLITE) {
         h += kRowHeight + kRowSpacing; // Path + Browse
@@ -856,195 +904,223 @@ static NSWindow* sActiveConnectionDialog = nil;
     self.typePopup.frame = NSMakeRect(kFieldX + kIconSize + 4, y, 160, kRowHeight);
     y -= kRowSpacing;
 
+    // URL row — bidirectionally synced with form fields below. SQLite has no
+    // useful URL form (we'd just round-trip a file path), so it's hidden.
+    if (type != DatabaseType::SQLITE) {
+        self.urlLabel.hidden = NO;
+        self.urlField.hidden = NO;
+        y -= kRowHeight;
+        self.urlLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+        self.urlField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+        y -= kRowSpacing;
+
+        // URL parse error (only shown when non-empty)
+        if (self.urlErrorLabel.stringValue.length > 0) {
+            self.urlErrorLabel.hidden = NO;
+            constexpr CGFloat kErrH = 20;
+            y -= kErrH;
+            self.urlErrorLabel.frame = NSMakeRect(kFieldX, y, kFieldWidth, kErrH);
+            y -= kRowSpacing;
+        }
+    }
+
     // Top separator
     y -= 1;
     self.topSeparator.frame = NSMakeRect(kMargin, y, kDialogWidth - 2 * kMargin, 1);
     y -= kRowSpacing;
 
-    if (type == DatabaseType::SQLITE) {
-        // SQLite path + browse
-        self.sqlitePathLabel.hidden = NO;
-        self.sqlitePathField.hidden = NO;
-        self.browseButton.hidden = NO;
-        y -= kRowHeight;
-        self.sqlitePathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-        CGFloat browseW = 80;
-        self.sqlitePathField.frame = NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
-        self.browseButton.frame =
-            NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
-        y -= kRowSpacing;
-    } else {
-        // Host + Port on same row
-        self.hostLabel.hidden = NO;
-        self.hostField.hidden = NO;
-        self.portLabel.hidden = NO;
-        self.portField.hidden = NO;
-        y -= kRowHeight;
-        self.hostLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-        CGFloat portW = 70;
-        CGFloat portLabelW = 35;
-        CGFloat hostW = kFieldWidth - portW - portLabelW - 8 - 8;
-        self.hostField.frame = NSMakeRect(kFieldX, y, hostW, kRowHeight);
-        self.portLabel.frame = centeredLabelRect(kFieldX + hostW + 8, y, portLabelW);
-        self.portField.frame =
-            NSMakeRect(kFieldX + hostW + 8 + portLabelW + 8, y, portW, kRowHeight);
-        y -= kRowSpacing;
+    {
 
-        // Database (not for Redis)
-        if (type != DatabaseType::REDIS) {
-            self.databaseLabel.hidden = NO;
-            self.databaseField.hidden = NO;
+        if (type == DatabaseType::SQLITE) {
+            // SQLite path + browse
+            self.sqlitePathLabel.hidden = NO;
+            self.sqlitePathField.hidden = NO;
+            self.browseButton.hidden = NO;
             y -= kRowHeight;
-            self.databaseLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-            self.databaseField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
-
-            if (type == DatabaseType::POSTGRESQL) {
-                self.databaseField.toolTip = @"Leave empty to use the default 'postgres' database";
-            } else if (type == DatabaseType::REDSHIFT) {
-                self.databaseField.toolTip = @"Leave empty to use the default 'dev' database";
-            } else {
-                self.databaseField.toolTip = nil;
-            }
+            self.sqlitePathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+            CGFloat browseW = 80;
+            self.sqlitePathField.frame =
+                NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
+            self.browseButton.frame =
+                NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
             y -= kRowSpacing;
-        }
+        } else {
+            // Host + Port on same row
+            self.hostLabel.hidden = NO;
+            self.hostField.hidden = NO;
+            self.portLabel.hidden = NO;
+            self.portField.hidden = NO;
+            y -= kRowHeight;
+            self.hostLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+            CGFloat portW = 70;
+            CGFloat portLabelW = 35;
+            CGFloat hostW = kFieldWidth - portW - portLabelW - 8 - 8;
+            self.hostField.frame = NSMakeRect(kFieldX, y, hostW, kRowHeight);
+            self.portLabel.frame = centeredLabelRect(kFieldX + hostW + 8, y, portLabelW);
+            self.portField.frame =
+                NSMakeRect(kFieldX + hostW + 8 + portLabelW + 8, y, portW, kRowHeight);
+            y -= kRowSpacing;
 
-        // SSL Mode (per-backend items)
-        [self rebuildSSLPopupForType:type];
-        self.sslModeLabel.hidden = NO;
-        self.sslModePopup.hidden = NO;
-        y -= kRowHeight;
-        self.sslModeLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-        self.sslModePopup.frame = NSMakeRect(kFieldX, y, 150, kRowHeight);
-        y -= kRowSpacing;
-
-        // CA cert path (when selected mode needs it)
-        {
-            auto cfg = getSslConfig(type);
-            int sslIdx = (int)[self.sslModePopup indexOfSelectedItem];
-            if (sslIdx >= 0 && sslIdx < cfg.count &&
-                shouldShowCACertField(type, cfg.values[sslIdx])) {
-                self.sslCACertPathLabel.stringValue =
-                    (type == DatabaseType::ORACLE) ? @"Wallet" : @"CA Cert";
-                self.sslCACertPathField.placeholderString =
-                    (type == DatabaseType::ORACLE) ? @"/path/to/wallet" : @"/path/to/ca-cert.pem";
-                self.sslCACertPathLabel.hidden = NO;
-                self.sslCACertPathField.hidden = NO;
-                self.sslCACertBrowseButton.hidden = NO;
+            // Database (not for Redis)
+            if (type != DatabaseType::REDIS) {
+                self.databaseLabel.hidden = NO;
+                self.databaseField.hidden = NO;
                 y -= kRowHeight;
-                self.sslCACertPathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-                CGFloat browseW = 80;
-                self.sslCACertPathField.frame =
-                    NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
-                self.sslCACertBrowseButton.frame =
-                    NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
+                self.databaseLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                self.databaseField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+
+                if (type == DatabaseType::POSTGRESQL) {
+                    self.databaseField.toolTip =
+                        @"Leave empty to use the default 'postgres' database";
+                } else if (type == DatabaseType::REDSHIFT) {
+                    self.databaseField.toolTip = @"Leave empty to use the default 'dev' database";
+                } else {
+                    self.databaseField.toolTip = nil;
+                }
                 y -= kRowSpacing;
             }
-        }
 
-        // Auth segment
-        self.authLabel.hidden = NO;
-        self.authSegment.hidden = NO;
-        y -= kRowHeight;
-        self.authLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-        self.authSegment.frame = NSMakeRect(kFieldX, y, 260, kRowHeight);
-        y -= kRowSpacing;
-
-        // Username + Password (if auth enabled)
-        if (authIsCredentials) {
-            self.usernameLabel.hidden = NO;
-            self.usernameField.hidden = NO;
-            self.passwordLabel.hidden = NO;
-            self.passwordField.hidden = NO;
+            // SSL Mode (per-backend items)
+            [self rebuildSSLPopupForType:type];
+            self.sslModeLabel.hidden = NO;
+            self.sslModePopup.hidden = NO;
             y -= kRowHeight;
-            self.usernameLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-            CGFloat halfField = (kFieldWidth - 50) / 2;
-            self.usernameField.frame = NSMakeRect(kFieldX, y, halfField, kRowHeight);
-            self.passwordLabel.frame = centeredLabelRect(kFieldX + halfField + 8, y, 50);
-            self.passwordField.frame = NSMakeRect(kFieldX + halfField + 8 + 50 + 8, y,
-                                                  kFieldWidth - halfField - 8 - 50 - 8, kRowHeight);
-            y -= kRowSpacing;
-        }
-
-        // Show all databases (not for Redis)
-        if (type != DatabaseType::REDIS) {
-            self.showAllDbsCheckbox.hidden = NO;
-            y -= kRowHeight;
-            self.showAllDbsCheckbox.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
-            y -= kRowSpacing;
-        }
-
-        // SSH Tunnel section
-        self.sshSeparator.hidden = NO;
-        self.sshEnabledCheckbox.hidden = NO;
-
-        y -= 1;
-        self.sshSeparator.frame = NSMakeRect(kMargin, y, kDialogWidth - 2 * kMargin, 1);
-        y -= kRowSpacing;
-
-        y -= kRowHeight;
-        self.sshEnabledCheckbox.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
-        y -= kRowSpacing;
-
-        bool sshEnabled = (self.sshEnabledCheckbox.state == NSControlStateValueOn);
-        if (sshEnabled) {
-            bool sshIsPassword = (self.sshAuthSegment.selectedSegment == 0);
-
-            // SSH Host + Port on same row
-            self.sshHostLabel.hidden = NO;
-            self.sshHostField.hidden = NO;
-            self.sshPortLabel.hidden = NO;
-            self.sshPortField.hidden = NO;
-            y -= kRowHeight;
-            self.sshHostLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-            CGFloat sshPortW = 70;
-            CGFloat sshPortLabelW = 35;
-            CGFloat sshHostW = kFieldWidth - sshPortW - sshPortLabelW - 8 - 8;
-            self.sshHostField.frame = NSMakeRect(kFieldX, y, sshHostW, kRowHeight);
-            self.sshPortLabel.frame = centeredLabelRect(kFieldX + sshHostW + 8, y, sshPortLabelW);
-            self.sshPortField.frame =
-                NSMakeRect(kFieldX + sshHostW + 8 + sshPortLabelW + 8, y, sshPortW, kRowHeight);
+            self.sslModeLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+            self.sslModePopup.frame = NSMakeRect(kFieldX, y, 150, kRowHeight);
             y -= kRowSpacing;
 
-            // SSH Username
-            self.sshUsernameLabel.hidden = NO;
-            self.sshUsernameField.hidden = NO;
+            // CA cert path (when selected mode needs it)
+            {
+                auto cfg = getSslConfig(type);
+                int sslIdx = (int)[self.sslModePopup indexOfSelectedItem];
+                if (sslIdx >= 0 && sslIdx < cfg.count &&
+                    shouldShowCACertField(type, cfg.values[sslIdx])) {
+                    self.sslCACertPathLabel.stringValue =
+                        (type == DatabaseType::ORACLE) ? @"Wallet" : @"CA Cert";
+                    self.sslCACertPathField.placeholderString = (type == DatabaseType::ORACLE)
+                                                                    ? @"/path/to/wallet"
+                                                                    : @"/path/to/ca-cert.pem";
+                    self.sslCACertPathLabel.hidden = NO;
+                    self.sslCACertPathField.hidden = NO;
+                    self.sslCACertBrowseButton.hidden = NO;
+                    y -= kRowHeight;
+                    self.sslCACertPathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                    CGFloat browseW = 80;
+                    self.sslCACertPathField.frame =
+                        NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
+                    self.sslCACertBrowseButton.frame =
+                        NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
+                    y -= kRowSpacing;
+                }
+            }
+
+            // Auth segment
+            self.authLabel.hidden = NO;
+            self.authSegment.hidden = NO;
             y -= kRowHeight;
-            self.sshUsernameLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-            self.sshUsernameField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+            self.authLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+            self.authSegment.frame = NSMakeRect(kFieldX, y, 260, kRowHeight);
             y -= kRowSpacing;
 
-            // SSH Auth method
-            self.sshAuthLabel.hidden = NO;
-            self.sshAuthSegment.hidden = NO;
-            y -= kRowHeight;
-            self.sshAuthLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-            self.sshAuthSegment.frame = NSMakeRect(kFieldX, y, 220, kRowHeight);
-            y -= kRowSpacing;
-
-            if (sshIsPassword) {
-                // SSH Password
-                self.sshPasswordLabel.hidden = NO;
-                self.sshPasswordField.hidden = NO;
+            // Username + Password (if auth enabled)
+            if (authIsCredentials) {
+                self.usernameLabel.hidden = NO;
+                self.usernameField.hidden = NO;
+                self.passwordLabel.hidden = NO;
+                self.passwordField.hidden = NO;
                 y -= kRowHeight;
-                self.sshPasswordLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-                self.sshPasswordField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
-                y -= kRowSpacing;
-            } else {
-                // SSH Key path + Browse
-                self.sshKeyPathLabel.hidden = NO;
-                self.sshKeyPathField.hidden = NO;
-                self.sshKeyBrowseButton.hidden = NO;
-                y -= kRowHeight;
-                self.sshKeyPathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
-                CGFloat browseW = 80;
-                self.sshKeyPathField.frame =
-                    NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
-                self.sshKeyBrowseButton.frame =
-                    NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
+                self.usernameLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                CGFloat halfField = (kFieldWidth - 50) / 2;
+                self.usernameField.frame = NSMakeRect(kFieldX, y, halfField, kRowHeight);
+                self.passwordLabel.frame = centeredLabelRect(kFieldX + halfField + 8, y, 50);
+                self.passwordField.frame =
+                    NSMakeRect(kFieldX + halfField + 8 + 50 + 8, y,
+                               kFieldWidth - halfField - 8 - 50 - 8, kRowHeight);
                 y -= kRowSpacing;
             }
+
+            // Show all databases (not for Redis)
+            if (type != DatabaseType::REDIS) {
+                self.showAllDbsCheckbox.hidden = NO;
+                y -= kRowHeight;
+                self.showAllDbsCheckbox.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+                y -= kRowSpacing;
+            }
+
+            // SSH Tunnel section
+            self.sshSeparator.hidden = NO;
+            self.sshEnabledCheckbox.hidden = NO;
+
+            y -= 1;
+            self.sshSeparator.frame = NSMakeRect(kMargin, y, kDialogWidth - 2 * kMargin, 1);
+            y -= kRowSpacing;
+
+            y -= kRowHeight;
+            self.sshEnabledCheckbox.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+            y -= kRowSpacing;
+
+            bool sshEnabled = (self.sshEnabledCheckbox.state == NSControlStateValueOn);
+            if (sshEnabled) {
+                bool sshIsPassword = (self.sshAuthSegment.selectedSegment == 0);
+
+                // SSH Host + Port on same row
+                self.sshHostLabel.hidden = NO;
+                self.sshHostField.hidden = NO;
+                self.sshPortLabel.hidden = NO;
+                self.sshPortField.hidden = NO;
+                y -= kRowHeight;
+                self.sshHostLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                CGFloat sshPortW = 70;
+                CGFloat sshPortLabelW = 35;
+                CGFloat sshHostW = kFieldWidth - sshPortW - sshPortLabelW - 8 - 8;
+                self.sshHostField.frame = NSMakeRect(kFieldX, y, sshHostW, kRowHeight);
+                self.sshPortLabel.frame =
+                    centeredLabelRect(kFieldX + sshHostW + 8, y, sshPortLabelW);
+                self.sshPortField.frame =
+                    NSMakeRect(kFieldX + sshHostW + 8 + sshPortLabelW + 8, y, sshPortW, kRowHeight);
+                y -= kRowSpacing;
+
+                // SSH Username
+                self.sshUsernameLabel.hidden = NO;
+                self.sshUsernameField.hidden = NO;
+                y -= kRowHeight;
+                self.sshUsernameLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                self.sshUsernameField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+                y -= kRowSpacing;
+
+                // SSH Auth method
+                self.sshAuthLabel.hidden = NO;
+                self.sshAuthSegment.hidden = NO;
+                y -= kRowHeight;
+                self.sshAuthLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                self.sshAuthSegment.frame = NSMakeRect(kFieldX, y, 220, kRowHeight);
+                y -= kRowSpacing;
+
+                if (sshIsPassword) {
+                    // SSH Password
+                    self.sshPasswordLabel.hidden = NO;
+                    self.sshPasswordField.hidden = NO;
+                    y -= kRowHeight;
+                    self.sshPasswordLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                    self.sshPasswordField.frame = NSMakeRect(kFieldX, y, kFieldWidth, kRowHeight);
+                    y -= kRowSpacing;
+                } else {
+                    // SSH Key path + Browse
+                    self.sshKeyPathLabel.hidden = NO;
+                    self.sshKeyPathField.hidden = NO;
+                    self.sshKeyBrowseButton.hidden = NO;
+                    y -= kRowHeight;
+                    self.sshKeyPathLabel.frame = centeredLabelRect(kMargin, y, kLabelWidth);
+                    CGFloat browseW = 80;
+                    self.sshKeyPathField.frame =
+                        NSMakeRect(kFieldX, y, kFieldWidth - browseW - 8, kRowHeight);
+                    self.sshKeyBrowseButton.frame =
+                        NSMakeRect(kFieldX + kFieldWidth - browseW, y, browseW, kRowHeight);
+                    y -= kRowSpacing;
+                }
+            }
         }
-    }
+    } // end type-specific fields block
 
     // Status label (wraps for long error text)
     CGFloat statusH = [self statusLabelHeight];
@@ -1117,15 +1193,18 @@ static NSWindow* sActiveConnectionDialog = nil;
 
     // Clear status
     [self setStatusText:@"" color:[NSColor systemRedColor]];
+    [self rebuildUrlFromForm];
 }
 
 - (void)authChanged:(id)sender {
     [self setStatusText:@"" color:[NSColor systemRedColor]];
+    [self rebuildUrlFromForm];
 }
 
 - (void)browseClicked:(id)sender {
     @try {
         auto db = FileDialog::openSQLiteFile();
+        // result handled below — remember to rebuild URL once the path is set.
         if (db) {
             auto sqliteDb = std::dynamic_pointer_cast<SQLiteDatabase>(db);
             if (sqliteDb) {
@@ -1138,6 +1217,7 @@ static NSWindow* sActiveConnectionDialog = nil;
                     self.nameField.stringValue =
                         [NSString stringWithUTF8String:sqliteDb->getConnectionInfo().name.c_str()];
                 }
+                [self rebuildUrlFromForm];
             }
         }
     } @catch (NSException* exception) {
@@ -1189,11 +1269,129 @@ static NSWindow* sActiveConnectionDialog = nil;
         NSURL* url = panel.URL;
         if (url) {
             self.sslCACertPathField.stringValue = url.path;
+            [self rebuildUrlFromForm];
         }
     }
 }
 
+- (void)applyParsedUrl:(const DatabaseConnectionInfo&)info {
+    [self.typePopup selectItemAtIndex:static_cast<int>(info.type)];
+    // typeChanged resets per-type defaults; call it before overriding fields.
+    [self typeChanged:self.typePopup];
+
+    if (info.type == DatabaseType::SQLITE) {
+        self.sqlitePathField.stringValue = [NSString stringWithUTF8String:info.path.c_str()];
+        [self layoutFields];
+        return;
+    }
+
+    self.hostField.stringValue = [NSString stringWithUTF8String:info.host.c_str()];
+    if (info.port > 0)
+        self.portField.stringValue = [NSString stringWithFormat:@"%d", info.port];
+    self.databaseField.stringValue = [NSString stringWithUTF8String:info.database.c_str()];
+
+    if (!info.username.empty() || !info.password.empty()) {
+        self.authSegment.selectedSegment = 0;
+        self.usernameField.stringValue = [NSString stringWithUTF8String:info.username.c_str()];
+        self.passwordField.stringValue = [NSString stringWithUTF8String:info.password.c_str()];
+    } else {
+        self.authSegment.selectedSegment = 1;
+        self.usernameField.stringValue = @"";
+        self.passwordField.stringValue = @"";
+    }
+
+    auto sslCfg = getSslConfig(info.type);
+    for (int i = 0; i < sslCfg.count; i++) {
+        if (sslModesMatchForType(info.type, info.sslmode, sslCfg.values[i])) {
+            [self.sslModePopup selectItemAtIndex:i];
+            break;
+        }
+    }
+    self.sslCACertPathField.stringValue =
+        [NSString stringWithUTF8String:info.sslCACertPath.c_str()];
+
+    [self layoutFields];
+}
+
+// Snapshot the current form fields into a DatabaseConnectionInfo. Used by
+// rebuildUrlFromForm to keep the URL field in sync.
+- (DatabaseConnectionInfo)snapshotConnectionInfoFromForm {
+    DatabaseConnectionInfo info;
+    info.type = [self selectedDatabaseType];
+    info.name = self.nameField.stringValue.UTF8String;
+    if (info.type == DatabaseType::SQLITE) {
+        info.path = self.sqlitePathField.stringValue.UTF8String;
+        return info;
+    }
+    info.host = self.hostField.stringValue.UTF8String;
+    NSString* portStr = self.portField.stringValue;
+    info.port = portStr.length ? portStr.intValue : 0;
+    info.database = self.databaseField.stringValue.UTF8String;
+    if (self.authSegment.selectedSegment == 0) {
+        info.username = self.usernameField.stringValue.UTF8String;
+        info.password = self.passwordField.stringValue.UTF8String;
+    }
+    auto cfg = getSslConfig(info.type);
+    int sslIdx = (int)[self.sslModePopup indexOfSelectedItem];
+    if (sslIdx >= 0 && sslIdx < cfg.count) {
+        info.sslmode = cfg.values[sslIdx];
+    }
+    info.sslCACertPath = self.sslCACertPathField.stringValue.UTF8String;
+    return info;
+}
+
+// Rebuild the URL field from current form values. Suppresses the
+// controlTextDidChange: callback to avoid a feedback loop.
+- (void)rebuildUrlFromForm {
+    if (_suppressFieldSync)
+        return;
+    DatabaseConnectionInfo info = [self snapshotConnectionInfoFromForm];
+    std::string url = buildConnectionUrl(info);
+    _suppressFieldSync = YES;
+    self.urlField.stringValue = [NSString stringWithUTF8String:url.c_str()];
+    self.urlErrorLabel.stringValue = @"";
+    _suppressFieldSync = NO;
+}
+
+// Parse the URL field and apply the result to the form fields. Suppresses
+// downstream change callbacks to avoid looping.
+- (void)applyUrlToForm {
+    if (_suppressFieldSync)
+        return;
+    NSString* nsUrl = self.urlField.stringValue ?: @"";
+    if (nsUrl.length == 0) {
+        self.urlErrorLabel.stringValue = @"";
+        return;
+    }
+    auto result = parseConnectionUrl(std::string([nsUrl UTF8String]));
+    if (!result.ok) {
+        self.urlErrorLabel.stringValue =
+            [NSString stringWithUTF8String:("Error: " + result.error).c_str()];
+        [self layoutFields];
+        return;
+    }
+    self.urlErrorLabel.stringValue = @"";
+    _suppressFieldSync = YES;
+    [self applyParsedUrl:result.info];
+    _suppressFieldSync = NO;
+}
+
+// NSTextFieldDelegate: dispatched for every text edit on any field where we
+// installed self as the delegate. The URL field triggers a parse; any other
+// field triggers a URL rebuild.
+- (void)controlTextDidChange:(NSNotification*)notif {
+    if (_suppressFieldSync)
+        return;
+    NSControl* sender = notif.object;
+    if (sender == self.urlField) {
+        [self applyUrlToForm];
+    } else {
+        [self rebuildUrlFromForm];
+    }
+}
+
 - (void)cancelClicked:(id)sender {
+    _cancelled = true;
     [self.dialogWindow close];
 }
 

@@ -186,6 +186,7 @@ set(APP_SOURCES
     src/database/cassandra/cassandra_database_node.cpp
     src/database/db_factory.cpp
     src/database/db_utils.cpp
+    src/database/connection_url.cpp
     src/database/sql_builder.cpp
     src/database/ssh_config_parser.cpp
     src/ui/query_history.cpp

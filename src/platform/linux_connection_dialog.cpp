@@ -3,6 +3,7 @@
 #include "app_state.hpp"
 #include "application.hpp"
 #include "database/cassandra.hpp"
+#include "database/connection_url.hpp"
 #include "database/db_interface.hpp"
 #include "database/mongodb.hpp"
 #include "database/mssql.hpp"
@@ -94,6 +95,14 @@ struct ConnectionDialogData {
     // signal handler ID for type dropdown
     gulong typeChangedHandlerId = 0;
     bool isPopulatingFields = false;
+
+    // URL field — bidirectionally sync'd with the form fields.
+    GtkWidget* urlEntry = nullptr;
+    GtkWidget* urlRow = nullptr;
+    GtkWidget* urlErrorLabel = nullptr;
+    // Reentrancy guard: set while we programmatically update fields, to keep
+    // the change handlers from looping.
+    bool suppressFieldSync = false;
 };
 
 struct CreateDatabaseDialogData {
@@ -257,6 +266,191 @@ static void presentConnectionDialogDeferred(ConnectionDialogData* data) {
         data->dialog);
 }
 
+static void rebuildFieldsForType(ConnectionDialogData* data);
+
+// Apply a parsed connection URL to the open dialog's widgets.
+static void applyParsedUrlToDialog(ConnectionDialogData* data, const DatabaseConnectionInfo& info) {
+    if (!data || !data->typeDropdown)
+        return;
+
+    guint targetType = static_cast<guint>(info.type);
+    g_signal_handler_block(data->typeDropdown, data->typeChangedHandlerId);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(data->typeDropdown), targetType);
+    rebuildFieldsForType(data);
+    g_signal_handler_unblock(data->typeDropdown, data->typeChangedHandlerId);
+
+    if (info.type == DatabaseType::SQLITE) {
+        if (data->sqlitePathEntry)
+            gtk_editable_set_text(GTK_EDITABLE(data->sqlitePathEntry), info.path.c_str());
+        return;
+    }
+
+    if (data->hostEntry)
+        gtk_editable_set_text(GTK_EDITABLE(data->hostEntry), info.host.c_str());
+    if (data->portEntry && info.port > 0) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", info.port);
+        gtk_editable_set_text(GTK_EDITABLE(data->portEntry), buf);
+    }
+    if (data->databaseEntry)
+        gtk_editable_set_text(GTK_EDITABLE(data->databaseEntry), info.database.c_str());
+
+    if (!info.username.empty() || !info.password.empty()) {
+        if (data->authPasswordRadio)
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(data->authPasswordRadio), TRUE);
+        if (data->usernameEntry)
+            gtk_editable_set_text(GTK_EDITABLE(data->usernameEntry), info.username.c_str());
+        if (data->passwordEntry)
+            gtk_editable_set_text(GTK_EDITABLE(data->passwordEntry), info.password.c_str());
+    } else {
+        if (data->authNoneRadio)
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(data->authNoneRadio), TRUE);
+        if (data->usernameEntry)
+            gtk_editable_set_text(GTK_EDITABLE(data->usernameEntry), "");
+        if (data->passwordEntry)
+            gtk_editable_set_text(GTK_EDITABLE(data->passwordEntry), "");
+    }
+
+    if (data->sslModeDropdown) {
+        auto sslCfg = getSslConfig(info.type);
+        for (int i = 0; i < sslCfg.count; i++) {
+            if (info.sslmode == sslCfg.values[i]) {
+                gtk_drop_down_set_selected(GTK_DROP_DOWN(data->sslModeDropdown), i);
+                break;
+            }
+        }
+    }
+    if (data->sslCACertPathEntry)
+        gtk_editable_set_text(GTK_EDITABLE(data->sslCACertPathEntry), info.sslCACertPath.c_str());
+}
+
+// Snapshot the current form fields into a DatabaseConnectionInfo. Mirrors what
+// the connect handler reads, minus SSH (which has no URL representation).
+static DatabaseConnectionInfo snapshotFormInfo(ConnectionDialogData* data) {
+    DatabaseConnectionInfo info;
+    int sel =
+        data->typeDropdown ? gtk_drop_down_get_selected(GTK_DROP_DOWN(data->typeDropdown)) : 0;
+    info.type = static_cast<DatabaseType>(sel);
+    if (data->nameEntry)
+        info.name = gtk_editable_get_text(GTK_EDITABLE(data->nameEntry));
+
+    if (info.type == DatabaseType::SQLITE) {
+        if (data->sqlitePathEntry)
+            info.path = gtk_editable_get_text(GTK_EDITABLE(data->sqlitePathEntry));
+        return info;
+    }
+
+    if (data->hostEntry)
+        info.host = gtk_editable_get_text(GTK_EDITABLE(data->hostEntry));
+    if (data->portEntry) {
+        const char* p = gtk_editable_get_text(GTK_EDITABLE(data->portEntry));
+        info.port = (p && *p) ? atoi(p) : 0;
+    }
+    if (data->databaseEntry)
+        info.database = gtk_editable_get_text(GTK_EDITABLE(data->databaseEntry));
+
+    bool authPassword = data->authPasswordRadio &&
+                        gtk_check_button_get_active(GTK_CHECK_BUTTON(data->authPasswordRadio));
+    if (authPassword) {
+        if (data->usernameEntry)
+            info.username = gtk_editable_get_text(GTK_EDITABLE(data->usernameEntry));
+        if (data->passwordEntry)
+            info.password = gtk_editable_get_text(GTK_EDITABLE(data->passwordEntry));
+    }
+
+    if (data->sslModeDropdown) {
+        auto cfg = getSslConfig(info.type);
+        guint idx = gtk_drop_down_get_selected(GTK_DROP_DOWN(data->sslModeDropdown));
+        if ((int)idx < cfg.count)
+            info.sslmode = cfg.values[idx];
+    }
+    if (data->sslCACertPathEntry)
+        info.sslCACertPath = gtk_editable_get_text(GTK_EDITABLE(data->sslCACertPathEntry));
+    return info;
+}
+
+// Rebuild the URL entry from the current form. Suppresses reentrant change
+// signals on the URL entry.
+static void rebuildUrlFromForm(ConnectionDialogData* data) {
+    if (!data->urlEntry || data->suppressFieldSync)
+        return;
+    DatabaseConnectionInfo info = snapshotFormInfo(data);
+    std::string url = buildConnectionUrl(info);
+    data->suppressFieldSync = true;
+    gtk_editable_set_text(GTK_EDITABLE(data->urlEntry), url.c_str());
+    if (data->urlErrorLabel) {
+        gtk_label_set_text(GTK_LABEL(data->urlErrorLabel), "");
+        gtk_widget_set_visible(data->urlErrorLabel, FALSE);
+    }
+    data->suppressFieldSync = false;
+}
+
+// Parse the URL entry and apply to form fields. Suppresses reentrant change
+// signals on the form fields.
+static void applyUrlToForm(ConnectionDialogData* data) {
+    if (!data->urlEntry || data->suppressFieldSync)
+        return;
+    const char* text = gtk_editable_get_text(GTK_EDITABLE(data->urlEntry));
+    std::string url = text ? text : "";
+    if (url.empty()) {
+        if (data->urlErrorLabel) {
+            gtk_label_set_text(GTK_LABEL(data->urlErrorLabel), "");
+            gtk_widget_set_visible(data->urlErrorLabel, FALSE);
+        }
+        return;
+    }
+    auto result = parseConnectionUrl(url);
+    if (!result.ok) {
+        if (data->urlErrorLabel) {
+            gtk_label_set_text(GTK_LABEL(data->urlErrorLabel), ("Error: " + result.error).c_str());
+            gtk_widget_set_visible(data->urlErrorLabel, TRUE);
+        }
+        return;
+    }
+    if (data->urlErrorLabel) {
+        gtk_label_set_text(GTK_LABEL(data->urlErrorLabel), "");
+        gtk_widget_set_visible(data->urlErrorLabel, FALSE);
+    }
+    data->suppressFieldSync = true;
+    applyParsedUrlToDialog(data, result.info);
+    data->suppressFieldSync = false;
+}
+
+// Connect URL-sync signals on a freshly-rebuilt form. Each handler calls
+// rebuildUrlFromForm; the suppress flag prevents loops during programmatic
+// applies (gtk_editable_set_text fires "changed" in GTK4).
+static void hookFormSyncHandlers(ConnectionDialogData* data) {
+    auto onChange =
+        +[](GObject*, gpointer ud) { rebuildUrlFromForm(static_cast<ConnectionDialogData*>(ud)); };
+    auto hookEntry = [&](GtkWidget* w) {
+        if (w)
+            g_signal_connect(w, "changed", G_CALLBACK(onChange), data);
+    };
+    auto hookDropdown = [&](GtkWidget* w) {
+        if (w)
+            g_signal_connect(w, "notify::selected",
+                             G_CALLBACK(+[](GObject*, GParamSpec*, gpointer ud) {
+                                 rebuildUrlFromForm(static_cast<ConnectionDialogData*>(ud));
+                             }),
+                             data);
+    };
+    auto hookToggle = [&](GtkWidget* w) {
+        if (w)
+            g_signal_connect(w, "toggled", G_CALLBACK(onChange), data);
+    };
+
+    hookEntry(data->sqlitePathEntry);
+    hookEntry(data->hostEntry);
+    hookEntry(data->portEntry);
+    hookEntry(data->databaseEntry);
+    hookEntry(data->usernameEntry);
+    hookEntry(data->passwordEntry);
+    hookEntry(data->sslCACertPathEntry);
+    hookDropdown(data->sslModeDropdown);
+    hookToggle(data->authPasswordRadio);
+    hookToggle(data->authNoneRadio);
+}
+
 static void rebuildFieldsForType(ConnectionDialogData* data) {
     clearBox(data->fieldsBox);
 
@@ -289,6 +483,13 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
 
     int selectedType = gtk_drop_down_get_selected(GTK_DROP_DOWN(data->typeDropdown));
     auto type = static_cast<DatabaseType>(selectedType);
+
+    // SQLite has no useful URL form — hide the URL row entirely.
+    bool showUrl = (type != DatabaseType::SQLITE);
+    if (data->urlRow)
+        gtk_widget_set_visible(data->urlRow, showUrl);
+    if (data->urlErrorLabel && !showUrl)
+        gtk_widget_set_visible(data->urlErrorLabel, FALSE);
 
     if (type == DatabaseType::SQLITE) {
         // Path + Browse
@@ -662,6 +863,8 @@ static void rebuildFieldsForType(ConnectionDialogData* data) {
                          }
                      }),
                      data);
+
+    hookFormSyncHandlers(data);
 }
 
 struct AsyncConnectResult {
@@ -1018,11 +1221,29 @@ static GtkWidget* buildConnectionDialog(ConnectionDialogData* data,
     gtk_widget_set_hexpand(data->typeDropdown, TRUE);
     gtk_box_append(GTK_BOX(mainBox), typeRow);
 
+    // URL row — bidirectionally sync'd with the form fields below.
+    data->urlEntry = makeEntry("postgresql://user:password@host:5432/dbname");
+    gtk_widget_set_hexpand(data->urlEntry, TRUE);
+    data->urlRow = makeRow(makeLabel("URL"), data->urlEntry);
+    gtk_box_append(GTK_BOX(mainBox), data->urlRow);
+
+    g_signal_connect(data->urlEntry, "changed", G_CALLBACK(+[](GObject*, gpointer ud) {
+                         applyUrlToForm(static_cast<ConnectionDialogData*>(ud));
+                     }),
+                     data);
+
+    data->urlErrorLabel = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(data->urlErrorLabel), 0.0f);
+    gtk_label_set_wrap(GTK_LABEL(data->urlErrorLabel), TRUE);
+    gtk_widget_add_css_class(data->urlErrorLabel, "error");
+    gtk_widget_set_visible(data->urlErrorLabel, FALSE);
+    gtk_box_append(GTK_BOX(mainBox), data->urlErrorLabel);
+
     // Separator
     GtkWidget* sep1 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_append(GTK_BOX(mainBox), sep1);
 
-    // Dynamic fields container
+    // Dynamic fields container — rebuilt per type.
     data->fieldsBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_box_append(GTK_BOX(mainBox), data->fieldsBox);
 
@@ -1729,6 +1950,7 @@ void showConnectionDialog(Application* app) {
     auto* data = new ConnectionDialogData();
     data->app = app;
     GtkWidget* dialog = buildConnectionDialog(data, DatabaseType::SQLITE);
+    rebuildUrlFromForm(data);
     sActiveConnectionDialog = dialog;
     presentConnectionDialogDeferred(data);
 }
@@ -1745,6 +1967,7 @@ void showEditConnectionDialog(Application* app, std::shared_ptr<DatabaseInterfac
     GtkWidget* dialog = buildConnectionDialog(data, db->getConnectionInfo().type);
 
     populateFieldsFromConnection(data, db);
+    rebuildUrlFromForm(data);
     gtk_widget_set_sensitive(data->typeDropdown, FALSE);
     gtk_window_set_title(GTK_WINDOW(dialog), "Edit Connection");
     gtk_button_set_label(GTK_BUTTON(data->connectButton), "Update");
