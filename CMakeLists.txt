@@ -227,6 +227,8 @@ set(APP_SOURCES
     src/ai/ai_chat.cpp
     src/ui/ai_chat_panel.cpp
     src/ui/ai_settings_dialog.cpp
+    src/ui/connection_dialog.cpp
+    src/ui/create_database_dialog.cpp
     src/license/license_manager.cpp
 )
 
@@ -235,7 +237,6 @@ if(APPLE)
     list(APPEND APP_SOURCES src/platform/macos_platform.mm)
     list(APPEND APP_SOURCES src/platform/metal_backend.mm)
     list(APPEND APP_SOURCES src/platform/macos_titlebar.mm)
-    list(APPEND APP_SOURCES src/platform/macos_connection_dialog.mm)
     list(APPEND APP_SOURCES src/platform/macos_updater.mm)
     list(APPEND APP_SOURCES src/platform/macos_alert.mm)
     list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
@@ -245,7 +246,6 @@ elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
     list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
     list(APPEND APP_SOURCES src/platform/linux_titlebar.cpp)
-    list(APPEND APP_SOURCES src/platform/linux_connection_dialog.cpp)
     list(APPEND APP_SOURCES src/platform/linux_updater.cpp)
     list(APPEND APP_SOURCES src/platform/linux_alert.cpp)
     list(APPEND APP_SOURCES src/platform/linux_input_dialog.cpp)
@@ -256,7 +256,6 @@ elseif(WIN32)
         src/platform/windows_platform.cpp
         src/platform/dx11_backend.cpp
         src/platform/windows_titlebar.cpp
-        src/platform/windows_connection_dialog.cpp
         src/platform/windows_updater.cpp
         src/platform/windows_alert.cpp
         src/platform/windows_input_dialog.cpp

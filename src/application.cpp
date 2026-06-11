@@ -10,6 +10,8 @@
 #include "database/redis.hpp"
 #include "database/sqlite.hpp"
 #include "license/license_manager.hpp"
+#include "ui/connection_dialog.hpp"
+#include "ui/create_database_dialog.hpp"
 
 #include "platform/updater.hpp"
 
@@ -1021,6 +1023,9 @@ void Application::renderMainUI() {
         ImGui::PopStyleColor(1);
         ImGui::PopStyleVar(1);
     }
+
+    ConnectionDialog::instance().render();
+    CreateDatabaseDialog::instance().render();
 
     pollUpdater();
 

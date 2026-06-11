@@ -13,7 +13,8 @@
 #include "database/sqlite.hpp"
 #include "imgui.h"
 #include "platform/alert.hpp"
-#include "platform/connection_dialog.hpp"
+#include "ui/connection_dialog.hpp"
+#include "ui/create_database_dialog.hpp"
 #include "ui/database_node.hpp"
 #include "ui/input_dialog.hpp"
 #include "ui/query_history.hpp"
@@ -50,7 +51,7 @@ void DatabaseSidebarNew::showConnectionDialog() {
                     "Free tier is limited to 3 connections. Activate a license to add more.");
         return;
     }
-    ::showConnectionDialog(&app);
+    ConnectionDialog::instance().show(&app);
 }
 
 void DatabaseSidebarNew::renderEmpty() {
@@ -736,14 +737,14 @@ void DatabaseSidebarNew::handleDatabaseContextMenu(const std::shared_ptr<Databas
                 dbType == DatabaseType::MYSQL || dbType == DatabaseType::MARIADB ||
                 dbType == DatabaseType::MSSQL) {
                 if (ImGui::MenuItem("Create New Database")) {
-                    showCreateDatabaseDialog(&app, db);
+                    CreateDatabaseDialog::instance().show(&app, db);
                 }
                 ImGui::Separator();
             }
         }
 
         if (ImGui::MenuItem("Edit connection")) {
-            showEditConnectionDialog(&app, db);
+            ConnectionDialog::instance().showEdit(&app, db);
         }
         if (ImGui::MenuItem("Rename")) {
             const std::string oldName = db->getConnectionInfo().name;

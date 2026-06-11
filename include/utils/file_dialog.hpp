@@ -18,6 +18,8 @@ public:
     static std::shared_ptr<DatabaseInterface> openSQLiteFile();
 
     // returns the selected file path, or empty string if cancelled
+    static std::string openFile();
+    static std::string pickFolder();
     static std::string openCSVFile();
     static std::string openPostgresBackupFile();
     static std::string savePostgresBackupFile(const std::string& defaultName);

@@ -4,10 +4,10 @@
 #include "config.hpp"
 #include "license/license_manager.hpp"
 #include "platform/alert.hpp"
-#include "platform/connection_dialog.hpp"
 #include "platform/titlebar.hpp"
 #include "platform/updater.hpp"
 #include "themes.hpp"
+#include "ui/connection_dialog.hpp"
 #include "ui/input_dialog.hpp"
 #include <format>
 #include <gtk/gtk.h>
@@ -948,7 +948,7 @@ void LinuxTitlebar::onAddConnection(GtkButton*, gpointer userData) {
                     "Free tier is limited to 3 connections. Activate a license to add more.");
         return;
     }
-    showConnectionDialog(self->app_);
+    ConnectionDialog::instance().show(self->app_);
 }
 
 void LinuxTitlebar::onThemeLightClicked(GtkButton*, gpointer userData) {
