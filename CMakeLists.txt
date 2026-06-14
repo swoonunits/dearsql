@@ -133,6 +133,13 @@ find_package(unofficial-tree-sitter CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
 find_package(sentry CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+if(APPLE)
+    # GLSL -> SPIR-V -> MSL transpilation for runtime-loadable custom shaders
+    find_package(unofficial-shaderc CONFIG REQUIRED)
+    find_package(spirv_cross_core CONFIG REQUIRED)
+    find_package(spirv_cross_glsl CONFIG REQUIRED)
+    find_package(spirv_cross_msl CONFIG REQUIRED)
+endif()
 include(cmake/FreeTDS.cmake)
 include(cmake/OracleOCI.cmake)
 include(cmake/CassandraDriver.cmake)
@@ -242,6 +249,7 @@ if(APPLE)
     list(APPEND APP_SOURCES src/platform/macos_input_dialog.mm)
     list(APPEND APP_SOURCES src/platform/posix_ssh_tunnel.cpp)
     list(APPEND APP_SOURCES src/ui/table_aurora_shader.mm)
+    list(APPEND APP_SOURCES src/ui/custom_shader.mm)
 elseif(LINUX)
     list(APPEND APP_SOURCES src/platform/linux_platform.cpp)
     list(APPEND APP_SOURCES src/platform/opengl_backend.cpp)
@@ -377,6 +385,14 @@ if(APPLE)
             ${APPKIT_LIBRARY}
     )
     target_link_libraries(${PROJECT_NAME} PRIVATE "${SPARKLE_FRAMEWORK_PATH}")
+    target_link_libraries(
+        ${PROJECT_NAME}
+        PRIVATE
+            unofficial::shaderc::shaderc
+            spirv-cross-core
+            spirv-cross-glsl
+            spirv-cross-msl
+    )
 elseif(LINUX)
     target_link_libraries(
         ${PROJECT_NAME}

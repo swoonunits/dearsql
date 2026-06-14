@@ -37,6 +37,14 @@
       "features": ["backend", "transport", "compression"]
     },
     "libiconv",
-    "spdlog"
+    "spdlog",
+    {
+      "name": "shaderc",
+      "platform": "osx"
+    },
+    {
+      "name": "spirv-cross",
+      "platform": "osx"
+    }
   ]
 }

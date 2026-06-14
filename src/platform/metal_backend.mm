@@ -6,6 +6,7 @@
 #import "imgui_impl_metal.h"
 #include "platform/graphics_backend.hpp"
 #include "ui/table_aurora_shader.hpp"
+#include "ui/custom_shader.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
@@ -90,7 +91,28 @@ void MacOSMetalBackend::beginFrame(ImVec4 clearColor) {
     currentDrawable_ = drawable;
 
     MTLRenderPassDescriptor* renderPassDescriptor = [MTLRenderPassDescriptor renderPassDescriptor];
-    renderPassDescriptor.colorAttachments[0].texture = drawable.texture;
+    // when a custom shader is loaded, render the imgui scene into an offscreen
+    // texture so the shader pass can sample it as iChannel0. otherwise render
+    // straight to the drawable. falls back to the drawable if allocation fails.
+    id<MTLTexture> drawableTex = drawable.texture;
+    id<MTLTexture> sceneTexture = nil;
+    if (CustomShader::isLoaded()) {
+        sceneTexture = (__bridge id<MTLTexture>)sceneTexture_;
+        if (!sceneTexture || sceneTexture.width != drawableTex.width ||
+            sceneTexture.height != drawableTex.height) {
+            MTLTextureDescriptor* td =
+                [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                   width:drawableTex.width
+                                                                  height:drawableTex.height
+                                                               mipmapped:NO];
+            td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            td.storageMode = MTLStorageModePrivate;
+            sceneTexture = [(id<MTLDevice>)metalDevice_ newTextureWithDescriptor:td];
+            sceneTexture_ = sceneTexture;
+        }
+    }
+    renderPassDescriptor.colorAttachments[0].texture =
+        sceneTexture ? sceneTexture : drawableTex;
     renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
     renderPassDescriptor.colorAttachments[0].clearColor =
         MTLClearColorMake(clearColor.x, clearColor.y, clearColor.z, clearColor.w);
@@ -122,6 +144,17 @@ void MacOSMetalBackend::renderDrawData(ImDrawData* drawData) {
                                    (id<MTLRenderCommandEncoder>)currentRenderEncoder_);
 
     [(id<MTLRenderCommandEncoder>)currentRenderEncoder_ endEncoding];
+
+    // second pass: if a custom shader is loaded, post-process the offscreen
+    // scene onto the drawable. otherwise the scene was rendered straight to the
+    // drawable above and there is nothing more to do.
+    if (CustomShader::isLoaded() && sceneTexture_) {
+        void* drawableTexPtr = (__bridge void*)((id<CAMetalDrawable>)currentDrawable_).texture;
+        CustomShader::render((__bridge void*)metalDevice_,
+                             (__bridge void*)currentCommandBuffer_,
+                             (__bridge void*)sceneTexture_, drawableTexPtr);
+    }
+
     [(id<MTLCommandBuffer>)currentCommandBuffer_ commit];
 }
 

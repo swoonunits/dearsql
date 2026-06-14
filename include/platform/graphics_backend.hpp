@@ -90,6 +90,9 @@ public:
     id currentDrawable_ = nullptr;
     id currentCommandBuffer_ = nullptr;
     id currentRenderEncoder_ = nullptr;
+    // offscreen target the imgui scene renders into when a post-process shader
+    // (black hole / custom shader) is active, so it can be sampled as a texture
+    id sceneTexture_ = nullptr;
 #else
     void* metalDevice_ = nullptr;
     void* metalCommandQueue_ = nullptr;
@@ -97,6 +100,7 @@ public:
     void* currentDrawable_ = nullptr;
     void* currentCommandBuffer_ = nullptr;
     void* currentRenderEncoder_ = nullptr;
+    void* sceneTexture_ = nullptr;
 #endif
 
 private:
