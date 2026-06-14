@@ -230,7 +230,7 @@ bool Application::initialize() {
         std::string shaderPath;
         if (const char* envShader = std::getenv("DEARSQL_CUSTOM_SHADER"))
             shaderPath = envShader;
-        if (shaderPath.empty())
+        if (shaderPath.empty() && appState->getSetting("custom_shader_enabled", "1") != "0")
             shaderPath = appState->getSetting("custom_shader_path", "");
         if (!shaderPath.empty())
             CustomShader::loadFromFile(shaderPath);

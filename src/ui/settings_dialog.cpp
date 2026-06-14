@@ -58,11 +58,24 @@ void SettingsDialog::loadShaderState() {
         ss << f.rdbuf();
         shaderEditor_->SetText(ss.str());
     } else {
-        shaderEditor_->SetText("// iChannel0 = the rendered app; iResolution / iTime provided.\n"
-                               "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n"
-                               "    vec2 uv = fragCoord / iResolution.xy;\n"
-                               "    fragColor = texture(iChannel0, uv);\n"
-                               "}\n");
+        // default to the sample shader (assets/shaders/sample.glsl)
+        shaderEditor_->SetText(
+            "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n"
+            "    vec2 uv = fragCoord / iResolution.xy;\n"
+            "\n"
+            "    float wave = sin(uv.y * 40.0 + iTime * 2.0) * 0.0015;\n"
+            "\n"
+            "    float r = texture(iChannel0, uv + vec2(wave + 0.0010, 0.0)).r;\n"
+            "    float g = texture(iChannel0, uv + vec2(wave, 0.0)).g;\n"
+            "    float b = texture(iChannel0, uv + vec2(wave - 0.0010, 0.0)).b;\n"
+            "    float a = texture(iChannel0, uv).a;\n"
+            "\n"
+            "    vec3 col = vec3(r, g, b);\n"
+            "\n"
+            "    col *= 0.92 + 0.08 * sin(uv.y * iResolution.y * 1.5 - iTime * 6.0);\n"
+            "\n"
+            "    fragColor = vec4(col, a);\n"
+            "}\n");
     }
     shaderStatus_ = CustomShader::isLoaded() ? ("Active: " + CustomShader::loadedPath()) : "Off";
 }
@@ -168,6 +181,12 @@ void SettingsDialog::render() {
     ImGui::PopStyleColor(4);
     if (applyClicked) {
         std::string path = shaderPath_;
+        if (path.empty()) {
+            path = std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") +
+                   "/.dearsql/custom_shader.glsl";
+            std::strncpy(shaderPath_, path.c_str(), sizeof(shaderPath_) - 1);
+            shaderPath_[sizeof(shaderPath_) - 1] = '\0';
+        }
         std::string code = shaderEditor_ ? shaderEditor_->GetText() : std::string();
         std::error_code ec;
         std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
@@ -175,13 +194,15 @@ void SettingsDialog::render() {
         out << code;
         out.close();
         app.getAppState()->setSetting("custom_shader_path", path);
+        app.getAppState()->setSetting("custom_shader_enabled", "1");
         shaderStatus_ =
             CustomShader::loadFromFile(path) ? ("Active: " + path) : "Compile error — see logs";
     }
     ImGui::SameLine();
     if (ImGui::Button("Disable")) {
         CustomShader::unload();
-        app.getAppState()->setSetting("custom_shader_path", "");
+        // keep custom_shader_path so the shader can be re-enabled later
+        app.getAppState()->setSetting("custom_shader_enabled", "0");
         shaderStatus_ = "Off";
     }
 #endif
