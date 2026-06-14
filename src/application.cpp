@@ -12,6 +12,7 @@
 #include "license/license_manager.hpp"
 #include "ui/connection_dialog.hpp"
 #include "ui/create_database_dialog.hpp"
+#include "ui/settings_dialog.hpp"
 
 #include "platform/updater.hpp"
 
@@ -1049,6 +1050,7 @@ void Application::renderMainUI() {
 
     ConnectionDialog::instance().render();
     CreateDatabaseDialog::instance().render();
+    SettingsDialog::instance().render();
 
     pollUpdater();
 

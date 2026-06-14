@@ -9,6 +9,7 @@
 #include "themes.hpp"
 #include "ui/connection_dialog.hpp"
 #include "ui/input_dialog.hpp"
+#include "ui/settings_dialog.hpp"
 #include <format>
 #include <gtk/gtk.h>
 
@@ -92,193 +93,12 @@ void LinuxTitlebar::setup() {
                      }),
                      this);
 
-    // main menu button (hamburger menu)
-    menuButton_ = gtk_menu_button_new();
-    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menuButton_), "open-menu-symbolic");
-    gtk_widget_set_tooltip_text(menuButton_, "Main Menu");
-
-    // popover content
-    menuPopover_ = gtk_popover_new();
-    GtkWidget* menuBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_margin_start(menuBox, 12);
-    gtk_widget_set_margin_end(menuBox, 12);
-    gtk_widget_set_margin_top(menuBox, 12);
-    gtk_widget_set_margin_bottom(menuBox, 12);
-    gtk_widget_set_size_request(menuBox, 180, -1);
-
-    // theme section
-    GtkWidget* themeLabel = gtk_label_new("Theme");
-    gtk_widget_set_halign(themeLabel, GTK_ALIGN_START);
-    gtk_widget_add_css_class(themeLabel, "dim-label");
-    gtk_box_append(GTK_BOX(menuBox), themeLabel);
-
-    GtkWidget* themeButtonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_halign(themeButtonBox, GTK_ALIGN_FILL);
-    gtk_widget_add_css_class(themeButtonBox, "linked");
-
-    themeLightButton_ = gtk_button_new_from_icon_name("weather-clear-symbolic");
-    gtk_widget_set_tooltip_text(themeLightButton_, "Light");
-    gtk_widget_set_hexpand(themeLightButton_, TRUE);
-    g_signal_connect(themeLightButton_, "clicked", G_CALLBACK(onThemeLightClicked), this);
-    gtk_box_append(GTK_BOX(themeButtonBox), themeLightButton_);
-
-    themeDarkButton_ = gtk_button_new_from_icon_name("weather-clear-night-symbolic");
-    gtk_widget_set_tooltip_text(themeDarkButton_, "Dark");
-    gtk_widget_set_hexpand(themeDarkButton_, TRUE);
-    g_signal_connect(themeDarkButton_, "clicked", G_CALLBACK(onThemeDarkClicked), this);
-    gtk_box_append(GTK_BOX(themeButtonBox), themeDarkButton_);
-
-    themeAutoButton_ = gtk_button_new_from_icon_name("emblem-system-symbolic");
-    gtk_widget_set_tooltip_text(themeAutoButton_, "System");
-    gtk_widget_set_hexpand(themeAutoButton_, TRUE);
-    g_signal_connect(themeAutoButton_, "clicked", G_CALLBACK(onThemeAutoClicked), this);
-    gtk_box_append(GTK_BOX(themeButtonBox), themeAutoButton_);
-
-    gtk_box_append(GTK_BOX(menuBox), themeButtonBox);
-
-    // font size section
-    GtkWidget* fontSizeHeaderLabel = gtk_label_new("Font Size");
-    gtk_widget_set_halign(fontSizeHeaderLabel, GTK_ALIGN_START);
-    gtk_widget_add_css_class(fontSizeHeaderLabel, "dim-label");
-    gtk_box_append(GTK_BOX(menuBox), fontSizeHeaderLabel);
-
-    GtkWidget* fontSizeBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_halign(fontSizeBox, GTK_ALIGN_FILL);
-    gtk_widget_add_css_class(fontSizeBox, "linked");
-
-    GtkWidget* fontDecButton = gtk_button_new_with_label("A-");
-    gtk_widget_set_tooltip_text(fontDecButton, "Decrease Font Size");
-    gtk_widget_set_hexpand(fontDecButton, TRUE);
-    g_signal_connect(fontDecButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
-                         auto* self = static_cast<LinuxTitlebar*>(userData);
-                         if (self->interactionCb_)
-                             self->interactionCb_();
-                         if (self->app_) {
-                             self->app_->setFontScale(self->app_->getFontScale() - 0.1f);
-                             auto label = std::format(
-                                 "{}%", static_cast<int>(self->app_->getFontScale() * 100));
-                             gtk_label_set_text(GTK_LABEL(self->fontSizeLabel_), label.c_str());
-                         }
-                     }),
-                     this);
-    gtk_box_append(GTK_BOX(fontSizeBox), fontDecButton);
-
-    auto fontLabel = std::format("{}%", app_ ? static_cast<int>(app_->getFontScale() * 100) : 100);
-    fontSizeLabel_ = gtk_label_new(fontLabel.c_str());
-    gtk_widget_set_hexpand(fontSizeLabel_, TRUE);
-    gtk_box_append(GTK_BOX(fontSizeBox), fontSizeLabel_);
-
-    GtkWidget* fontIncButton = gtk_button_new_with_label("A+");
-    gtk_widget_set_tooltip_text(fontIncButton, "Increase Font Size");
-    gtk_widget_set_hexpand(fontIncButton, TRUE);
-    g_signal_connect(fontIncButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
-                         auto* self = static_cast<LinuxTitlebar*>(userData);
-                         if (self->interactionCb_)
-                             self->interactionCb_();
-                         if (self->app_) {
-                             self->app_->setFontScale(self->app_->getFontScale() + 0.1f);
-                             auto label = std::format(
-                                 "{}%", static_cast<int>(self->app_->getFontScale() * 100));
-                             gtk_label_set_text(GTK_LABEL(self->fontSizeLabel_), label.c_str());
-                         }
-                     }),
-                     this);
-    gtk_box_append(GTK_BOX(fontSizeBox), fontIncButton);
-
-    gtk_box_append(GTK_BOX(menuBox), fontSizeBox);
-
-    // separator
-    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_box_append(GTK_BOX(menuBox), separator);
-
-    // action buttons
-    GtkWidget* actionBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-
-    // license button
-    licenseButton_ = gtk_button_new();
-    gtk_widget_add_css_class(licenseButton_, "flat");
-    gtk_widget_set_halign(licenseButton_, GTK_ALIGN_FILL);
-    {
-        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("dialog-password-symbolic"));
-        GtkWidget* lbl = gtk_label_new("Manage License");
-        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
-        gtk_widget_set_hexpand(lbl, TRUE);
-        gtk_box_append(GTK_BOX(box), lbl);
-        gtk_button_set_child(GTK_BUTTON(licenseButton_), box);
-    }
-    g_signal_connect(licenseButton_, "clicked", G_CALLBACK(onLicenseClicked), this);
-    gtk_box_append(GTK_BOX(actionBox), licenseButton_);
-
-    // check for updates button
-    GtkWidget* checkUpdatesButton = gtk_button_new();
-    gtk_widget_add_css_class(checkUpdatesButton, "flat");
-    gtk_widget_set_halign(checkUpdatesButton, GTK_ALIGN_FILL);
-    {
-        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        gtk_box_append(GTK_BOX(box),
-                       gtk_image_new_from_icon_name("software-update-available-symbolic"));
-        GtkWidget* lbl = gtk_label_new("Check for Updates...");
-        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
-        gtk_widget_set_hexpand(lbl, TRUE);
-        gtk_box_append(GTK_BOX(box), lbl);
-        gtk_button_set_child(GTK_BUTTON(checkUpdatesButton), box);
-    }
-    g_signal_connect(checkUpdatesButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
-                         auto* self = static_cast<LinuxTitlebar*>(userData);
-                         gtk_popover_popdown(GTK_POPOVER(self->menuPopover_));
-                         checkForUpdates();
-                     }),
-                     this);
-    gtk_box_append(GTK_BOX(actionBox), checkUpdatesButton);
-
-    // report bug button
-    GtkWidget* reportBugButton = gtk_button_new();
-    gtk_widget_add_css_class(reportBugButton, "flat");
-    gtk_widget_set_halign(reportBugButton, GTK_ALIGN_FILL);
-    {
-        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("dialog-warning-symbolic"));
-        GtkWidget* lbl = gtk_label_new("Report Bug...");
-        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
-        gtk_widget_set_hexpand(lbl, TRUE);
-        gtk_box_append(GTK_BOX(box), lbl);
-        gtk_button_set_child(GTK_BUTTON(reportBugButton), box);
-    }
-    g_signal_connect(reportBugButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer userData) {
-                         auto* self = static_cast<LinuxTitlebar*>(userData);
-                         gtk_popover_popdown(GTK_POPOVER(self->menuPopover_));
-                         std::string url =
-                             "https://github.com/dunkbing/dearsql/issues/new?labels=bug"
-                             "&title=%5BBug%5D+&body=%23%23+Description%0A%0A%23%23+Steps+"
-                             "to+Reproduce%0A1.+%0A2.+%0A3.+%0A%0A%23%23+Expected+Behavior"
-                             "%0A%0A%23%23+Actual+Behavior%0A%0A%23%23+Environment%0A-+**OS"
-                             "**%3A+Linux%0A-+**DearSQL+version**%3A+" APP_VERSION
-                             "%0A-+**Database**%3A+";
-                         GtkUriLauncher* launcher = gtk_uri_launcher_new(url.c_str());
-                         gtk_uri_launcher_launch(launcher, GTK_WINDOW(self->parentWindow_), nullptr,
-                                                 nullptr, nullptr);
-                         g_object_unref(launcher);
-                     }),
-                     this);
-    gtk_box_append(GTK_BOX(actionBox), reportBugButton);
-
-    gtk_box_append(GTK_BOX(menuBox), actionBox);
-
-    gtk_popover_set_child(GTK_POPOVER(menuPopover_), menuBox);
-    gtk_menu_button_set_popover(GTK_MENU_BUTTON(menuButton_), menuPopover_);
-
-    // update theme and font label on popover show
-    g_signal_connect(menuPopover_, "show", G_CALLBACK(+[](GtkWidget*, gpointer userData) {
-                         auto* self = static_cast<LinuxTitlebar*>(userData);
-                         self->updateThemeButtons();
-                         if (self->fontSizeLabel_ && self->app_) {
-                             auto label = std::format(
-                                 "{}%", static_cast<int>(self->app_->getFontScale() * 100));
-                             gtk_label_set_text(GTK_LABEL(self->fontSizeLabel_), label.c_str());
-                         }
-                     }),
-                     this);
+    // main menu button — opens the shared ImGui settings dialog
+    menuButton_ = gtk_button_new_from_icon_name("open-menu-symbolic");
+    gtk_widget_set_tooltip_text(menuButton_, "Settings");
+    g_signal_connect(menuButton_, "clicked",
+                     G_CALLBACK(+[](GtkButton*, gpointer) { SettingsDialog::instance().open(); }),
+                     nullptr);
 
     // update available button (initially hidden)
     updateButton_ = gtk_button_new_from_icon_name("dialog-warning-symbolic");
@@ -291,6 +111,16 @@ void LinuxTitlebar::setup() {
     gtk_header_bar_pack_end(GTK_HEADER_BAR(headerBar_), updateButton_);
 
     gtk_window_set_titlebar(GTK_WINDOW(parentWindow_), headerBar_);
+
+    // native-only actions the shared settings dialog can't do itself
+    SettingsDialog::instance().onManageLicense = [this]() { showLicenseDialog(); };
+    SettingsDialog::instance().onReportBug = [this]() {
+        GtkUriLauncher* launcher = gtk_uri_launcher_new(
+            "https://github.com/dunkbing/dearsql/issues/new?labels=bug&title=%5BBug%5D");
+        gtk_uri_launcher_launch(launcher, GTK_WINDOW(parentWindow_), nullptr, nullptr, nullptr);
+        g_object_unref(launcher);
+    };
+
     applyTheme(app_ ? app_->isDarkTheme() : false);
 }
 
@@ -627,24 +457,6 @@ void LinuxTitlebar::applyTheme(bool isDark) {
     gtk_css_provider_load_from_string(themeProvider, css.c_str());
 }
 
-void LinuxTitlebar::updateThemeButtons() {
-    if (!app_ || !themeLightButton_ || !themeDarkButton_ || !themeAutoButton_) {
-        return;
-    }
-
-    bool isDark = app_->isDarkTheme();
-
-    gtk_widget_remove_css_class(themeLightButton_, "suggested-action");
-    gtk_widget_remove_css_class(themeDarkButton_, "suggested-action");
-    gtk_widget_remove_css_class(themeAutoButton_, "suggested-action");
-
-    if (isDark) {
-        gtk_widget_add_css_class(themeDarkButton_, "suggested-action");
-    } else {
-        gtk_widget_add_css_class(themeLightButton_, "suggested-action");
-    }
-}
-
 void LinuxTitlebar::showLicenseDialog() {
     auto& licenseManager = LicenseManager::instance();
 
@@ -949,53 +761,6 @@ void LinuxTitlebar::onAddConnection(GtkButton*, gpointer userData) {
         return;
     }
     ConnectionDialog::instance().show(self->app_);
-}
-
-void LinuxTitlebar::onThemeLightClicked(GtkButton*, gpointer userData) {
-    auto* self = static_cast<LinuxTitlebar*>(userData);
-    if (self->interactionCb_)
-        self->interactionCb_();
-    if (self->app_) {
-        self->app_->setDarkTheme(false);
-    }
-    self->updateThemeButtons();
-    self->applyTheme(false);
-}
-
-void LinuxTitlebar::onThemeDarkClicked(GtkButton*, gpointer userData) {
-    auto* self = static_cast<LinuxTitlebar*>(userData);
-    if (self->interactionCb_)
-        self->interactionCb_();
-    if (self->app_) {
-        self->app_->setDarkTheme(true);
-    }
-    self->updateThemeButtons();
-    self->applyTheme(true);
-}
-
-void LinuxTitlebar::onThemeAutoClicked(GtkButton*, gpointer userData) {
-    auto* self = static_cast<LinuxTitlebar*>(userData);
-    if (self->interactionCb_)
-        self->interactionCb_();
-    bool systemIsDark = false;
-    if (self->app_) {
-        GtkSettings* settings = gtk_settings_get_default();
-        gchar* themeName = nullptr;
-        g_object_get(settings, "gtk-theme-name", &themeName, nullptr);
-        systemIsDark = themeName && g_str_has_suffix(themeName, "-dark");
-        g_free(themeName);
-        self->app_->setDarkTheme(systemIsDark);
-    }
-    self->updateThemeButtons();
-    self->applyTheme(systemIsDark);
-}
-
-void LinuxTitlebar::onLicenseClicked(GtkButton*, gpointer userData) {
-    auto* self = static_cast<LinuxTitlebar*>(userData);
-    if (self->interactionCb_)
-        self->interactionCb_();
-    gtk_popover_popdown(GTK_POPOVER(self->menuPopover_));
-    self->showLicenseDialog();
 }
 
 #endif // defined(__linux__)

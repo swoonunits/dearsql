@@ -22,6 +22,9 @@ namespace CustomShader {
     // true once a shader has been transpiled successfully.
     bool isLoaded();
 
+    // turn the shader off at runtime (next frame renders the app normally).
+    void unload();
+
     // path of the currently loaded shader, or "" if none.
     const std::string& loadedPath();
 
@@ -29,8 +32,7 @@ namespace CustomShader {
     // fullscreen post-process pass: sample sceneTexture as iChannel0 and write
     // the shader output to the drawable. all void* args are id<MTLDevice> /
     // id<MTLCommandBuffer> / id<MTLTexture>. no-op if nothing is loaded.
-    void render(void* device, void* commandBuffer, void* sceneTexture,
-                void* drawableTexture);
+    void render(void* device, void* commandBuffer, void* sceneTexture, void* drawableTexture);
 #endif
 
 } // namespace CustomShader

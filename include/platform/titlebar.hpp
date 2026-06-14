@@ -72,14 +72,8 @@ public:
     // GTK signal callbacks (static — userData is LinuxTitlebar*)
     static void onSidebarToggle(GtkButton*, gpointer);
     static void onAddConnection(GtkButton*, gpointer);
-    static void onThemeLightClicked(GtkButton*, gpointer);
-    static void onThemeDarkClicked(GtkButton*, gpointer);
-    static void onThemeAutoClicked(GtkButton*, gpointer);
-    static void onLicenseClicked(GtkButton*, gpointer);
 
 private:
-    void updateThemeButtons();
-
     Application* app_ = nullptr;
     GtkWidget* parentWindow_ = nullptr;
 
@@ -90,13 +84,7 @@ private:
     GtkWidget* workspaceItemsBox_ = nullptr;
     GtkWidget* addButton_ = nullptr;
     GtkWidget* menuButton_ = nullptr;
-    GtkWidget* menuPopover_ = nullptr;
     GtkWidget* updateButton_ = nullptr;
-    GtkWidget* themeLightButton_ = nullptr;
-    GtkWidget* themeDarkButton_ = nullptr;
-    GtkWidget* themeAutoButton_ = nullptr;
-    GtkWidget* licenseButton_ = nullptr;
-    GtkWidget* fontSizeLabel_ = nullptr;
 
     std::vector<int> workspaceIdsByIndex_;
     std::function<void()> interactionCb_;
@@ -187,9 +175,7 @@ private:
     bool titlebarWidgetHovered_ = false;
 
     bool openWorkspacePopup_ = false;
-    bool openMenuPopup_ = false;
     ImVec2 workspacePopupPos_ = {};
-    ImVec2 menuPopupPos_ = {};
 
     // Interactive regions in screen coords — used by hitTest()
     float interactiveLeftEnd_ = 0.0f;

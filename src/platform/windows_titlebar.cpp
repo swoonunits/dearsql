@@ -8,6 +8,7 @@
 #include "platform/updater.hpp"
 #include "themes.hpp"
 #include "ui/input_dialog.hpp"
+#include "ui/settings_dialog.hpp"
 
 #include "IconsFontAwesome6.h"
 
@@ -33,6 +34,15 @@ WindowsTitlebar::WindowsTitlebar(Application* app, GLFWwindow* window)
 
 void WindowsTitlebar::setup() {
     applyTitlebarTheme();
+
+    // native-only actions the shared settings dialog can't do itself
+    SettingsDialog::instance().onManageLicense = [this]() { showLicenseDialog(); };
+    SettingsDialog::instance().onReportBug = []() {
+        ShellExecuteW(nullptr, L"open",
+                      L"https://github.com/dunkbing/dearsql/issues/new?labels=bug&title=%5BBug%5D",
+                      nullptr, nullptr, SW_SHOWNORMAL);
+    };
+
     std::cout << "Windows custom titlebar configured" << std::endl;
 }
 
@@ -277,8 +287,8 @@ void WindowsTitlebar::render() {
     // menu button (rightmost before caption buttons)
     float menuX = rightGroupX - iconBtnSize;
     if (fgIconBtn(menuX, ICON_FA_ELLIPSIS_VERTICAL)) {
-        openMenuPopup_ = true;
-        menuPopupPos_ = {menuX, origin.y + tbHeight};
+        // ponytail: native menu popup replaced by the shared ImGui settings dialog
+        SettingsDialog::instance().open();
     }
 
     // workspace dropdown
@@ -525,93 +535,6 @@ void WindowsTitlebar::renderPopups() {
                                   });
             }
         }
-        ImGui::EndPopup();
-    }
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor();
-
-    // menu popup
-    if (openMenuPopup_) {
-        ImGui::OpenPopup("##MenuPopup");
-        openMenuPopup_ = false;
-    }
-    // anchor popup so its RIGHT edge aligns with the menu button's right edge
-    const float popupW = 300.0f;
-    const float iconBtnSz = static_cast<float>(getTitlebarHeightPixels()) - 4.0f;
-    ImGui::SetNextWindowPos({menuPopupPos_.x + iconBtnSz - popupW, menuPopupPos_.y});
-    ImGui::SetNextWindowSize({popupW, 0});
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, colors.surface0);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 12});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8, 8});
-    if (ImGui::BeginPopup("##MenuPopup")) {
-        const float contentW = popupW - 24.0f; // minus padding
-
-        // theme section
-        ImGui::TextColored(colors.subtext0, "Theme");
-        {
-            constexpr float themeGap = 8.0f;
-            float btnW = (contentW - themeGap * 2.0f) / 3.0f;
-            auto themeBtn = [&](const char* label, bool selected, auto action) {
-                if (selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, colors.blue);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.sky);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.sapphire);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-                }
-                if (ImGui::Button(label, {btnW, 0}))
-                    action();
-                if (selected)
-                    ImGui::PopStyleColor(4);
-            };
-            themeBtn(ICON_FA_SUN "  Light", !isDark, [&] { app_->setDarkTheme(false); });
-            ImGui::SameLine();
-            themeBtn(ICON_FA_MOON "  Dark", isDark, [&] { app_->setDarkTheme(true); });
-            ImGui::SameLine();
-            themeBtn(ICON_FA_CIRCLE_HALF_STROKE "  System", false,
-                     [&] { app_->setDarkTheme(isWindowsAppsUseDarkTheme()); });
-        }
-
-        ImGui::Spacing();
-
-        // font size section
-        ImGui::TextColored(colors.subtext0, "Font Size");
-        {
-            float sideBtnW = 36.0f;
-            float currentScale = app_->getFontScale();
-            if (ImGui::Button("A-", {sideBtnW, 0})) {
-                app_->setFontScale(currentScale - 0.1f);
-            }
-            ImGui::SameLine();
-            char sizeLabel[16];
-            snprintf(sizeLabel, sizeof(sizeLabel), "%d%%", static_cast<int>(currentScale * 100));
-            float centerW = contentW - sideBtnW * 2 - 8.0f * 2;
-            float textW = ImGui::CalcTextSize(sizeLabel).x;
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (centerW - textW) * 0.5f);
-            ImGui::TextUnformatted(sizeLabel);
-            ImGui::SameLine();
-            float aplusX = ImGui::GetWindowContentRegionMax().x - sideBtnW;
-            ImGui::SetCursorPosX(aplusX);
-            if (ImGui::Button("A+", {sideBtnW, 0})) {
-                app_->setFontScale(currentScale + 0.1f);
-            }
-        }
-
-        ImGui::Separator();
-
-        // action buttons
-        if (ImGui::Selectable("Manage License...")) {
-            showLicenseDialog();
-        }
-        if (ImGui::Selectable("Check for Updates...")) {
-            checkForUpdates();
-        }
-        if (ImGui::Selectable("Report Bug...")) {
-            ShellExecuteW(nullptr, L"open",
-                          L"https://github.com/dunkbing/dearsql/issues/new"
-                          L"?labels=bug&title=%5BBug%5D",
-                          nullptr, nullptr, SW_SHOWNORMAL);
-        }
-
         ImGui::EndPopup();
     }
     ImGui::PopStyleVar(2);

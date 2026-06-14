@@ -11,6 +11,7 @@
 #include "platform/updater.hpp"
 #include "themes.hpp"
 #include "ui/input_dialog.hpp"
+#include "ui/settings_dialog.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
@@ -73,15 +74,15 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
 @property(nonatomic, assign) Application* app;
 @property(nonatomic, strong) NSButton* workspaceButton;
 @property(nonatomic, strong) NSPopover* workspacePopover;
-@property(nonatomic, strong) NSPopover* menuPopover;
 @property(nonatomic, strong) NSButton* themeLightButton;
 @property(nonatomic, strong) NSButton* themeDarkButton;
 @property(nonatomic, strong) NSButton* themeAutoButton;
 - (void)showMenuPopover:(NSButton*)sender;
 - (void)showWorkspacePopover:(NSButton*)sender;
+- (void)showLicenseDialog;
+- (void)reportBugClicked:(id)sender;
 - (void)editWorkspaceClicked:(NSButton*)sender;
 - (void)updateThemeButtons;
-- (void)updateWindowBackgroundColor;
 - (void)restoreMainWindowFocus:(NSWindow*)mainWindow;
 - (void)updateWorkspaceDropdown;
 @end
@@ -122,8 +123,8 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
         item.toolTip = @"Main Menu";
 
         NSButton* menuButton = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 32, 32)];
-        [menuButton setImage:[NSImage imageWithSystemSymbolName:@"line.3.horizontal"
-                                       accessibilityDescription:@"Menu"]];
+        [menuButton setImage:[NSImage imageWithSystemSymbolName:@"gearshape"
+                                       accessibilityDescription:@"Settings"]];
         [menuButton setButtonType:NSButtonTypeMomentaryPushIn];
         [menuButton setBezelStyle:NSBezelStyleTexturedRounded];
         [menuButton setBordered:NO];
@@ -445,164 +446,8 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
 }
 
 - (void)showMenuPopover:(NSButton*)sender {
-    @try {
-        if (!self.menuPopover) {
-            [self createMenuPopover];
-        }
-        [self updateThemeButtons];
-        [self updateFontSizeLabel];
-        [self.menuPopover showRelativeToRect:sender.bounds
-                                      ofView:sender
-                               preferredEdge:NSRectEdgeMaxY];
-    } @catch (NSException* exception) {
-        NSLog(@"Exception in showMenuPopover: %@", exception);
-    }
-}
-
-- (void)createMenuPopover {
-    self.menuPopover = [[NSPopover alloc] init];
-    self.menuPopover.behavior = NSPopoverBehaviorTransient;
-
-    NSViewController* contentVC = [[NSViewController alloc] init];
-
-    // layout from bottom up: margin=12, rowH=28, labelH=16, gap=8
-    CGFloat y = 12;
-    CGFloat contentW = 180;
-    CGFloat rowW = 156;
-    CGFloat rowX = 12;
-
-    NSView* contentView =
-        [[NSView alloc] initWithFrame:NSMakeRect(0, 0, contentW, 0)]; // resized below
-
-    // Report Bug button
-    NSButton* reportBugButton = [[NSButton alloc] initWithFrame:NSMakeRect(rowX, y, rowW, 28)];
-    [reportBugButton setTitle:@"Report Bug..."];
-    [reportBugButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [reportBugButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [reportBugButton setTarget:self];
-    [reportBugButton setAction:@selector(reportBugClicked:)];
-    [contentView addSubview:reportBugButton];
-    y += 28 + 8;
-
-    // Check for Updates button
-    NSButton* updateButton = [[NSButton alloc] initWithFrame:NSMakeRect(rowX, y, rowW, 28)];
-    [updateButton setTitle:@"Check for Updates..."];
-    [updateButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [updateButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [updateButton setTarget:self];
-    [updateButton setAction:@selector(checkForUpdatesClicked:)];
-    [contentView addSubview:updateButton];
-    y += 28 + 8;
-
-    // License button
-    NSButton* licenseButton = [[NSButton alloc] initWithFrame:NSMakeRect(rowX, y, rowW, 28)];
-    [licenseButton setTitle:@"Manage License"];
-    [licenseButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [licenseButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [licenseButton setTarget:self];
-    [licenseButton setAction:@selector(licenseClicked:)];
-    [contentView addSubview:licenseButton];
-    y += 28 + 8;
-
-    // Separator line
-    NSBox* separator = [[NSBox alloc] initWithFrame:NSMakeRect(rowX, y, rowW, 1)];
-    separator.boxType = NSBoxSeparator;
-    [contentView addSubview:separator];
-    y += 1 + 8;
-
-    // Font size section
-    CGFloat fontBtnW = 40;
-    CGFloat fontSpacing = 4;
-
-    NSButton* fontDecButton = [[NSButton alloc] initWithFrame:NSMakeRect(rowX, y, fontBtnW, 28)];
-    [fontDecButton setTitle:@"A-"];
-    [fontDecButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [fontDecButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [fontDecButton setTarget:self];
-    [fontDecButton setAction:@selector(fontSizeDecClicked:)];
-    [fontDecButton setToolTip:@"Decrease Font Size"];
-    [contentView addSubview:fontDecButton];
-
-    NSTextField* fontSizeValueLabel = [NSTextField labelWithString:@"100%"];
-    fontSizeValueLabel.alignment = NSTextAlignmentCenter;
-    CGFloat fontLabelW = rowW - 2 * (fontBtnW + fontSpacing);
-    CGFloat fontLabelH = 18;
-    CGFloat fontLabelY = y + (28 - fontLabelH) / 2;
-    fontSizeValueLabel.frame =
-        NSMakeRect(rowX + fontBtnW + fontSpacing, fontLabelY, fontLabelW, fontLabelH);
-    [contentView addSubview:fontSizeValueLabel];
-    objc_setAssociatedObject(self, "fontSizeLabel", fontSizeValueLabel, OBJC_ASSOCIATION_RETAIN);
-
-    NSButton* fontIncButton =
-        [[NSButton alloc] initWithFrame:NSMakeRect(rowX + rowW - fontBtnW, y, fontBtnW, 28)];
-    [fontIncButton setTitle:@"A+"];
-    [fontIncButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [fontIncButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [fontIncButton setTarget:self];
-    [fontIncButton setAction:@selector(fontSizeIncClicked:)];
-    [fontIncButton setToolTip:@"Increase Font Size"];
-    [contentView addSubview:fontIncButton];
-    y += 28 + 4;
-
-    NSTextField* fontSizeLabel = [NSTextField labelWithString:@"Font Size"];
-    fontSizeLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-    fontSizeLabel.textColor = [NSColor secondaryLabelColor];
-    fontSizeLabel.frame = NSMakeRect(rowX, y, rowW, 16);
-    [contentView addSubview:fontSizeLabel];
-    y += 16 + 8;
-
-    // Theme buttons
-    CGFloat buttonWidth = 50;
-    CGFloat buttonHeight = 28;
-    CGFloat spacing = 4;
-
-    self.themeLightButton =
-        [[NSButton alloc] initWithFrame:NSMakeRect(rowX, y, buttonWidth, buttonHeight)];
-    [self.themeLightButton setImage:[NSImage imageWithSystemSymbolName:@"sun.max"
-                                              accessibilityDescription:@"Light Theme"]];
-    [self.themeLightButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [self.themeLightButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [self.themeLightButton setTarget:self];
-    [self.themeLightButton setAction:@selector(themeLightClicked:)];
-    [self.themeLightButton setToolTip:@"Light"];
-    [contentView addSubview:self.themeLightButton];
-
-    self.themeDarkButton = [[NSButton alloc]
-        initWithFrame:NSMakeRect(rowX + buttonWidth + spacing, y, buttonWidth, buttonHeight)];
-    [self.themeDarkButton setImage:[NSImage imageWithSystemSymbolName:@"moon"
-                                             accessibilityDescription:@"Dark Theme"]];
-    [self.themeDarkButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [self.themeDarkButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [self.themeDarkButton setTarget:self];
-    [self.themeDarkButton setAction:@selector(themeDarkClicked:)];
-    [self.themeDarkButton setToolTip:@"Dark"];
-    [contentView addSubview:self.themeDarkButton];
-
-    self.themeAutoButton = [[NSButton alloc]
-        initWithFrame:NSMakeRect(rowX + 2 * (buttonWidth + spacing), y, buttonWidth, buttonHeight)];
-    [self.themeAutoButton setImage:[NSImage imageWithSystemSymbolName:@"circle.lefthalf.filled"
-                                             accessibilityDescription:@"Auto Theme"]];
-    [self.themeAutoButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [self.themeAutoButton setBezelStyle:NSBezelStyleTexturedRounded];
-    [self.themeAutoButton setTarget:self];
-    [self.themeAutoButton setAction:@selector(themeAutoClicked:)];
-    [self.themeAutoButton setToolTip:@"System"];
-    [contentView addSubview:self.themeAutoButton];
-    y += buttonHeight + 4;
-
-    // Theme section label
-    NSTextField* themeLabel = [NSTextField labelWithString:@"Theme"];
-    themeLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-    themeLabel.textColor = [NSColor secondaryLabelColor];
-    themeLabel.frame = NSMakeRect(rowX, y, rowW, 16);
-    [contentView addSubview:themeLabel];
-    y += 16 + 8;
-
-    // resize content view to fit
-    [contentView setFrameSize:NSMakeSize(contentW, y)];
-
-    contentVC.view = contentView;
-    self.menuPopover.contentViewController = contentVC;
+    // ponytail: native popover replaced by the shared ImGui settings dialog
+    SettingsDialog::instance().open();
 }
 
 - (void)updateThemeButtons {
@@ -637,106 +482,6 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
     highlight.backgroundColor = [[NSColor controlAccentColor] colorWithAlphaComponent:0.15].CGColor;
     highlight.cornerRadius = 5;
     [selectedButton.layer insertSublayer:highlight atIndex:0];
-}
-
-- (void)updateWindowBackgroundColor {
-    if (!self.app)
-        return;
-
-    GLFWwindow* glfwWindow = self.app->getWindow();
-    if (!glfwWindow)
-        return;
-
-    NSWindow* nsWindow = glfwGetCocoaWindow(glfwWindow);
-    if (!nsWindow)
-        return;
-
-    const auto& colors = self.app->isDarkTheme() ? Theme::NATIVE_DARK : Theme::NATIVE_LIGHT;
-    NSColor* bgColor = [NSColor colorWithRed:colors.base.x
-                                       green:colors.base.y
-                                        blue:colors.base.z
-                                       alpha:colors.base.w];
-    [nsWindow setBackgroundColor:bgColor];
-
-    // update window appearance so native titlebar controls match the theme
-    NSAppearanceName appearanceName =
-        self.app->isDarkTheme() ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua;
-    nsWindow.appearance = [NSAppearance appearanceNamed:appearanceName];
-}
-
-- (void)themeLightClicked:(id)sender {
-    @try {
-        if (self.app) {
-            self.app->setDarkTheme(false);
-        }
-        [self updateThemeButtons];
-        [self updateWindowBackgroundColor];
-        [self.menuPopover close];
-    } @catch (NSException* exception) {
-        NSLog(@"Exception in themeLightClicked: %@", exception);
-    }
-}
-
-- (void)themeDarkClicked:(id)sender {
-    @try {
-        if (self.app) {
-            self.app->setDarkTheme(true);
-        }
-        [self updateThemeButtons];
-        [self updateWindowBackgroundColor];
-        [self.menuPopover close];
-    } @catch (NSException* exception) {
-        NSLog(@"Exception in themeDarkClicked: %@", exception);
-    }
-}
-
-- (void)themeAutoClicked:(id)sender {
-    @try {
-        if (self.app) {
-            NSAppearance* appearance = [NSApp effectiveAppearance];
-            NSAppearanceName appearanceName = [appearance bestMatchFromAppearancesWithNames:@[
-                NSAppearanceNameAqua, NSAppearanceNameDarkAqua
-            ]];
-            bool systemIsDark = [appearanceName isEqualToString:NSAppearanceNameDarkAqua];
-            self.app->setDarkTheme(systemIsDark);
-        }
-        [self updateThemeButtons];
-        [self updateWindowBackgroundColor];
-        [self.menuPopover close];
-    } @catch (NSException* exception) {
-        NSLog(@"Exception in themeAutoClicked: %@", exception);
-    }
-}
-
-- (void)updateFontSizeLabel {
-    NSTextField* label = objc_getAssociatedObject(self, "fontSizeLabel");
-    if (label && self.app) {
-        int pct = static_cast<int>(self.app->getFontScale() * 100);
-        label.stringValue = [NSString stringWithFormat:@"%d%%", pct];
-    }
-}
-
-- (void)fontSizeDecClicked:(id)sender {
-    if (self.app) {
-        self.app->setFontScale(self.app->getFontScale() - 0.1f);
-        [self updateFontSizeLabel];
-    }
-}
-
-- (void)fontSizeIncClicked:(id)sender {
-    if (self.app) {
-        self.app->setFontScale(self.app->getFontScale() + 0.1f);
-        [self updateFontSizeLabel];
-    }
-}
-
-- (void)licenseClicked:(id)sender {
-    @try {
-        [self.menuPopover close];
-        [self showLicenseDialog];
-    } @catch (NSException* exception) {
-        NSLog(@"Exception in licenseClicked: %@", exception);
-    }
 }
 
 - (void)ensureEditMenu {
@@ -1000,7 +745,6 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
 }
 
 - (void)reportBugClicked:(id)sender {
-    [self.menuPopover close];
     NSString* version = @APP_VERSION;
     NSString* urlStr = [NSString
         stringWithFormat:@"https://github.com/dunkbing/dearsql/issues/new?labels=bug"
@@ -1010,11 +754,6 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
                           "**%%3A+macOS%%0A-+**DearSQL+version**%%3A+%@%%0A-+**Database**%%3A+",
                          version];
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:urlStr]];
-}
-
-- (void)checkForUpdatesClicked:(id)sender {
-    [self.menuPopover close];
-    checkForUpdates();
 }
 
 - (void)openPurchaseLink:(id)sender {
@@ -1167,6 +906,11 @@ void MacOSTitlebar::setup() {
     toolbar.delegate = delegate_;
 
     [nsWindow setToolbar:toolbar];
+
+    // wire the native-only actions the settings dialog can't do itself
+    MacOSTitlebarDelegate* d = delegate_;
+    SettingsDialog::instance().onManageLicense = [d]() { [d showLicenseDialog]; };
+    SettingsDialog::instance().onReportBug = [d]() { [d reportBugClicked:nil]; };
 
     NSLog(@"Custom titlebar and toolbar configured");
 

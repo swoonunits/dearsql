@@ -5,8 +5,8 @@
 #import "imgui_impl_glfw.h"
 #import "imgui_impl_metal.h"
 #include "platform/graphics_backend.hpp"
-#include "ui/table_aurora_shader.hpp"
 #include "ui/custom_shader.hpp"
+#include "ui/table_aurora_shader.hpp"
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
@@ -111,8 +111,7 @@ void MacOSMetalBackend::beginFrame(ImVec4 clearColor) {
             sceneTexture_ = sceneTexture;
         }
     }
-    renderPassDescriptor.colorAttachments[0].texture =
-        sceneTexture ? sceneTexture : drawableTex;
+    renderPassDescriptor.colorAttachments[0].texture = sceneTexture ? sceneTexture : drawableTex;
     renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
     renderPassDescriptor.colorAttachments[0].clearColor =
         MTLClearColorMake(clearColor.x, clearColor.y, clearColor.z, clearColor.w);
@@ -150,8 +149,7 @@ void MacOSMetalBackend::renderDrawData(ImDrawData* drawData) {
     // drawable above and there is nothing more to do.
     if (CustomShader::isLoaded() && sceneTexture_) {
         void* drawableTexPtr = (__bridge void*)((id<CAMetalDrawable>)currentDrawable_).texture;
-        CustomShader::render((__bridge void*)metalDevice_,
-                             (__bridge void*)currentCommandBuffer_,
+        CustomShader::render((__bridge void*)metalDevice_, (__bridge void*)currentCommandBuffer_,
                              (__bridge void*)sceneTexture_, drawableTexPtr);
     }
 

@@ -236,6 +236,7 @@ set(APP_SOURCES
     src/ui/ai_settings_dialog.cpp
     src/ui/connection_dialog.cpp
     src/ui/create_database_dialog.cpp
+    src/ui/settings_dialog.cpp
     src/license/license_manager.cpp
 )
 

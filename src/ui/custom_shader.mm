@@ -86,7 +86,7 @@ void main() { mainImage(_fragColor, gl_FragCoord.xy); }
     // ---- transpiled shader state (set by loadFromFile) ----
     bool gLoaded = false;
     std::string gMslSource;
-    std::string gEntry;     // cleansed MSL fragment entry name (e.g. "main0")
+    std::string gEntry; // cleansed MSL fragment entry name (e.g. "main0")
     std::string gPath;
     std::unordered_map<std::string, uint32_t> gOffsets; // ubo member -> byte offset
     uint32_t gUboSize = 0;
@@ -104,8 +104,7 @@ void main() { mainImage(_fragColor, gl_FragCoord.xy); }
         shaderc::Compiler compiler;
         shaderc::CompileOptions options;
         options.SetSourceLanguage(shaderc_source_language_glsl);
-        options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                                     shaderc_env_version_vulkan_1_0);
+        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
         // keep optimization off so OpMemberName debug info survives — we look up
         // uniform offsets by name via reflection. the Metal driver optimizes the
         // final MSL anyway.
@@ -202,7 +201,8 @@ void main() { mainImage(_fragColor, gl_FragCoord.xy); }
         }
 
         id<MTLFunction> vfn = [vlib newFunctionWithName:@"fullscreen_vs"];
-        id<MTLFunction> ffn = [flib newFunctionWithName:[NSString stringWithUTF8String:gEntry.c_str()]];
+        id<MTLFunction> ffn =
+            [flib newFunctionWithName:[NSString stringWithUTF8String:gEntry.c_str()]];
         if (!vfn || !ffn) {
             spdlog::error("[CustomShader] missing shader functions (entry '{}')", gEntry);
             gPipelineFailed = true;
@@ -260,17 +260,16 @@ void main() { mainImage(_fragColor, gl_FragCoord.xy); }
         const bool down = io.MouseDown[0];
         const float mx = io.MousePos.x * io.DisplayFramebufferScale.x;
         const float my = io.MousePos.y * io.DisplayFramebufferScale.y;
-        const float mouse[4] = {down ? mx : 0.0f, down ? my : 0.0f,
-                                down ? mx : -mx, down ? my : -my};
+        const float mouse[4] = {down ? mx : 0.0f, down ? my : 0.0f, down ? mx : -mx,
+                                down ? my : -my};
 
         std::time_t now = std::time(nullptr);
         std::tm tmv{};
         localtime_r(&now, &tmv);
-        const float date[4] = {static_cast<float>(tmv.tm_year + 1900),
-                               static_cast<float>(tmv.tm_mon),
-                               static_cast<float>(tmv.tm_mday),
-                               static_cast<float>(tmv.tm_hour * 3600 + tmv.tm_min * 60 +
-                                                  tmv.tm_sec)};
+        const float date[4] = {
+            static_cast<float>(tmv.tm_year + 1900), static_cast<float>(tmv.tm_mon),
+            static_cast<float>(tmv.tm_mday),
+            static_cast<float>(tmv.tm_hour * 3600 + tmv.tm_min * 60 + tmv.tm_sec)};
         const int focus = 1;
         const int cursorVisible = 1;
 
@@ -292,9 +291,18 @@ void main() { mainImage(_fragColor, gl_FragCoord.xy); }
 
 namespace CustomShader {
 
-    bool isLoaded() { return gLoaded; }
+    bool isLoaded() {
+        return gLoaded;
+    }
 
-    const std::string& loadedPath() { return gPath; }
+    void unload() {
+        gLoaded = false;
+        gPath.clear();
+    }
+
+    const std::string& loadedPath() {
+        return gPath;
+    }
 
     bool loadFromFile(const std::string& path) {
         std::ifstream f(path, std::ios::binary);
@@ -327,8 +335,7 @@ namespace CustomShader {
         return true;
     }
 
-    void render(void* device, void* commandBuffer, void* sceneTexture,
-                void* drawableTexture) {
+    void render(void* device, void* commandBuffer, void* sceneTexture, void* drawableTexture) {
         if (!gLoaded)
             return;
         id<MTLDevice> dev = (__bridge id<MTLDevice>)device;
