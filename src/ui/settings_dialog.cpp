@@ -78,6 +78,7 @@ void SettingsDialog::render() {
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    center.y -= 10.0f;
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(620.0f, 0.0f), ImGuiCond_Appearing);
 

@@ -590,9 +590,7 @@ void LinuxTitlebar::showLicenseDialog() {
         gtk_widget_set_halign(linkBox, GTK_ALIGN_START);
         GtkWidget* linkText = gtk_label_new("Don't have a license?");
         gtk_widget_add_css_class(linkText, "dim-label");
-        GtkWidget* linkButton = gtk_link_button_new_with_label(
-            "https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p",
-            "Purchase one");
+        GtkWidget* linkButton = gtk_link_button_new_with_label(PURCHASE_URL, "Purchase one");
         gtk_box_append(GTK_BOX(linkBox), linkText);
         gtk_box_append(GTK_BOX(linkBox), linkButton);
         gtk_box_append(GTK_BOX(mainBox), linkBox);

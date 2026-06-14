@@ -10,6 +10,7 @@
 #include "database/redis.hpp"
 #include "database/sqlite.hpp"
 #include "license/license_manager.hpp"
+#include "platform/alert.hpp"
 #include "ui/connection_dialog.hpp"
 #include "ui/create_database_dialog.hpp"
 #include "ui/settings_dialog.hpp"
@@ -74,6 +75,34 @@ namespace {
     constexpr std::size_t kFreeConnectionLimit = 20;
 #endif
     constexpr std::size_t kFreeWorkspaceLimit = 2;
+
+    // open the pro purchase page in the user's browser
+    void openPurchaseUrl() {
+        const std::string url = PURCHASE_URL;
+#if defined(__APPLE__)
+        std::system(("open \"" + url + "\"").c_str());
+#elif defined(_WIN32)
+        std::system(("start \"\" \"" + url + "\"").c_str());
+#else
+        std::system(("xdg-open \"" + url + "\"").c_str());
+#endif
+    }
+
+    // nag unlicensed users to upgrade, at most once an hour
+    void maybeRemindToUpgrade() {
+        if (LicenseManager::instance().hasValidLicense())
+            return;
+        using clock = std::chrono::steady_clock;
+        static auto nextReminder = clock::now() + std::chrono::hours(1);
+        if (clock::now() < nextReminder)
+            return;
+        nextReminder = clock::now() + std::chrono::hours(1);
+        Alert::show("Upgrade to DearSQL Pro",
+                    "You're on the free version. Unlock unlimited connections and workspaces "
+                    "with a one-time purchase.",
+                    {{"Get Pro", [] { openPurchaseUrl(); }},
+                     {"Later", nullptr, AlertButton::Style::Cancel}});
+    }
 
     bool isImGuiUserActive() {
         ImGuiIO& io = ImGui::GetIO();
@@ -1053,6 +1082,8 @@ void Application::renderMainUI() {
     SettingsDialog::instance().render();
 
     pollUpdater();
+
+    maybeRemindToUpgrade();
 
     ImGui::End();
 }

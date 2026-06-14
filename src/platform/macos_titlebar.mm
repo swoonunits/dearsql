@@ -757,8 +757,7 @@ static void attachDialogToMainWindow(NSWindow* dialog, NSWindow* mainWindow) {
 }
 
 - (void)openPurchaseLink:(id)sender {
-    NSURL* url = [NSURL
-        URLWithString:@"https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p"];
+    NSURL* url = [NSURL URLWithString:@PURCHASE_URL];
     [[NSWorkspace sharedWorkspace] openURL:url];
 }
 

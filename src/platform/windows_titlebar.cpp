@@ -727,14 +727,11 @@ namespace {
 
                 // purchase link
                 createLabel(hWnd, L"Don't have a license?", pad, y, 150, labelH);
-                HWND link = CreateWindowExW(
-                    0, L"SysLink",
-                    L"<a "
-                    L"href=\"https://buy.polar.sh/"
-                    L"polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p\">Purchase one</a>",
-                    WS_CHILD | WS_VISIBLE, pad + 150, y, 150, labelH, hWnd,
-                    reinterpret_cast<HMENU>(IDC_LICENSE_PURCHASE_LINK), GetModuleHandleW(nullptr),
-                    nullptr);
+                HWND link = CreateWindowExW(0, L"SysLink",
+                                            L"<a href=\"" PURCHASE_URL L"\">Purchase one</a>",
+                                            WS_CHILD | WS_VISIBLE, pad + 150, y, 150, labelH, hWnd,
+                                            reinterpret_cast<HMENU>(IDC_LICENSE_PURCHASE_LINK),
+                                            GetModuleHandleW(nullptr), nullptr);
                 setFont(link, getDialogFont());
                 y += labelH + 12;
 
@@ -869,10 +866,8 @@ namespace {
         case WM_NOTIFY: {
             auto* nmhdr = reinterpret_cast<NMHDR*>(lParam);
             if (nmhdr->idFrom == IDC_LICENSE_PURCHASE_LINK && nmhdr->code == NM_CLICK) {
-                ShellExecuteW(
-                    nullptr, L"open",
-                    L"https://buy.polar.sh/polar_cl_IpYdAWiNljfzsXgatypm2mg40Mm2c4hB0DcVX1L9P6p",
-                    nullptr, nullptr, SW_SHOWNORMAL);
+                // ponytail: L"" widens the narrow PURCHASE_URL macro for ShellExecuteW
+                ShellExecuteW(nullptr, L"open", L"" PURCHASE_URL, nullptr, nullptr, SW_SHOWNORMAL);
                 return 0;
             }
             break;
